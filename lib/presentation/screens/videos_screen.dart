@@ -7,20 +7,20 @@ import 'video_player_screen.dart';
 class VideosScreen extends StatefulWidget {
   const VideosScreen({
     super.key,
-    required this.loadExitVideos,
-    required this.loadOtherVideos,
-    required this.captureExit,
-    required this.captureOther,
+    required this.title,
+    required this.kind,
+    required this.loadVideos,
+    required this.captureVideo,
     required this.resolveVideoFile,
     this.softDelete,
   });
 
-  final Future<List<Map<String, dynamic>>> Function() loadExitVideos;
-  final Future<List<Map<String, dynamic>>> Function() loadOtherVideos;
-  final Future<void> Function() captureExit;
-  final Future<void> Function() captureOther;
+  final String title;
+  final String kind; // 'exit' | 'other'
+  final Future<List<Map<String, dynamic>>> Function() loadVideos;
+  final Future<void> Function() captureVideo;
   final Future<File?> Function(String relativePath) resolveVideoFile;
-  final Future<void> Function(String kind, String relativePath)? softDelete;
+  final Future<void> Function(String relativePath)? softDelete;
 
   @override
   State<VideosScreen> createState() => _VideosScreenState();
@@ -28,17 +28,7 @@ class VideosScreen extends StatefulWidget {
 
 class _VideosScreenState extends State<VideosScreen> {
   bool _isLoading = true;
-  List<Map<String, dynamic>> _exitVideos = const [];
-  List<Map<String, dynamic>> _otherVideos = const [];
-
-  List<Map<String, dynamic>> _active(List<Map<String, dynamic>> items) {
-    return items
-        .where((item) {
-          final status = (item['status'] ?? 'local').toString();
-          return status != 'deleted';
-        })
-        .toList(growable: false);
-  }
+  List<Map<String, dynamic>> _videos = const [];
 
   @override
   void initState() {
@@ -51,12 +41,10 @@ class _VideosScreenState extends State<VideosScreen> {
       _isLoading = true;
     });
     try {
-      final exit = await widget.loadExitVideos();
-      final other = await widget.loadOtherVideos();
+      final videos = await widget.loadVideos();
       if (!mounted) return;
       setState(() {
-        _exitVideos = exit;
-        _otherVideos = other;
+        _videos = videos;
       });
     } finally {
       if (mounted) {
@@ -67,22 +55,13 @@ class _VideosScreenState extends State<VideosScreen> {
     }
   }
 
-  Future<void> _captureExit() async {
-    await widget.captureExit();
+  Future<void> _captureVideo() async {
+    await widget.captureVideo();
     if (!mounted) return;
     await _reload();
   }
 
-  Future<void> _captureOther() async {
-    await widget.captureOther();
-    if (!mounted) return;
-    await _reload();
-  }
-
-  Future<void> _confirmDelete({
-    required String kind,
-    required String relativePath,
-  }) async {
+  Future<void> _confirmDelete({required String relativePath}) async {
     if (widget.softDelete == null) {
       return;
     }
@@ -112,7 +91,7 @@ class _VideosScreenState extends State<VideosScreen> {
     if (ok != true || !mounted) return;
 
     try {
-      await widget.softDelete!(kind, relativePath);
+      await widget.softDelete!(relativePath);
       if (!mounted) return;
       await _reload();
     } catch (error) {
@@ -129,10 +108,7 @@ class _VideosScreenState extends State<VideosScreen> {
     }
   }
 
-  Future<void> _showDeleteMenu({
-    required String kind,
-    required String relativePath,
-  }) async {
+  Future<void> _showDeleteMenu({required String relativePath}) async {
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (context) {
@@ -149,100 +125,85 @@ class _VideosScreenState extends State<VideosScreen> {
     if (action != 'remove') {
       return;
     }
-    await _confirmDelete(kind: kind, relativePath: relativePath);
-  }
-
-  Widget _buildSection({
-    required String title,
-    required String kind,
-    required List<Map<String, dynamic>> items,
-  }) {
-    final active = _active(items);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('$title (${active.length})', style: const TextStyle(fontSize: 16)),
-        const SizedBox(height: 8),
-        if (active.isEmpty)
-          const Text('None')
-        else
-          ...active.map((video) {
-            final fileName = (video['fileName'] ?? 'Unnamed video').toString();
-            final relativePath = (video['relativePath'] ?? '').toString();
-            return ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(fileName),
-              onTap: () async {
-                if (relativePath.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Missing relativePath')),
-                  );
-                  return;
-                }
-
-                final file = await widget.resolveVideoFile(relativePath);
-                if (file == null) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Video file missing')),
-                  );
-                  return;
-                }
-
-                if (!mounted) return;
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        VideoPlayerScreen(title: fileName, videoFile: file),
-                  ),
-                );
-              },
-              onLongPress: relativePath.isEmpty || widget.softDelete == null
-                  ? null
-                  : () =>
-                        _showDeleteMenu(kind: kind, relativePath: relativePath),
-            );
-          }),
-      ],
-    );
+    await _confirmDelete(relativePath: relativePath);
   }
 
   @override
   Widget build(BuildContext context) {
+    final count = _videos.length;
+    final emptyLabel = widget.kind == 'exit'
+        ? 'No exit videos yet.'
+        : 'No other videos yet.';
+    final captureLabel = widget.kind == 'exit'
+        ? 'Capture Exit Video'
+        : 'Capture Other Video';
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Videos')),
+      appBar: AppBar(title: Text(widget.title)),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
                 FilledButton(
-                  onPressed: _captureExit,
+                  onPressed: _captureVideo,
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(52),
                   ),
-                  child: const Text('Exit Video'),
+                  child: Text(captureLabel),
                 ),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: _captureOther,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(52),
-                  ),
-                  child: const Text('Other Video'),
-                ),
-                const SizedBox(height: 24),
-                _buildSection(
-                  title: 'Exit Videos',
-                  kind: 'exit',
-                  items: _exitVideos,
-                ),
-                const SizedBox(height: 20),
-                _buildSection(
-                  title: 'Other Videos',
-                  kind: 'other',
-                  items: _otherVideos,
-                ),
+                const SizedBox(height: 16),
+                if (count == 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(emptyLabel),
+                  )
+                else
+                  ..._videos.map((video) {
+                    final fileName = (video['fileName'] ?? 'Unnamed video')
+                        .toString();
+                    final relativePath = (video['relativePath'] ?? '')
+                        .toString();
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(fileName),
+                      onTap: () async {
+                        if (relativePath.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Missing relativePath'),
+                            ),
+                          );
+                          return;
+                        }
+
+                        final file = await widget.resolveVideoFile(
+                          relativePath,
+                        );
+                        if (file == null) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Video file missing')),
+                          );
+                          return;
+                        }
+
+                        if (!context.mounted) return;
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => VideoPlayerScreen(
+                              title: fileName,
+                              videoFile: file,
+                            ),
+                          ),
+                        );
+                      },
+                      onLongPress:
+                          relativePath.isEmpty || widget.softDelete == null
+                          ? null
+                          : () => _showDeleteMenu(relativePath: relativePath),
+                    );
+                  }),
               ],
             ),
     );

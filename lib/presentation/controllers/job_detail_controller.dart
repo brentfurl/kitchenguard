@@ -77,13 +77,32 @@ class JobDetailController {
         continue;
       }
       final map = Map<String, dynamic>.from(item);
-      final status = (map['status'] ?? 'local').toString();
-      if (!includeDeleted && status == 'deleted') {
+      if (!includeDeleted && !_isDisplayablePhoto(map)) {
         continue;
       }
       result.add(map);
     }
     return result;
+  }
+
+  int countDisplayablePhotos(dynamic source) {
+    if (source is! List) {
+      return 0;
+    }
+
+    var count = 0;
+    for (final item in source) {
+      if (item is! Map) {
+        continue;
+      }
+      final map = item is Map<String, dynamic>
+          ? item
+          : Map<String, dynamic>.from(item);
+      if (_isDisplayablePhoto(map)) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   Future<void> capturePhoto({
@@ -99,7 +118,10 @@ class JobDetailController {
       throw ArgumentError('Invalid unit data.');
     }
 
-    final picked = await picker.pickImage(source: ImageSource.camera);
+    final picked = await picker.pickImage(
+      source: ImageSource.camera,
+      preferredCameraDevice: CameraDevice.rear,
+    );
     if (picked == null) {
       return;
     }
@@ -115,6 +137,35 @@ class JobDetailController {
     await loadJob();
   }
 
+  Future<void> capturePhotoFromFile({
+    required String unitId,
+    required String phase,
+    required File sourceImageFile,
+  }) async {
+    final normalizedPhase = phase.trim().toLowerCase();
+    final job = _jobData ?? await loadJob();
+    final unit = findUnitById(job, unitId);
+    if (unit == null) {
+      throw StateError('Unit not found');
+    }
+
+    final unitType = (unit['type'] ?? '').toString();
+    final unitName = (unit['name'] ?? '').toString();
+    if (unitType.isEmpty || unitName.trim().isEmpty) {
+      throw ArgumentError('Invalid unit data.');
+    }
+
+    await jobs.persistAndRecordPhoto(
+      jobDir: jobDir,
+      unitType: unitType,
+      unitName: unitName,
+      unitId: unitId,
+      phase: normalizedPhase,
+      sourceImageFile: sourceImageFile,
+    );
+    await loadJob();
+  }
+
   Future<void> softDeletePhoto({
     required String unitId,
     required String phase,
@@ -126,6 +177,48 @@ class JobDetailController {
       phase: phase,
       relativePath: relativePath,
     );
+    await loadJob();
+  }
+
+  Future<void> setUnitCompletion({
+    required String unitId,
+    required bool isComplete,
+  }) async {
+    final trimmedUnitId = unitId.trim();
+    if (trimmedUnitId.isEmpty) {
+      throw ArgumentError.value(unitId, 'unitId', 'Unit id cannot be empty.');
+    }
+
+    await jobs.setUnitCompletion(
+      jobDir: jobDir,
+      unitId: trimmedUnitId,
+      isComplete: isComplete,
+    );
+    await loadJob();
+  }
+
+  Future<void> renameUnit({
+    required String unitId,
+    required String newName,
+  }) async {
+    final trimmedUnitId = unitId.trim();
+    if (trimmedUnitId.isEmpty) {
+      throw ArgumentError.value(unitId, 'unitId', 'Unit id cannot be empty.');
+    }
+    await jobs.renameUnit(
+      jobDir: jobDir,
+      unitId: trimmedUnitId,
+      newName: newName,
+    );
+    await loadJob();
+  }
+
+  Future<void> deleteUnitIfEmpty({required String unitId}) async {
+    final trimmedUnitId = unitId.trim();
+    if (trimmedUnitId.isEmpty) {
+      throw ArgumentError.value(unitId, 'unitId', 'Unit id cannot be empty.');
+    }
+    await jobs.deleteUnitIfEmpty(jobDir: jobDir, unitId: trimmedUnitId);
     await loadJob();
   }
 
@@ -190,7 +283,10 @@ class JobDetailController {
     required ImagePicker picker,
   }) async {
     final normalized = kind.trim().toLowerCase();
-    final picked = await picker.pickVideo(source: ImageSource.camera);
+    final picked = await picker.pickVideo(
+      source: ImageSource.camera,
+      preferredCameraDevice: CameraDevice.rear,
+    );
     if (picked == null) {
       return;
     }
@@ -215,12 +311,61 @@ class JobDetailController {
     await loadJob();
   }
 
+  Future<List<Map<String, dynamic>>> loadPreCleanLayoutPhotos() async {
+    final job = _jobData ?? await loadJob();
+    final raw = job['preCleanLayoutPhotos'];
+    if (raw is! List) {
+      return const [];
+    }
+
+    final result = <Map<String, dynamic>>[];
+    for (final item in raw) {
+      if (item is! Map) {
+        continue;
+      }
+      final map = item is Map<String, dynamic>
+          ? Map<String, dynamic>.from(item)
+          : Map<String, dynamic>.from(item);
+      if (_isDisplayablePhoto(map)) {
+        result.add(map);
+      }
+    }
+    return result;
+  }
+
+  Future<void> capturePreCleanLayoutPhoto({required ImagePicker picker}) async {
+    final picked = await picker.pickImage(
+      source: ImageSource.camera,
+      preferredCameraDevice: CameraDevice.rear,
+    );
+    if (picked == null) {
+      return;
+    }
+
+    await jobs.persistAndRecordPreCleanLayoutPhoto(
+      jobDir: jobDir,
+      sourceImageFile: File(picked.path),
+    );
+    await loadJob();
+  }
+
+  Future<void> softDeletePreCleanLayoutPhoto({
+    required String relativePath,
+  }) async {
+    await jobs.softDeletePreCleanLayoutPhoto(
+      jobDir: jobDir,
+      relativePath: relativePath,
+    );
+    await loadJob();
+  }
+
   File videoFileFromRelativePath(String relativePath) {
     return File(p.join(jobDir.path, relativePath));
   }
 
-  Future<File> exportJobZip({required String jobDisplayName}) {
-    return jobs.exportJobZip(jobDir: jobDir, zipBaseName: jobDisplayName);
+  Future<File> exportJob() async {
+    final jobName = (_jobData?['restaurantName'] ?? 'Job').toString();
+    return await jobs.exportJobZip(jobDir: jobDir, zipBaseName: jobName);
   }
 
   List<JobNote> _parseNotes(Map<String, dynamic> job) {
@@ -262,20 +407,7 @@ class JobDetailController {
     final key = phase == 'before' ? 'photosBefore' : 'photosAfter';
     var count = 0;
     for (final unit in _unitsFromState()) {
-      final photos = unit[key];
-      if (photos is! List) {
-        continue;
-      }
-      for (final photo in photos) {
-        if (photo is! Map) {
-          continue;
-        }
-        final status = (photo['status'] ?? 'local').toString();
-        if (status == 'deleted') {
-          continue;
-        }
-        count += 1;
-      }
+      count += countDisplayablePhotos(unit[key]);
     }
     return count;
   }
@@ -333,5 +465,11 @@ class JobDetailController {
       }
     }
     return count;
+  }
+
+  bool _isDisplayablePhoto(Map<String, dynamic> photo) {
+    final status = (photo['status'] ?? 'local').toString();
+    final missingLocal = photo['missingLocal'] == true;
+    return status != 'deleted' && status != 'missing_local' && !missingLocal;
   }
 }

@@ -37,10 +37,12 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.5
   image_picker: ^1.0.0
+  camera: ^0.11.0+2
   video_player: ^2.8.2
   uuid: ^4.5.1
-  archive: ^4.0.7
-  share_plus: ^10.1.2
+  archive: ^3.4.10
+  share_plus: ^7.2.1
+  
 
 dev_dependencies:
   flutter_test:

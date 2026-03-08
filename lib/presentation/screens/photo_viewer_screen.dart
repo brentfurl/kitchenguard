@@ -96,41 +96,14 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     try {
       await widget.onSoftDelete(relativePath);
       await widget.onJobMutated();
-
       if (widget.reloadPhotos != null) {
-        final refreshed = await widget.reloadPhotos!.call();
-        if (!mounted) return;
-        setState(() {
-          _photos = refreshed
-              .where((photo) {
-                final status = (photo['status'] ?? 'local').toString();
-                return status != 'deleted';
-              })
-              .toList(growable: true);
-        });
-      } else {
-        if (!mounted) return;
-        setState(() {
-          _photos.removeAt(_currentIndex);
-        });
+        await widget.reloadPhotos!.call();
       }
-
-      if (_photos.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Removed from job')));
-        Navigator.of(context).pop();
-        return;
-      }
-
-      final nextIndex = _currentIndex.clamp(0, _photos.length - 1);
-      _currentIndex = nextIndex;
-      if (_pageController.hasClients) {
-        _pageController.jumpToPage(nextIndex);
-      }
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Removed from job')));
+      Navigator.of(context).pop(true);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(

@@ -32,9 +32,10 @@ class _JobsHomeState extends State<JobsHome> {
 
     try {
       final loaded = await widget.startup.loadJobs();
+      final sorted = _sortJobsNewestFirst(loaded);
       if (!mounted) return;
       setState(() {
-        _results = loaded;
+        _results = sorted;
       });
     } catch (error) {
       if (!mounted) return;
@@ -123,6 +124,94 @@ class _JobsHomeState extends State<JobsHome> {
     await _loadJobs();
   }
 
+  List<JobScanResult> _sortJobsNewestFirst(List<JobScanResult> jobs) {
+    final indexed = jobs.asMap().entries.toList();
+    indexed.sort((a, b) {
+      final left = _jobSortDate(a.value.jobData);
+      final right = _jobSortDate(b.value.jobData);
+      if (left != null && right != null) {
+        final cmp = right.compareTo(left);
+        if (cmp != 0) {
+          return cmp;
+        }
+      } else if (left != null) {
+        return -1;
+      } else if (right != null) {
+        return 1;
+      }
+      return a.key.compareTo(b.key);
+    });
+    return indexed.map((entry) => entry.value).toList(growable: false);
+  }
+
+  DateTime? _jobSortDate(Map<String, dynamic> data) {
+    DateTime? parse(String key) {
+      final raw = (data[key] ?? '').toString().trim();
+      if (raw.isEmpty) {
+        return null;
+      }
+      return DateTime.tryParse(raw);
+    }
+
+    final createdAt = parse('createdAt');
+    if (createdAt != null) {
+      return createdAt.toUtc();
+    }
+    final shiftStartDate = parse('shiftStartDate');
+    if (shiftStartDate != null) {
+      return shiftStartDate.toUtc();
+    }
+    return null;
+  }
+
+  Future<void> _confirmDeleteJob(JobScanResult job) async {
+    final name = (job.jobData['restaurantName'] ?? 'this job').toString();
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete Job?'),
+          content: Text(
+            'Delete "$name" and all its local files from this device?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+    try {
+      await widget.jobs.deleteJob(jobDir: job.jobDir);
+      await _loadJobs();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     Widget body;
@@ -143,6 +232,19 @@ class _JobsHomeState extends State<JobsHome> {
             title: Text(restaurant),
             subtitle: Text(shiftStart),
             onTap: () => _openJobDetail(_results[index]),
+            trailing: PopupMenuButton<String>(
+              onSelected: (value) async {
+                if (value == 'delete') {
+                  await _confirmDeleteJob(_results[index]);
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem<String>(
+                  value: 'delete',
+                  child: Text('Delete Job'),
+                ),
+              ],
+            ),
           );
         },
       );

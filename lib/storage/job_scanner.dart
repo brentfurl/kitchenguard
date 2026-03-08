@@ -141,16 +141,21 @@ class JobScanner {
 
       final unitType = (unit['type'] ?? '').toString();
       final unitName = (unit['name'] ?? '').toString();
+      final unitId = (unit['unitId'] ?? '').toString();
       final category = _categoryForUnitType(unitType);
       if (category == null || unitName.trim().isEmpty) {
         continue;
       }
 
-      final unitFolder = paths.sanitizeName(unitName);
+      final unitFolders = _candidateUnitFolders(
+        unitName: unitName,
+        unitId: unitId,
+        storedUnitFolderName: (unit['unitFolderName'] ?? '').toString(),
+      );
       final beforeSummary = await _reconcilePhase(
         jobDir: jobDir,
         category: category,
-        unitFolder: unitFolder,
+        unitFolders: unitFolders,
         phaseFolder: AppPaths.beforeFolderName,
         photosKey: 'photosBefore',
         unit: unit,
@@ -161,7 +166,7 @@ class JobScanner {
       final afterSummary = await _reconcilePhase(
         jobDir: jobDir,
         category: category,
-        unitFolder: unitFolder,
+        unitFolders: unitFolders,
         phaseFolder: AppPaths.afterFolderName,
         photosKey: 'photosAfter',
         unit: unit,
@@ -179,25 +184,12 @@ class JobScanner {
   Future<_ReconcileSummary> _reconcilePhase({
     required Directory jobDir,
     required String category,
-    required String unitFolder,
+    required List<String> unitFolders,
     required String phaseFolder,
     required String photosKey,
     required Map<String, dynamic> unit,
   }) async {
-    final dir = Directory(
-      p.join(jobDir.path, category, unitFolder, phaseFolder),
-    );
     final photosRaw = (unit[photosKey] as List?) ?? <dynamic>[];
-    if (!await dir.exists()) {
-      final statusChanges = _markMissingLocal(
-        photosRaw: photosRaw,
-        diskFileNames: const <String>{},
-      );
-      if (statusChanges > 0) {
-        unit[photosKey] = photosRaw;
-      }
-      return _ReconcileSummary(statusChangeCount: statusChanges);
-    }
 
     final diskFileNames = <String>{};
     final existingNames = <String>{};
@@ -208,36 +200,56 @@ class JobScanner {
     }
 
     var added = 0;
-    await for (final entity in dir.list(followLinks: false)) {
-      if (entity is! File) {
+    final phaseDirs = <Directory>[];
+    final seenPhasePaths = <String>{};
+    for (final unitFolder in unitFolders) {
+      if (unitFolder.isEmpty) {
         continue;
       }
-
-      final fileName = p.basename(entity.path);
-      diskFileNames.add(fileName);
-      if (!_isImageFileName(fileName) || existingNames.contains(fileName)) {
+      final dir = Directory(
+        p.join(jobDir.path, category, unitFolder, phaseFolder),
+      );
+      if (!await dir.exists()) {
         continue;
       }
-
-      final modifiedUtc = (await entity.lastModified())
-          .toUtc()
-          .toIso8601String();
-      final relativePath = p
-          .relative(entity.path, from: jobDir.path)
-          .replaceAll('\\', '/');
-
-      photosRaw.add(<String, dynamic>{
-        'fileName': fileName,
-        'relativePath': relativePath,
-        'capturedAt': modifiedUtc,
-        'status': 'local',
-        'recovered': true,
-      });
-      existingNames.add(fileName);
-      added += 1;
+      if (seenPhasePaths.add(dir.path)) {
+        phaseDirs.add(dir);
+      }
     }
 
-    final statusChanges = _markMissingLocal(
+    for (final dir in phaseDirs) {
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) {
+          continue;
+        }
+
+        final fileName = p.basename(entity.path);
+        diskFileNames.add(fileName);
+        if (!_isImageFileName(fileName) || existingNames.contains(fileName)) {
+          continue;
+        }
+
+        final modifiedUtc = (await entity.lastModified())
+            .toUtc()
+            .toIso8601String();
+        final relativePath = p
+            .relative(entity.path, from: jobDir.path)
+            .replaceAll('\\', '/');
+
+        photosRaw.add(<String, dynamic>{
+          'fileName': fileName,
+          'relativePath': relativePath,
+          'capturedAt': modifiedUtc,
+          'status': 'local',
+          'recovered': true,
+        });
+        existingNames.add(fileName);
+        added += 1;
+      }
+    }
+
+    final statusChanges = await _markMissingLocal(
+      jobDir: jobDir,
       photosRaw: photosRaw,
       diskFileNames: diskFileNames,
     );
@@ -251,21 +263,33 @@ class JobScanner {
     );
   }
 
-  int _markMissingLocal({
+  Future<int> _markMissingLocal({
+    required Directory jobDir,
     required List photosRaw,
     required Set<String> diskFileNames,
-  }) {
+  }) async {
     var statusChanges = 0;
     for (final entry in photosRaw) {
       if (entry is! Map) {
         continue;
       }
-      final fileName = (entry['fileName'] ?? '').toString();
-      if (fileName.isEmpty) {
-        continue;
+
+      var existsOnDisk = false;
+      final relativePath = (entry['relativePath'] ?? '').toString().trim();
+      if (relativePath.isNotEmpty) {
+        final candidate = File(p.join(jobDir.path, relativePath));
+        try {
+          existsOnDisk = await candidate.exists();
+        } on FileSystemException {
+          existsOnDisk = false;
+        }
       }
 
-      final existsOnDisk = diskFileNames.contains(fileName);
+      final fileName = (entry['fileName'] ?? '').toString();
+      if (!existsOnDisk && fileName.isNotEmpty) {
+        existsOnDisk = diskFileNames.contains(fileName);
+      }
+
       final status = (entry['status'] ?? '').toString();
       if (!existsOnDisk) {
         if (status != 'missing_local' || entry['missingLocal'] != true) {
@@ -280,6 +304,27 @@ class JobScanner {
       }
     }
     return statusChanges;
+  }
+
+  List<String> _candidateUnitFolders({
+    required String unitName,
+    required String unitId,
+    required String storedUnitFolderName,
+  }) {
+    final candidates = <String>[];
+    void addIfNotEmpty(String value) {
+      final trimmed = value.trim();
+      if (trimmed.isNotEmpty && !candidates.contains(trimmed)) {
+        candidates.add(trimmed);
+      }
+    }
+
+    addIfNotEmpty(storedUnitFolderName);
+    if (unitId.trim().isNotEmpty) {
+      addIfNotEmpty(paths.unitFolderName(unitName: unitName, unitId: unitId));
+    }
+    addIfNotEmpty(paths.sanitizeName(unitName));
+    return candidates;
   }
 
   String? _categoryForUnitType(String unitType) {

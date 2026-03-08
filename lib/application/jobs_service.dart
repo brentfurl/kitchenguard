@@ -1,6 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -59,6 +60,7 @@ class JobsService {
       'createdAt': DateTime.now().toUtc().toIso8601String(),
       'units': <Map<String, dynamic>>[],
       'notes': <Map<String, dynamic>>[],
+      'preCleanLayoutPhotos': <Map<String, dynamic>>[],
       'videos': <String, dynamic>{
         'exit': <Map<String, dynamic>>[],
         'other': <Map<String, dynamic>>[],
@@ -69,6 +71,26 @@ class JobsService {
     await jobStore.writeJobJson(jobJsonFile, jobJson);
 
     return jobDir;
+  }
+
+  Future<void> deleteJob({required Directory jobDir}) async {
+    if (!await jobDir.exists()) {
+      return;
+    }
+
+    final rootPath = p.normalize(await paths.getRootPath());
+    final jobPath = p.normalize(jobDir.path);
+    final isUnderRoot = p.isWithin(rootPath, jobPath) || jobPath == rootPath;
+    if (!isUnderRoot) {
+      throw StateError('Refusing to delete path outside jobs root: $jobPath');
+    }
+
+    final jobJsonFile = File(p.join(jobPath, 'job.json'));
+    if (!await jobJsonFile.exists()) {
+      throw StateError('Refusing to delete non-job directory: $jobPath');
+    }
+
+    await Directory(jobPath).delete(recursive: true);
   }
 
   Future<void> addUnit({
@@ -105,6 +127,10 @@ class JobsService {
     final newNorm = _normalizeUnitName(displayName);
     for (final u in units) {
       if (u is! Map) {
+        continue;
+      }
+      final existingType = (u['type'] ?? '').toString().trim().toLowerCase();
+      if (existingType != normalizedType) {
         continue;
       }
       final existingName = (u['name'] ?? '').toString();
@@ -151,11 +177,178 @@ class JobsService {
       'type': normalizedType,
       'name': displayName,
       'unitFolderName': unitFolderName,
+      'isComplete': false,
       'photosBefore': <dynamic>[],
       'photosAfter': <dynamic>[],
     });
 
     job['units'] = unitsForWrite;
+    await jobStore.writeJobJson(jobJsonFile, job);
+  }
+
+  Future<void> renameUnit({
+    required Directory jobDir,
+    required String unitId,
+    required String newName,
+  }) async {
+    final displayName = newName.trim();
+    if (displayName.isEmpty) {
+      throw ArgumentError.value(
+        newName,
+        'newName',
+        'Unit name cannot be empty.',
+      );
+    }
+
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJobJson(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final unitsRaw = job['units'];
+    if (unitsRaw is! List) {
+      throw StateError('Invalid units data in ${jobDir.path}');
+    }
+
+    Map<String, dynamic>? targetUnit;
+    for (var i = 0; i < unitsRaw.length; i++) {
+      final entry = unitsRaw[i];
+      if (entry is! Map) {
+        continue;
+      }
+      final map = entry is Map<String, dynamic>
+          ? entry
+          : Map<String, dynamic>.from(entry);
+      unitsRaw[i] = map;
+      if ((map['unitId'] ?? '').toString() == unitId) {
+        targetUnit = map;
+        break;
+      }
+    }
+
+    if (targetUnit == null) {
+      throw StateError('Unit not found for unitId: $unitId');
+    }
+
+    final targetType = (targetUnit['type'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    final normalizedNew = _normalizeUnitName(displayName);
+    for (final entry in unitsRaw) {
+      if (entry is! Map) {
+        continue;
+      }
+      final map = entry is Map<String, dynamic>
+          ? entry
+          : Map<String, dynamic>.from(entry);
+      final existingUnitId = (map['unitId'] ?? '').toString();
+      if (existingUnitId == unitId) {
+        continue;
+      }
+      final existingType = (map['type'] ?? '').toString().trim().toLowerCase();
+      if (existingType != targetType) {
+        continue;
+      }
+      final existingName = (map['name'] ?? '').toString();
+      if (_normalizeUnitName(existingName) == normalizedNew) {
+        throw StateError('Unit name already exists: $displayName');
+      }
+    }
+
+    targetUnit['name'] = displayName;
+    await jobStore.writeJobJson(jobJsonFile, job);
+  }
+
+  Future<void> deleteUnitIfEmpty({
+    required Directory jobDir,
+    required String unitId,
+  }) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJobJson(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final unitsRaw = job['units'];
+    if (unitsRaw is! List) {
+      throw StateError('Invalid units data in ${jobDir.path}');
+    }
+
+    var targetIndex = -1;
+    Map<String, dynamic>? targetUnit;
+    for (var i = 0; i < unitsRaw.length; i++) {
+      final entry = unitsRaw[i];
+      if (entry is! Map) {
+        continue;
+      }
+      final map = entry is Map<String, dynamic>
+          ? entry
+          : Map<String, dynamic>.from(entry);
+      unitsRaw[i] = map;
+      if ((map['unitId'] ?? '').toString() == unitId) {
+        targetIndex = i;
+        targetUnit = map;
+        break;
+      }
+    }
+
+    if (targetIndex < 0 || targetUnit == null) {
+      throw StateError('Unit not found for unitId: $unitId');
+    }
+
+    final hasBefore = _hasVisiblePhotos(targetUnit['photosBefore']);
+    final hasAfter = _hasVisiblePhotos(targetUnit['photosAfter']);
+    if (hasBefore || hasAfter) {
+      throw StateError(
+        'Cannot delete unit with photos. Remove photos before deleting the unit.',
+      );
+    }
+
+    unitsRaw.removeAt(targetIndex);
+    await jobStore.writeJobJson(jobJsonFile, job);
+  }
+
+  Future<void> setUnitCompletion({
+    required Directory jobDir,
+    required String unitId,
+    required bool isComplete,
+  }) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJobJson(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final unitsRaw = (job['units'] as List?) ?? const [];
+    Map<String, dynamic>? targetUnit;
+    for (final entry in unitsRaw) {
+      if (entry is Map<String, dynamic> && entry['unitId'] == unitId) {
+        targetUnit = entry;
+        break;
+      }
+      if (entry is Map && entry['unitId'] == unitId) {
+        targetUnit = Map<String, dynamic>.from(entry);
+        final index = unitsRaw.indexOf(entry);
+        if (index >= 0 && index < unitsRaw.length) {
+          unitsRaw[index] = targetUnit;
+        }
+        break;
+      }
+    }
+
+    if (targetUnit == null) {
+      throw StateError('Unit not found for unitId: $unitId');
+    }
+
+    targetUnit['isComplete'] = isComplete;
+    if (isComplete) {
+      targetUnit['completedAt'] = DateTime.now().toUtc().toIso8601String();
+    } else {
+      targetUnit.remove('completedAt');
+    }
+
     await jobStore.writeJobJson(jobJsonFile, job);
   }
 
@@ -467,6 +660,82 @@ class JobsService {
     await jobStore.writeJobJson(jobJsonFile, job);
   }
 
+  Future<void> persistAndRecordPreCleanLayoutPhoto({
+    required Directory jobDir,
+    required File sourceImageFile,
+  }) async {
+    final precleanDir = Directory(p.join(jobDir.path, 'PreCleanLayout'));
+    await precleanDir.create(recursive: true);
+
+    var ext = p.extension(sourceImageFile.path).toLowerCase();
+    if (ext.isEmpty) {
+      ext = '.jpg';
+    }
+    final timestamp = _formatTimestampForFilename(DateTime.now());
+    final baseName = 'PreCleanLayout_$timestamp';
+    var fileName = '$baseName$ext';
+    var finalFile = File(p.join(precleanDir.path, fileName));
+    var collision = 1;
+    while (await finalFile.exists()) {
+      fileName = '${baseName}_$collision$ext';
+      finalFile = File(p.join(precleanDir.path, fileName));
+      collision += 1;
+    }
+
+    final tempFile = File(p.join(precleanDir.path, '.tmp_$fileName'));
+    await sourceImageFile.copy(tempFile.path);
+    if (await finalFile.exists()) {
+      await finalFile.delete();
+    }
+    await tempFile.rename(finalFile.path);
+
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJobJson(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final records = _getPreCleanLayoutPhotos(job);
+    final relativePath = p
+        .relative(finalFile.path, from: jobDir.path)
+        .replaceAll('\\', '/');
+    records.add(<String, dynamic>{
+      'fileName': p.basename(finalFile.path),
+      'relativePath': relativePath,
+      'capturedAt': DateTime.now().toUtc().toIso8601String(),
+      'status': 'local',
+    });
+
+    await jobStore.writeJobJson(jobJsonFile, job);
+  }
+
+  Future<void> softDeletePreCleanLayoutPhoto({
+    required Directory jobDir,
+    required String relativePath,
+  }) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJobJson(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final records = _getPreCleanLayoutPhotos(job);
+    Map<String, dynamic>? target;
+    for (final record in records) {
+      if ((record['relativePath'] ?? '').toString() == relativePath) {
+        target = record;
+        break;
+      }
+    }
+    if (target == null) {
+      throw StateError('Pre-clean layout photo not found: $relativePath');
+    }
+
+    target['status'] = 'deleted';
+    target['deletedAt'] = DateTime.now().toIso8601String();
+    await jobStore.writeJobJson(jobJsonFile, job);
+  }
+
   Future<File> exportJobZip({
     required Directory jobDir,
     required String zipBaseName,
@@ -476,42 +745,415 @@ class JobsService {
     }
 
     final now = DateTime.now();
-    final safeBase = paths.sanitizeName(zipBaseName).trim();
-    final baseName = safeBase.isEmpty ? 'KitchenGuard_Job' : safeBase;
+    final safeBase = _sanitizeZipBaseName(zipBaseName);
     final timestamp = _formatExportTimestamp(now);
     final exportDir = Directory(
       p.join(Directory.systemTemp.path, 'KitchenGuardExports'),
     );
     await exportDir.create(recursive: true);
 
-    final zipFile = File(p.join(exportDir.path, '${baseName}_$timestamp.zip'));
-    final archive = Archive();
+    final zipFile = File(
+      p.join(exportDir.path, 'KitchenGuard_${safeBase}_$timestamp.zip'),
+    );
+    final encoder = ZipFileEncoder();
+    encoder.create(zipFile.path);
+    File? tempNotesFile;
+    File? tempExportJobJsonFile;
 
-    await for (final entity in jobDir.list(
-      recursive: true,
-      followLinks: false,
-    )) {
-      if (entity is! File) {
-        continue;
+    try {
+      final exportJobJson = await _buildExportJobJson(jobDir);
+      if (exportJobJson != null) {
+        tempExportJobJsonFile = File(
+          p.join(
+            exportDir.path,
+            '.job_${DateTime.now().microsecondsSinceEpoch}.json',
+          ),
+        );
+        await tempExportJobJsonFile.writeAsString(
+          jsonEncode(exportJobJson),
+          flush: true,
+        );
+        encoder.addFile(tempExportJobJsonFile, 'job.json');
       }
 
-      try {
-        if (!await entity.exists()) {
+      final notesText = await _buildExportNotesText(jobDir);
+      if (notesText != null) {
+        tempNotesFile = File(
+          p.join(
+            exportDir.path,
+            '.notes_${DateTime.now().microsecondsSinceEpoch}.txt',
+          ),
+        );
+        await tempNotesFile.writeAsString(notesText, flush: true);
+        encoder.addFile(tempNotesFile, 'notes.txt');
+      }
+
+      final filesForExport = <Map<String, dynamic>>[];
+      await for (final entity in jobDir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
+        if (entity is! File) {
           continue;
         }
-        final bytes = await entity.readAsBytes();
         final relativePath = p
             .relative(entity.path, from: jobDir.path)
             .replaceAll('\\', '/');
-        archive.addFile(ArchiveFile(relativePath, bytes.length, bytes));
-      } on FileSystemException {
-        // Skip files that disappear mid-export.
+        if (_isExcludedFromExport(relativePath)) {
+          continue;
+        }
+        if (tempExportJobJsonFile != null && relativePath == 'job.json') {
+          continue;
+        }
+        filesForExport.add(<String, dynamic>{
+          'file': entity,
+          'relativePath': relativePath,
+        });
+      }
+
+      filesForExport.sort((a, b) {
+        final left = (a['relativePath'] ?? '').toString();
+        final right = (b['relativePath'] ?? '').toString();
+        return _compareExportPaths(left, right, exportJobJson);
+      });
+
+      for (final item in filesForExport) {
+        final entity = item['file'] as File;
+        final relativePath = (item['relativePath'] ?? '').toString();
+        try {
+          if (!await entity.exists()) {
+            continue;
+          }
+          encoder.addFile(entity, relativePath);
+        } on FileSystemException {
+          // Skip files that disappear mid-export.
+        }
+      }
+    } finally {
+      encoder.close();
+      if (tempNotesFile != null) {
+        try {
+          if (await tempNotesFile.exists()) {
+            await tempNotesFile.delete();
+          }
+        } on FileSystemException {
+          // Best effort cleanup only.
+        }
+      }
+      if (tempExportJobJsonFile != null) {
+        try {
+          if (await tempExportJobJsonFile.exists()) {
+            await tempExportJobJsonFile.delete();
+          }
+        } on FileSystemException {
+          // Best effort cleanup only.
+        }
       }
     }
 
-    final zipBytes = ZipEncoder().encode(archive);
-    await zipFile.writeAsBytes(zipBytes, flush: true);
+    await _cleanupOlderExportZips(exportDir: exportDir, keepFile: zipFile);
     return zipFile;
+  }
+
+  Future<void> _cleanupOlderExportZips({
+    required Directory exportDir,
+    required File keepFile,
+  }) async {
+    final keepPath = p.normalize(keepFile.path);
+    final candidates = <File>[];
+
+    await for (final entity in exportDir.list(followLinks: false)) {
+      if (entity is! File) {
+        continue;
+      }
+      final fileName = p.basename(entity.path);
+      final isKitchenGuardExport =
+          fileName.startsWith('KitchenGuard_') && fileName.endsWith('.zip');
+      if (!isKitchenGuardExport) {
+        continue;
+      }
+      if (p.normalize(entity.path) == keepPath) {
+        continue;
+      }
+      candidates.add(entity);
+    }
+
+    for (final file in candidates) {
+      try {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } on FileSystemException {
+        // Best effort cleanup only.
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>?> _buildExportJobJson(Directory jobDir) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    if (!await jobJsonFile.exists()) {
+      return null;
+    }
+
+    try {
+      final raw = await jobJsonFile.readAsString();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        return null;
+      }
+      final job = decoded is Map<String, dynamic>
+          ? Map<String, dynamic>.from(decoded)
+          : Map<String, dynamic>.from(decoded);
+      final orderedUnits = _getWorkflowOrderedUnits(job['units']);
+      job['units'] = orderedUnits;
+      return job;
+    } on FormatException {
+      return null;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  bool _isExcludedFromExport(String relativePath) {
+    return relativePath == 'PreCleanLayout' ||
+        relativePath.startsWith('PreCleanLayout/');
+  }
+
+  int _compareExportPaths(
+    String left,
+    String right,
+    Map<String, dynamic>? exportJobJson,
+  ) {
+    final leftParts = p.posix.split(left);
+    final rightParts = p.posix.split(right);
+    final leftRoot = leftParts.isEmpty ? '' : leftParts.first;
+    final rightRoot = rightParts.isEmpty ? '' : rightParts.first;
+
+    final rootCmp = _exportRootRank(
+      leftRoot,
+    ).compareTo(_exportRootRank(rightRoot));
+    if (rootCmp != 0) {
+      return rootCmp;
+    }
+
+    if (_isUnitCategoryRoot(leftRoot) && _isUnitCategoryRoot(rightRoot)) {
+      final unitOrder = _exportUnitFolderOrderMap(exportJobJson);
+      final leftUnitFolder = leftParts.length > 1 ? leftParts[1] : '';
+      final rightUnitFolder = rightParts.length > 1 ? rightParts[1] : '';
+      final leftUnitRank = unitOrder[leftUnitFolder] ?? 1 << 20;
+      final rightUnitRank = unitOrder[rightUnitFolder] ?? 1 << 20;
+      final unitCmp = leftUnitRank.compareTo(rightUnitRank);
+      if (unitCmp != 0) {
+        return unitCmp;
+      }
+    }
+
+    return left.toLowerCase().compareTo(right.toLowerCase());
+  }
+
+  int _exportRootRank(String root) {
+    switch (root) {
+      case AppPaths.hoodsCategory:
+        return 0;
+      case AppPaths.fansCategory:
+        return 1;
+      case AppPaths.miscCategory:
+        return 2;
+      case 'Videos':
+        return 3;
+      case 'job.json':
+        return 4;
+      case 'notes.txt':
+        return 5;
+      default:
+        return 6;
+    }
+  }
+
+  bool _isUnitCategoryRoot(String root) {
+    return root == AppPaths.hoodsCategory ||
+        root == AppPaths.fansCategory ||
+        root == AppPaths.miscCategory;
+  }
+
+  Map<String, int> _exportUnitFolderOrderMap(
+    Map<String, dynamic>? exportJobJson,
+  ) {
+    final map = <String, int>{};
+    if (exportJobJson == null) {
+      return map;
+    }
+    final orderedUnits = _getWorkflowOrderedUnits(exportJobJson['units']);
+    for (var i = 0; i < orderedUnits.length; i++) {
+      final unit = orderedUnits[i];
+      final unitName = (unit['name'] ?? '').toString();
+      final unitId = (unit['unitId'] ?? '').toString();
+      final storedFolder = (unit['unitFolderName'] ?? '').toString().trim();
+      if (storedFolder.isNotEmpty) {
+        map[storedFolder] = i;
+      }
+      if (unitName.isNotEmpty && unitId.isNotEmpty) {
+        map[paths.unitFolderName(unitName: unitName, unitId: unitId)] = i;
+      }
+      if (unitName.isNotEmpty) {
+        map[paths.sanitizeName(unitName)] = i;
+      }
+    }
+    return map;
+  }
+
+  List<Map<String, dynamic>> _getWorkflowOrderedUnits(dynamic rawUnits) {
+    if (rawUnits is! List) {
+      return const <Map<String, dynamic>>[];
+    }
+
+    final units = <Map<String, dynamic>>[];
+    for (final item in rawUnits) {
+      if (item is Map<String, dynamic>) {
+        units.add(Map<String, dynamic>.from(item));
+      } else if (item is Map) {
+        units.add(Map<String, dynamic>.from(item));
+      }
+    }
+
+    units.sort((a, b) {
+      final typeCmp = _unitTypeRankForExport(
+        (a['type'] ?? '').toString(),
+      ).compareTo(_unitTypeRankForExport((b['type'] ?? '').toString()));
+      if (typeCmp != 0) {
+        return typeCmp;
+      }
+
+      final aName = _normalizeUnitSortName((a['name'] ?? '').toString());
+      final bName = _normalizeUnitSortName((b['name'] ?? '').toString());
+      final aNumber = _extractFirstNumber(aName);
+      final bNumber = _extractFirstNumber(bName);
+
+      if (aNumber != null && bNumber != null) {
+        final numCmp = aNumber.compareTo(bNumber);
+        if (numCmp != 0) {
+          return numCmp;
+        }
+      } else if (aNumber != null) {
+        return -1;
+      } else if (bNumber != null) {
+        return 1;
+      }
+
+      final nameCmp = aName.compareTo(bName);
+      if (nameCmp != 0) {
+        return nameCmp;
+      }
+
+      final aId = (a['unitId'] ?? '').toString();
+      final bId = (b['unitId'] ?? '').toString();
+      return aId.compareTo(bId);
+    });
+
+    return units;
+  }
+
+  int _unitTypeRankForExport(String rawType) {
+    switch (rawType.trim().toLowerCase()) {
+      case 'hood':
+        return 0;
+      case 'fan':
+        return 1;
+      default:
+        return 2;
+    }
+  }
+
+  String _normalizeUnitSortName(String name) {
+    final compact = name.trim().toLowerCase();
+    return compact
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  int? _extractFirstNumber(String value) {
+    final match = RegExp(r'(\d+)').firstMatch(value);
+    if (match == null) {
+      return null;
+    }
+    return int.tryParse(match.group(1)!);
+  }
+
+  Future<String?> _buildExportNotesText(Directory jobDir) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    if (!await jobJsonFile.exists()) {
+      return null;
+    }
+
+    Map<String, dynamic> jobJson;
+    try {
+      final raw = await jobJsonFile.readAsString();
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        return null;
+      }
+      jobJson = decoded is Map<String, dynamic>
+          ? decoded
+          : Map<String, dynamic>.from(decoded);
+    } on FormatException {
+      return null;
+    } on FileSystemException {
+      return null;
+    }
+
+    final notesRaw = jobJson['notes'];
+    if (notesRaw is! List) {
+      return null;
+    }
+
+    final notes = <Map<String, String>>[];
+    for (final item in notesRaw) {
+      if (item is! Map) {
+        continue;
+      }
+      final map = item is Map<String, dynamic>
+          ? item
+          : Map<String, dynamic>.from(item);
+      final status = (map['status'] ?? 'active').toString();
+      if (status == 'deleted') {
+        continue;
+      }
+      final text = (map['text'] ?? '')
+          .toString()
+          .replaceAll(RegExp(r'[\r\n]+'), ' ')
+          .trim();
+      if (text.isEmpty) {
+        continue;
+      }
+      final createdAt = (map['createdAt'] ?? '').toString();
+      notes.add(<String, String>{'text': text, 'createdAt': createdAt});
+    }
+
+    if (notes.isEmpty) {
+      return null;
+    }
+
+    notes.sort(
+      (a, b) => (a['createdAt'] ?? '').compareTo(b['createdAt'] ?? ''),
+    );
+
+    final restaurantName = (jobJson['restaurantName'] ?? '').toString().trim();
+    final shiftStartDate = (jobJson['shiftStartDate'] ?? '').toString().trim();
+
+    final buffer = StringBuffer();
+    buffer.writeln('Notes');
+    if (restaurantName.isNotEmpty) {
+      buffer.writeln('Restaurant: $restaurantName');
+    }
+    if (shiftStartDate.isNotEmpty) {
+      buffer.writeln('Shift: $shiftStartDate');
+    }
+    buffer.writeln();
+    for (final note in notes) {
+      buffer.writeln('- ${note['text'] ?? ''}');
+    }
+    return buffer.toString();
   }
 
   Future<String> _resolveUnitFolderNameForPhoto({
@@ -674,6 +1316,30 @@ class JobsService {
     return created;
   }
 
+  List<Map<String, dynamic>> _getPreCleanLayoutPhotos(
+    Map<String, dynamic> job,
+  ) {
+    final raw = job['preCleanLayoutPhotos'];
+    if (raw is List<Map<String, dynamic>>) {
+      return raw;
+    }
+    if (raw is List) {
+      final normalized = <Map<String, dynamic>>[];
+      for (final item in raw) {
+        if (item is Map<String, dynamic>) {
+          normalized.add(item);
+        } else if (item is Map) {
+          normalized.add(Map<String, dynamic>.from(item));
+        }
+      }
+      job['preCleanLayoutPhotos'] = normalized;
+      return normalized;
+    }
+    final created = <Map<String, dynamic>>[];
+    job['preCleanLayoutPhotos'] = created;
+    return created;
+  }
+
   String? _categoryForUnitType(String unitType) {
     switch (unitType) {
       case 'hood':
@@ -714,6 +1380,19 @@ class JobsService {
     return '$y$m${d}_$hh$mm$ss';
   }
 
+  String _sanitizeZipBaseName(String input) {
+    final trimmed = input.trim();
+    final spacesToUnderscore = trimmed.replaceAll(RegExp(r'\s+'), '_');
+    final nonAlnumToUnderscore = spacesToUnderscore.replaceAll(
+      RegExp(r'[^a-zA-Z0-9_]'),
+      '_',
+    );
+    final collapsed = nonAlnumToUnderscore
+        .replaceAll(RegExp(r'_+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    return collapsed.isEmpty ? 'Job' : collapsed;
+  }
+
   String _normalizeUnitName(String name) {
     return name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
   }
@@ -736,5 +1415,22 @@ class JobsService {
           'Invalid phase. Use "before" or "after".',
         );
     }
+  }
+
+  bool _hasVisiblePhotos(dynamic list) {
+    if (list is! List) {
+      return false;
+    }
+    for (final item in list) {
+      if (item is! Map) {
+        continue;
+      }
+      final status = (item['status'] ?? 'local').toString();
+      final missingLocal = item['missingLocal'] == true;
+      if (status != 'deleted' && status != 'missing_local' && !missingLocal) {
+        return true;
+      }
+    }
+    return false;
   }
 }

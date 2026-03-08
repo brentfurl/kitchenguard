@@ -21,7 +21,10 @@ class UnitPhotoBucketScreen extends StatefulWidget {
   final Future<void> Function() onCapture;
   final Future<void> Function() onJobMutated;
   final Future<void> Function(String relativePath) onSoftDelete;
-  final void Function(int initialIndex, List<Map<String, dynamic>> photos)
+  final Future<void> Function(
+    int initialIndex,
+    List<Map<String, dynamic>> photos,
+  )
   onOpenViewer;
 
   @override
@@ -36,7 +39,10 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
     return _photos
         .where((photo) {
           final status = (photo['status'] ?? 'local').toString();
-          return status != 'deleted';
+          final missingLocal = photo['missingLocal'] == true;
+          return status != 'deleted' &&
+              status != 'missing_local' &&
+              !missingLocal;
         })
         .toList(growable: false);
   }
@@ -149,8 +155,10 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
                 final isMissing = !showImage;
 
                 return InkWell(
-                  onTap: () {
-                    widget.onOpenViewer(index, currentPhotosList);
+                  onTap: () async {
+                    await widget.onOpenViewer(index, currentPhotosList);
+                    if (!mounted) return;
+                    await _reloadPhotos();
                   },
                   onLongPress: () async {
                     if (relativePath.isEmpty) {
