@@ -7,6 +7,7 @@ class ToolsScreen extends StatelessWidget {
     required this.onNotes,
     required this.onExitVideos,
     required this.onOtherVideos,
+    required this.preCleanLayoutCount,
     required this.exitVideosCount,
     required this.otherVideosCount,
   });
@@ -15,6 +16,7 @@ class ToolsScreen extends StatelessWidget {
   final VoidCallback onNotes;
   final VoidCallback onExitVideos;
   final VoidCallback onOtherVideos;
+  final int preCleanLayoutCount;
   final int exitVideosCount;
   final int otherVideosCount;
 
@@ -27,7 +29,7 @@ class ToolsScreen extends StatelessWidget {
         children: [
           _SectionLabel('Setup'),
           _ToolTile(
-            title: 'Pre-clean Layout',
+            title: 'Pre-clean Layout ($preCleanLayoutCount)',
             subtitle: 'Capture and review initial setup layout',
             icon: Icons.grid_view_outlined,
             onTap: onPrecleanLayout,

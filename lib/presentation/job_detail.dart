@@ -695,6 +695,7 @@ class _JobDetailState extends State<JobDetail> {
           onNotes: _openNotesScreen,
           onExitVideos: _openExitVideosScreen,
           onOtherVideos: _openOtherVideosScreen,
+          preCleanLayoutCount: _controller.preCleanLayoutCount,
           exitVideosCount: _controller.videosExitCount,
           otherVideosCount: _controller.videosOtherCount,
         ),
@@ -710,8 +711,10 @@ class _JobDetailState extends State<JobDetail> {
         builder: (_) => PreCleanLayoutScreen(
           jobDir: widget.job.jobDir,
           loadPhotos: () => _controller.loadPreCleanLayoutPhotos(),
-          onCapture: () async {
-            await _controller.capturePreCleanLayoutPhoto(picker: _picker);
+          onCaptureFile: (file) async {
+            await _controller.capturePreCleanLayoutPhotoFromFile(
+              sourceImageFile: file,
+            );
           },
           onSoftDelete: (relativePath) async {
             await _controller.softDeletePreCleanLayoutPhoto(

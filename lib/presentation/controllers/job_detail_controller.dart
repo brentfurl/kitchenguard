@@ -20,6 +20,8 @@ class JobDetailController {
 
   int get photosBeforeCount => _countPhotosForPhase('before');
   int get photosAfterCount => _countPhotosForPhase('after');
+  int get preCleanLayoutCount =>
+      countDisplayablePhotos(_jobData?['preCleanLayoutPhotos']);
   int get videosExitCount => _countVideosForKind('exit');
   int get videosOtherCount => _countVideosForKind('other');
   int get missingPhotosCount => _countMissingPhotos();
@@ -345,6 +347,16 @@ class JobDetailController {
     await jobs.persistAndRecordPreCleanLayoutPhoto(
       jobDir: jobDir,
       sourceImageFile: File(picked.path),
+    );
+    await loadJob();
+  }
+
+  Future<void> capturePreCleanLayoutPhotoFromFile({
+    required File sourceImageFile,
+  }) async {
+    await jobs.persistAndRecordPreCleanLayoutPhoto(
+      jobDir: jobDir,
+      sourceImageFile: sourceImageFile,
     );
     await loadJob();
   }

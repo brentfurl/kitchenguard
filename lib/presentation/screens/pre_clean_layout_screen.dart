@@ -4,20 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import 'photo_viewer_screen.dart';
+import 'rapid_photo_capture_screen.dart';
 
 class PreCleanLayoutScreen extends StatefulWidget {
   const PreCleanLayoutScreen({
     super.key,
     required this.jobDir,
     required this.loadPhotos,
-    required this.onCapture,
+    required this.onCaptureFile,
     required this.onSoftDelete,
     required this.onJobMutated,
   });
 
   final Directory jobDir;
   final Future<List<Map<String, dynamic>>> Function() loadPhotos;
-  final Future<void> Function() onCapture;
+  final Future<void> Function(File file) onCaptureFile;
   final Future<void> Function(String relativePath) onSoftDelete;
   final Future<void> Function() onJobMutated;
 
@@ -50,7 +51,20 @@ class _PreCleanLayoutScreenState extends State<PreCleanLayoutScreen> {
 
   Future<void> _capture() async {
     try {
-      await widget.onCapture();
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => RapidPhotoCaptureScreen(
+            unitName: 'Pre-clean Layout',
+            phaseLabel: 'Layout',
+            loadVisibleCount: () async {
+              final photos = await widget.loadPhotos();
+              return photos.length;
+            },
+            onCaptureFile: widget.onCaptureFile,
+          ),
+        ),
+      );
+      if (!mounted) return;
       await widget.onJobMutated();
       if (!mounted) return;
       await _reload();
@@ -60,6 +74,33 @@ class _PreCleanLayoutScreenState extends State<PreCleanLayoutScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
+  }
+
+  Future<void> _openGalleryViewer() async {
+    if (_photos.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No photos to review yet.')));
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PhotoViewerScreen(
+          jobDir: widget.jobDir,
+          title: 'Pre-clean Layout',
+          photos: _photos,
+          initialIndex: 0,
+          onSoftDelete: widget.onSoftDelete,
+          onJobMutated: () async {
+            await widget.onJobMutated();
+            await _reload();
+          },
+          reloadPhotos: widget.loadPhotos,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _reload();
   }
 
   Future<void> _confirmSoftDelete(String relativePath) async {
@@ -114,10 +155,23 @@ class _PreCleanLayoutScreenState extends State<PreCleanLayoutScreen> {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-                  child: FilledButton.icon(
-                    onPressed: _capture,
-                    icon: const Icon(Icons.camera_alt),
-                    label: const Text('Capture Layout Photo'),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _capture,
+                          icon: const Icon(Icons.camera_alt),
+                          label: const Text('Capture Layout Photo'),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      IconButton(
+                        onPressed: _openGalleryViewer,
+                        tooltip: 'View Layout Photos',
+                        icon: const Icon(Icons.photo_library_outlined),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ],
                   ),
                 ),
                 Padding(

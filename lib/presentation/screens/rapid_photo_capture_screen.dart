@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class RapidPhotoCaptureScreen extends StatefulWidget {
   const RapidPhotoCaptureScreen({
@@ -31,18 +32,34 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
   String? _initError;
   String? _inlineStatus;
   Timer? _statusTimer;
+  Timer? _flashTimer;
+  bool _showFlash = false;
 
   @override
   void initState() {
     super.initState();
+    _lockPortrait();
     _initialize();
   }
 
   @override
   void dispose() {
     _statusTimer?.cancel();
+    _flashTimer?.cancel();
+    _restoreOrientation();
     _cameraController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _lockPortrait() async {
+    await SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  }
+
+  Future<void> _restoreOrientation() async {
+    await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
   }
 
   Future<void> _initialize() async {
@@ -58,7 +75,7 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
       );
       final controller = CameraController(
         selected,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
       );
       await controller.initialize();
@@ -95,9 +112,18 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
       await widget.onCaptureFile(File(shot.path));
       final latestCount = await widget.loadVisibleCount();
       if (!mounted) return;
+      await HapticFeedback.lightImpact();
+      _flashTimer?.cancel();
       setState(() {
         _visibleCount = latestCount;
         _inlineStatus = 'Saved';
+        _showFlash = true;
+      });
+      _flashTimer = Timer(const Duration(milliseconds: 120), () {
+        if (!mounted) return;
+        setState(() {
+          _showFlash = false;
+        });
       });
       _statusTimer?.cancel();
       _statusTimer = Timer(const Duration(milliseconds: 900), () {
@@ -166,7 +192,19 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
                   child: Container(
                     color: Colors.black,
                     width: double.infinity,
-                    child: CameraPreview(_cameraController!),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CameraPreview(_cameraController!),
+                        IgnorePointer(
+                          child: AnimatedOpacity(
+                            opacity: _showFlash ? 0.18 : 0,
+                            duration: const Duration(milliseconds: 90),
+                            child: Container(color: Colors.white),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 SafeArea(
