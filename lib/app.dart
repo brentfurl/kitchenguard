@@ -5,6 +5,7 @@ import 'application/startup_service.dart';
 import 'presentation/jobs_home.dart';
 import 'storage/app_paths.dart';
 import 'storage/atomic_write.dart';
+import 'storage/day_note_store.dart';
 import 'storage/image_file_store.dart';
 import 'storage/job_scanner.dart';
 import 'storage/job_store.dart';
@@ -63,6 +64,7 @@ class KitchenGuardApp extends StatelessWidget {
       paths: paths,
       atomicWrite: atomicWriteBytes,
     );
+    final dayNoteStore = DayNoteStore(paths: paths);
     final scanner = JobScanner(paths: paths, jobStore: jobStore);
     final startup = StartupService(scanner: scanner);
     final jobs = JobsService(
@@ -70,6 +72,7 @@ class KitchenGuardApp extends StatelessWidget {
       jobStore: jobStore,
       imageStore: imageStore,
       videoStore: videoStore,
+      dayNoteStore: dayNoteStore,
     );
 
     return MaterialApp(

@@ -5,6 +5,7 @@ import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import '../domain/models/day_note.dart';
 import '../domain/models/job.dart';
 import '../domain/models/job_note.dart';
 import '../domain/models/photo_record.dart';
@@ -12,6 +13,7 @@ import '../domain/models/unit.dart';
 import '../domain/models/video_record.dart';
 import '../domain/models/videos.dart';
 import '../storage/app_paths.dart';
+import '../storage/day_note_store.dart';
 import '../storage/image_file_store.dart';
 import '../storage/job_store.dart';
 import '../storage/video_file_store.dart';
@@ -24,12 +26,14 @@ class JobsService {
     required this.jobStore,
     required this.imageStore,
     required this.videoStore,
+    required this.dayNoteStore,
   });
 
   final AppPaths paths;
   final JobStore jobStore;
   final ImageFileStore imageStore;
   final VideoFileStore videoStore;
+  final DayNoteStore dayNoteStore;
   final Uuid _uuid = const Uuid();
 
   Future<Directory> createJob({
@@ -1123,6 +1127,127 @@ class JobsService {
     await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
 
     return resolvedFolderName;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scheduling
+  // ---------------------------------------------------------------------------
+
+  /// Sets (or clears) the scheduled date on a job.
+  ///
+  /// Pass [scheduledDate] as a YYYY-MM-DD string, or null to unschedule.
+  /// Returns the updated [Job] with [Job.updatedAt] stamped to now.
+  Future<Job> setScheduledDate(
+    Directory jobDir,
+    String? scheduledDate,
+  ) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    // Construct directly so a null value clears the field (copyWith cannot
+    // distinguish "not provided" from "explicitly null" for nullable fields).
+    final updated = Job(
+      jobId: job.jobId,
+      restaurantName: job.restaurantName,
+      shiftStartDate: job.shiftStartDate,
+      createdAt: job.createdAt,
+      schemaVersion: job.schemaVersion,
+      units: job.units,
+      notes: job.notes,
+      preCleanLayoutPhotos: job.preCleanLayoutPhotos,
+      videos: job.videos,
+      scheduledDate: scheduledDate,
+      sortOrder: job.sortOrder,
+    );
+    return jobStore.writeJob(jobJsonFile, updated);
+  }
+
+  /// Sets (or clears) the sort order on a job within a day card.
+  ///
+  /// Returns the updated [Job] with [Job.updatedAt] stamped to now.
+  Future<Job> setSortOrder(Directory jobDir, int? sortOrder) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final updated = Job(
+      jobId: job.jobId,
+      restaurantName: job.restaurantName,
+      shiftStartDate: job.shiftStartDate,
+      createdAt: job.createdAt,
+      schemaVersion: job.schemaVersion,
+      units: job.units,
+      notes: job.notes,
+      preCleanLayoutPhotos: job.preCleanLayoutPhotos,
+      videos: job.videos,
+      scheduledDate: job.scheduledDate,
+      sortOrder: sortOrder,
+    );
+    return jobStore.writeJob(jobJsonFile, updated);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Day Notes
+  // ---------------------------------------------------------------------------
+
+  /// Creates a new [DayNote] for [date] with [text] and persists it.
+  ///
+  /// Throws [ArgumentError] if [text] is empty.
+  Future<DayNote> addDayNote(String date, String text) async {
+    final noteText = text.trim();
+    if (noteText.isEmpty) {
+      throw ArgumentError.value(text, 'text', 'Note text cannot be empty.');
+    }
+
+    final all = await dayNoteStore.readAll();
+    final existing = all[date] ?? [];
+
+    final note = DayNote(
+      noteId: _uuid.v4(),
+      date: date,
+      text: noteText,
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+      status: 'active',
+    );
+
+    await dayNoteStore.write({...all, date: [...existing, note]});
+    return note;
+  }
+
+  /// Marks the [DayNote] identified by [noteId] on [date] as deleted.
+  ///
+  /// Throws [StateError] if the note is not found.
+  Future<void> softDeleteDayNote(String date, String noteId) async {
+    final all = await dayNoteStore.readAll();
+    final notes = all[date] ?? [];
+
+    final idx = notes.indexWhere((n) => n.noteId == noteId);
+    if (idx < 0) {
+      throw StateError('Day note not found: $noteId');
+    }
+
+    final updatedNotes = [...notes];
+    updatedNotes[idx] = notes[idx].copyWith(status: 'deleted');
+
+    await dayNoteStore.write({...all, date: updatedNotes});
+  }
+
+  /// Returns only active [DayNote]s for [date].
+  Future<List<DayNote>> loadDayNotes(String date) async {
+    final notes = await dayNoteStore.readForDate(date);
+    return notes.where((n) => n.isActive).toList();
+  }
+
+  /// Returns the full unfiltered map of all day notes (all dates, all statuses).
+  ///
+  /// Used by JobsHome to build day-grouped cards.
+  Future<Map<String, List<DayNote>>> loadAllDayNotes() {
+    return dayNoteStore.readAll();
   }
 
   String _formatDateYyyyMmDd(DateTime date) {
