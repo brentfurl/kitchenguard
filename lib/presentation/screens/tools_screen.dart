@@ -67,8 +67,8 @@ class _ToolsScreenState extends State<ToolsScreen> {
           const SizedBox(height: 14),
           _SectionLabel('Documentation'),
           _ToolTile(
-            title: 'Notes ($notesCount)',
-            subtitle: 'Review or add job-level notes',
+            title: 'Field Notes ($notesCount)',
+            subtitle: 'Crew notes about the job',
             icon: Icons.sticky_note_2_outlined,
             onTap: () => _openAndRefresh(widget.onNotes),
           ),

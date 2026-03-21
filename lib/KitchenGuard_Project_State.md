@@ -280,7 +280,7 @@ Pre-clean layout photos are **not exported**.
 
 # 8. Notes Export
 
-A `notes.txt` file is generated when notes exist.
+A `notes.txt` file is generated when **field notes** (tech-entered `notes[]`) exist. Manager job notes (`managerNotes[]`) are NOT included in the export.
 
 Example:
 
@@ -609,7 +609,8 @@ Computed: `isActive`, `isDeleted`, `isMissing`.
 | updatedAt | String? | null | bumped on every write |
 | schemaVersion | int | 2 | missing = version 1 |
 | units | List\<Unit\> | [] | |
-| notes | List\<JobNote\> | [] | |
+| notes | List\<JobNote\> | [] | field notes (tech-entered, included in export) |
+| managerNotes | List\<ManagerJobNote\> | [] | manager job notes (NOT included in export) |
 | preCleanLayoutPhotos | List\<PhotoRecord\> | [] | |
 | videos | Videos | empty | |
 
@@ -634,7 +635,16 @@ Stored in `KitchenCleaningJobs/day_notes.json` (root of jobs directory, not insi
 | exit | List\<VideoRecord\> | [] |
 | other | List\<VideoRecord\> | [] |
 
-### JobNote (moved to `lib/domain/models/`)
+### JobNote (field notes — `lib/domain/models/job_note.dart`)
+
+| Field | Type | Default |
+|-------|------|---------|
+| noteId | String | UUID v4 |
+| text | String | required |
+| createdAt | String | required |
+| status | String | 'active' |
+
+### ManagerJobNote (manager job notes — `lib/domain/models/manager_job_note.dart`)
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -654,9 +664,8 @@ videos.dart
 unit.dart
 job.dart
 job_note.dart
+manager_job_note.dart
 ```
-
-`JobNote` was previously in `lib/application/models/`. It is now in `lib/domain/models/`. All callers have been updated to import from the new path. The `lib/application/models/` directory no longer exists.
 
 ---
 
@@ -756,21 +765,28 @@ Each job tile shows:
 
 # 16. Notes Visibility
 
-Two distinct note types are labeled and placed to establish ownership convention before a full permissions layer exists.
+Three distinct note types are labeled and placed to establish ownership convention before a full permissions layer exists.
 
 ### Shift Notes (DayNote)
 
 - **Scope:** date-level
 - **Intended author:** manager (logistics, crew info, arrival times)
 - **Storage:** `day_notes.json` in root jobs directory
-- **UI placement:** Shift Notes section on each day card (Jobs Home) and read-only section on Job Detail (only shown when job has a `scheduledDate`)
+- **UI placement:** Collapsed counter + add button on each day card (Jobs Home); expand to view/delete. NOT shown on Job Detail.
 
-### Job Notes (JobNote)
+### Manager Job Notes (ManagerJobNote)
+
+- **Scope:** job-level
+- **Intended author:** manager (job-specific instructions and context)
+- **Storage:** `managerNotes[]` in `job.json`
+- **UI placement:** Count chip on job tile (Jobs Home) and card with count on Job Detail; both navigate to ManagerNotesScreen. Supports add, edit, and soft-delete. NOT included in export.
+
+### Field Notes (JobNote)
 
 - **Scope:** job-level
 - **Intended author:** technician (field observations during cleaning)
 - **Storage:** `notes[]` in `job.json`
-- **UI placement:** Note count chip on job tile (Jobs Home) and inline preview (last 3 active) on Job Detail; full Notes Screen accessible via "View all / Add" or Tools → Notes
+- **UI placement:** Accessible only via Tools → Field Notes. Included in export as `notes.txt`.
 
 ---
 
@@ -807,7 +823,7 @@ SETUP
   Pre-clean Layout
 
 DOCUMENTATION
-  Notes
+  Field Notes
 
 CLOSEOUT
   Exit Videos
@@ -835,21 +851,26 @@ PreCleanLayout/
 
 ---
 
-# 21. Notes Screen
+# 21. Notes Screens
 
-Notes were moved from the main screen to:
+### Field Notes Screen
+
+Tech-entered field notes, accessible via:
 
 ```
-Tools → Notes
+Tools → Field Notes
 ```
 
-Features:
+Features: view, add, delete. These are the only notes included in export.
 
-- view notes
-- add notes
-- delete notes
+### Manager Notes Screen
 
-This reduces clutter on the main job screen.
+Manager-entered job notes, accessible via:
+
+- Job Notes card on Job Detail
+- Note count chip on Jobs Home job tile
+
+Features: view, add, edit, delete. NOT included in export.
 
 ---
 

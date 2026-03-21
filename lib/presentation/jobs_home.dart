@@ -6,10 +6,10 @@ import 'package:path/path.dart' as p;
 import '../application/jobs_service.dart';
 import '../application/startup_service.dart';
 import '../domain/models/day_note.dart';
-import '../domain/models/job_note.dart';
+import '../domain/models/manager_job_note.dart';
 import '../storage/job_scanner.dart';
 import 'job_detail.dart';
-import 'screens/notes_screen.dart';
+import 'screens/manager_notes_screen.dart';
 
 class JobsHome extends StatefulWidget {
   const JobsHome({super.key, required this.startup, required this.jobs});
@@ -25,6 +25,7 @@ class _JobsHomeState extends State<JobsHome> {
   bool _isLoading = true;
   List<JobScanResult> _results = const [];
   Map<String, List<DayNote>> _activeShiftNotes = const {};
+  final Set<String> _expandedShiftNotes = {};
 
   @override
   void initState() {
@@ -168,19 +169,28 @@ class _JobsHomeState extends State<JobsHome> {
     await _loadAll();
   }
 
-  Future<void> _openNotesScreen(JobScanResult result) async {
+  Future<void> _openManagerNotesScreen(JobScanResult result) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => NotesScreen(
+        builder: (_) => ManagerNotesScreen(
           loadNotes: () async {
             final file = File(p.join(result.jobDir.path, 'job.json'));
             final job = await widget.jobs.jobStore.readJob(file);
-            return job?.notes.where((n) => n.isActive).toList() ??
-                <JobNote>[];
+            final notes = job?.managerNotes
+                    .where((n) => n.isActive)
+                    .toList() ??
+                <ManagerJobNote>[];
+            notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+            return notes;
           },
           addNote: (text) =>
-              widget.jobs.addJobNote(jobDir: result.jobDir, text: text),
-          softDeleteNote: (id) => widget.jobs.softDeleteJobNote(
+              widget.jobs.addManagerNote(jobDir: result.jobDir, text: text),
+          editNote: (noteId, newText) => widget.jobs.editManagerNote(
+            jobDir: result.jobDir,
+            noteId: noteId,
+            newText: newText,
+          ),
+          softDeleteNote: (id) => widget.jobs.softDeleteManagerNote(
             jobDir: result.jobDir,
             noteId: id,
           ),
@@ -505,6 +515,7 @@ class _JobsHomeState extends State<JobsHome> {
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final isExpanded = _expandedShiftNotes.contains(date);
 
     return ColoredBox(
       color: colorScheme.surfaceContainerHighest,
@@ -521,14 +532,52 @@ class _JobsHomeState extends State<JobsHome> {
                   color: colorScheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 6),
-                Text(
-                  'Shift Notes',
-                  style: textTheme.labelMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
+                GestureDetector(
+                  onTap: notes.isNotEmpty
+                      ? () => setState(() {
+                            if (isExpanded) {
+                              _expandedShiftNotes.remove(date);
+                            } else {
+                              _expandedShiftNotes.add(date);
+                            }
+                          })
+                      : null,
+                  child: Text(
+                    'Shift Notes',
+                    style: textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
+                if (notes.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: () => setState(() {
+                      if (isExpanded) {
+                        _expandedShiftNotes.remove(date);
+                      } else {
+                        _expandedShiftNotes.add(date);
+                      }
+                    }),
+                    child: Chip(
+                      label: Text('${notes.length}'),
+                      labelStyle: textTheme.labelSmall,
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      side: BorderSide.none,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(
+                    isExpanded
+                        ? Icons.expand_less
+                        : Icons.expand_more,
+                    size: 20,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ],
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.add),
@@ -539,18 +588,7 @@ class _JobsHomeState extends State<JobsHome> {
                 ),
               ],
             ),
-            if (notes.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2, bottom: 4),
-                child: Text(
-                  'No shift notes',
-                  style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              )
-            else
+            if (isExpanded && notes.isNotEmpty)
               ...notes.map(
                 (note) => Padding(
                   padding: const EdgeInsets.only(top: 6),
@@ -607,7 +645,7 @@ class _JobsHomeState extends State<JobsHome> {
     final job = result.job;
     final restaurant =
         job.restaurantName.isNotEmpty ? job.restaurantName : 'Unknown';
-    final activeNoteCount = job.notes.where((n) => n.isActive).length;
+    final activeNoteCount = job.managerNotes.where((n) => n.isActive).length;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final hasReorder = onMoveUp != null || onMoveDown != null;
@@ -637,7 +675,7 @@ class _JobsHomeState extends State<JobsHome> {
               Padding(
                 padding: const EdgeInsets.only(right: 4),
                 child: GestureDetector(
-                  onTap: () => _openNotesScreen(result),
+                  onTap: () => _openManagerNotesScreen(result),
                   child: Chip(
                     label: Text(
                       '$activeNoteCount '

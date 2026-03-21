@@ -1,4 +1,5 @@
 import 'job_note.dart';
+import 'manager_job_note.dart';
 import 'photo_record.dart';
 import 'unit.dart';
 import 'videos.dart';
@@ -17,6 +18,7 @@ class Job {
     this.updatedAt,
     this.scheduledDate,
     this.sortOrder,
+    this.managerNotes = const [],
   });
 
   final String jobId;
@@ -29,6 +31,7 @@ class Job {
   final int? sortOrder;
   final List<Unit> units;
   final List<JobNote> notes;
+  final List<ManagerJobNote> managerNotes;
   final List<PhotoRecord> preCleanLayoutPhotos;
   final Videos videos;
 
@@ -38,6 +41,9 @@ class Job {
         .toList();
     final noteList = (json['notes'] as List<dynamic>? ?? [])
         .map((e) => JobNote.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final managerNoteList = (json['managerNotes'] as List<dynamic>? ?? [])
+        .map((e) => ManagerJobNote.fromJson(e as Map<String, dynamic>))
         .toList();
     final layoutPhotos =
         (json['preCleanLayoutPhotos'] as List<dynamic>? ?? [])
@@ -58,6 +64,7 @@ class Job {
       sortOrder: json['sortOrder'] as int?,
       units: unitList,
       notes: noteList,
+      managerNotes: managerNoteList,
       preCleanLayoutPhotos: layoutPhotos,
       videos: videosObj,
     );
@@ -75,6 +82,7 @@ class Job {
       'schemaVersion': schemaVersion,
       'units': units.map((u) => u.toJson()).toList(),
       'notes': notes.map((n) => n.toJson()).toList(),
+      'managerNotes': managerNotes.map((n) => n.toJson()).toList(),
       'preCleanLayoutPhotos':
           preCleanLayoutPhotos.map((p) => p.toJson()).toList(),
       'videos': videos.toJson(),
@@ -92,6 +100,7 @@ class Job {
     int? sortOrder,
     List<Unit>? units,
     List<JobNote>? notes,
+    List<ManagerJobNote>? managerNotes,
     List<PhotoRecord>? preCleanLayoutPhotos,
     Videos? videos,
   }) {
@@ -106,6 +115,7 @@ class Job {
       schemaVersion: schemaVersion ?? this.schemaVersion,
       units: units ?? this.units,
       notes: notes ?? this.notes,
+      managerNotes: managerNotes ?? this.managerNotes,
       preCleanLayoutPhotos: preCleanLayoutPhotos ?? this.preCleanLayoutPhotos,
       videos: videos ?? this.videos,
     );

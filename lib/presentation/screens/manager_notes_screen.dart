@@ -1,28 +1,30 @@
 import 'package:flutter/material.dart';
 
-import '../../domain/models/job_note.dart';
+import '../../domain/models/manager_job_note.dart';
 
-class NotesScreen extends StatefulWidget {
-  const NotesScreen({
+class ManagerNotesScreen extends StatefulWidget {
+  const ManagerNotesScreen({
     super.key,
     required this.loadNotes,
     required this.addNote,
+    required this.editNote,
     required this.softDeleteNote,
     this.onMutated,
   });
 
-  final Future<List<JobNote>> Function() loadNotes;
+  final Future<List<ManagerJobNote>> Function() loadNotes;
   final Future<void> Function(String text) addNote;
+  final Future<void> Function(String noteId, String newText) editNote;
   final Future<void> Function(String noteId) softDeleteNote;
   final Future<void> Function()? onMutated;
 
   @override
-  State<NotesScreen> createState() => _NotesScreenState();
+  State<ManagerNotesScreen> createState() => _ManagerNotesScreenState();
 }
 
-class _NotesScreenState extends State<NotesScreen> {
+class _ManagerNotesScreenState extends State<ManagerNotesScreen> {
   bool _isLoading = true;
-  List<JobNote> _notes = const [];
+  List<ManagerJobNote> _notes = const [];
 
   @override
   void initState() {
@@ -37,19 +39,18 @@ class _NotesScreenState extends State<NotesScreen> {
       if (!mounted) return;
       setState(() => _notes = notes);
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  Future<String?> _showAddNoteDialog() {
-    final controller = TextEditingController();
+  Future<String?> _showNoteDialog({String? initialText}) {
+    final controller = TextEditingController(text: initialText ?? '');
+    final isEdit = initialText != null;
     return showDialog<String>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Add Note'),
+          title: Text(isEdit ? 'Edit Note' : 'Add Job Note'),
           content: TextField(
             controller: controller,
             autofocus: true,
@@ -66,7 +67,7 @@ class _NotesScreenState extends State<NotesScreen> {
             FilledButton(
               onPressed: () =>
                   Navigator.of(context).pop(controller.text.trim()),
-              child: const Text('Save'),
+              child: Text(isEdit ? 'Save' : 'Add'),
             ),
           ],
         );
@@ -75,26 +76,18 @@ class _NotesScreenState extends State<NotesScreen> {
   }
 
   Future<void> _addNoteFlow() async {
-    final text = await _showAddNoteDialog();
-    if (!mounted || text == null) return;
-    if (text.trim().isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Note cannot be empty')));
-      return;
-    }
+    final text = await _showNoteDialog();
+    if (!mounted || text == null || text.isEmpty) return;
 
     try {
       await widget.addNote(text);
-      if (widget.onMutated != null) {
-        await widget.onMutated!();
-      }
+      if (widget.onMutated != null) await widget.onMutated!();
       if (!mounted) return;
       await _reload();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Note added')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Note added')),
+      );
     } catch (error) {
       if (!mounted) return;
       final message = error.toString().replaceFirst(
@@ -109,37 +102,60 @@ class _NotesScreenState extends State<NotesScreen> {
     }
   }
 
+  Future<void> _editNoteFlow({
+    required String noteId,
+    required String currentText,
+  }) async {
+    final newText = await _showNoteDialog(initialText: currentText);
+    if (!mounted || newText == null || newText.isEmpty) return;
+    if (newText == currentText) return;
+
+    try {
+      await widget.editNote(noteId, newText);
+      if (widget.onMutated != null) await widget.onMutated!();
+      if (!mounted) return;
+      await _reload();
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString().replaceFirst(
+        RegExp(r'^(StateError|ArgumentError|Exception):\s*'),
+        '',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message.isEmpty ? 'Failed to edit note' : message),
+        ),
+      );
+    }
+  }
+
   Future<void> _removeNoteFlow({
     required String noteId,
     required String text,
   }) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Remove note?'),
-          content: Text(text),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Remove'),
-            ),
-          ],
-        );
-      },
+      builder: (context) => AlertDialog(
+        title: const Text('Remove note?'),
+        content: Text(text),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
     );
 
     if (confirm != true || !mounted) return;
 
     try {
       await widget.softDeleteNote(noteId);
-      if (widget.onMutated != null) {
-        await widget.onMutated!();
-      }
+      if (widget.onMutated != null) await widget.onMutated!();
       if (!mounted) return;
       await _reload();
     } catch (error) {
@@ -159,7 +175,7 @@ class _NotesScreenState extends State<NotesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Field Notes')),
+      appBar: AppBar(title: const Text('Job Notes')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : Column(
@@ -174,7 +190,7 @@ class _NotesScreenState extends State<NotesScreen> {
                   ),
                 ),
                 if (_notes.isEmpty)
-                  const Expanded(child: Center(child: Text('No notes yet')))
+                  const Expanded(child: Center(child: Text('No job notes yet')))
                 else
                   Expanded(
                     child: ListView.separated(
@@ -187,12 +203,26 @@ class _NotesScreenState extends State<NotesScreen> {
                           contentPadding: EdgeInsets.zero,
                           title: Text(note.text),
                           subtitle: Text(note.createdAt),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () => _removeNoteFlow(
-                              noteId: note.noteId,
-                              text: note.text,
-                            ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined),
+                                tooltip: 'Edit',
+                                onPressed: () => _editNoteFlow(
+                                  noteId: note.noteId,
+                                  currentText: note.text,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline),
+                                tooltip: 'Delete',
+                                onPressed: () => _removeNoteFlow(
+                                  noteId: note.noteId,
+                                  text: note.text,
+                                ),
+                              ),
+                            ],
                           ),
                         );
                       },

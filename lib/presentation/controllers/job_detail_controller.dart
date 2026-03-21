@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../../domain/models/day_note.dart';
 import '../../domain/models/job.dart';
 import '../../domain/models/job_note.dart';
+import '../../domain/models/manager_job_note.dart';
 import '../../domain/models/photo_record.dart';
 import '../../domain/models/video_record.dart';
 import '../../application/jobs_service.dart';
@@ -44,6 +45,17 @@ class JobDetailController {
       _job?.preCleanLayoutPhotos.where((photo) => photo.isActive).length ?? 0;
 
   int get notesCount => activeNotes.length;
+
+  List<ManagerJobNote> get activeManagerNotes {
+    final notes = _job?.managerNotes ?? const [];
+    final active = notes
+        .where((note) => note.status == 'active')
+        .toList(growable: false);
+    active.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return active;
+  }
+
+  int get managerNotesCount => activeManagerNotes.length;
 
   int get videosExitCount =>
       _job?.videos.exit.where((v) => v.isActive).length ?? 0;
@@ -210,6 +222,45 @@ class JobDetailController {
     }
 
     await jobs.softDeleteJobNote(jobDir: jobDir, noteId: trimmed);
+    await loadJob();
+  }
+
+  Future<void> addManagerNote(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(text, 'text', 'Note text cannot be empty.');
+    }
+    await jobs.addManagerNote(jobDir: jobDir, text: trimmed);
+    await loadJob();
+  }
+
+  Future<void> softDeleteManagerNote(String noteId) async {
+    final trimmed = noteId.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(noteId, 'noteId', 'Note id cannot be empty.');
+    }
+    await jobs.softDeleteManagerNote(jobDir: jobDir, noteId: trimmed);
+    await loadJob();
+  }
+
+  Future<void> editManagerNote(String noteId, String newText) async {
+    final trimmedId = noteId.trim();
+    final trimmedText = newText.trim();
+    if (trimmedId.isEmpty) {
+      throw ArgumentError.value(noteId, 'noteId', 'Note id cannot be empty.');
+    }
+    if (trimmedText.isEmpty) {
+      throw ArgumentError.value(
+        newText,
+        'newText',
+        'Note text cannot be empty.',
+      );
+    }
+    await jobs.editManagerNote(
+      jobDir: jobDir,
+      noteId: trimmedId,
+      newText: trimmedText,
+    );
     await loadJob();
   }
 

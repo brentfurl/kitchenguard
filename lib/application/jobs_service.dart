@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../domain/models/day_note.dart';
 import '../domain/models/job.dart';
 import '../domain/models/job_note.dart';
+import '../domain/models/manager_job_note.dart';
 import '../domain/models/photo_record.dart';
 import '../domain/models/unit.dart';
 import '../domain/models/video_record.dart';
@@ -604,6 +605,97 @@ class JobsService {
     await jobStore.writeJob(jobJsonFile, job.copyWith(notes: updatedNotes));
   }
 
+  // ---------------------------------------------------------------------------
+  // Manager Job Notes
+  // ---------------------------------------------------------------------------
+
+  Future<ManagerJobNote> addManagerNote({
+    required Directory jobDir,
+    required String text,
+  }) async {
+    final noteText = text.trim();
+    if (noteText.isEmpty) {
+      throw ArgumentError.value(text, 'text', 'Note text cannot be empty.');
+    }
+
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final note = ManagerJobNote(
+      noteId: _uuid.v4(),
+      text: noteText,
+      createdAt: DateTime.now().toIso8601String(),
+      status: 'active',
+    );
+
+    await jobStore.writeJob(
+      jobJsonFile,
+      job.copyWith(managerNotes: [...job.managerNotes, note]),
+    );
+    return note;
+  }
+
+  Future<void> softDeleteManagerNote({
+    required Directory jobDir,
+    required String noteId,
+  }) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final idx = job.managerNotes.indexWhere((n) => n.noteId == noteId);
+    if (idx < 0) {
+      throw StateError('Manager note not found: $noteId');
+    }
+
+    final updatedNotes = [...job.managerNotes];
+    updatedNotes[idx] = job.managerNotes[idx].copyWith(status: 'deleted');
+
+    await jobStore.writeJob(
+      jobJsonFile,
+      job.copyWith(managerNotes: updatedNotes),
+    );
+  }
+
+  Future<void> editManagerNote({
+    required Directory jobDir,
+    required String noteId,
+    required String newText,
+  }) async {
+    final trimmed = newText.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(
+        newText,
+        'newText',
+        'Note text cannot be empty.',
+      );
+    }
+
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final idx = job.managerNotes.indexWhere((n) => n.noteId == noteId);
+    if (idx < 0) {
+      throw StateError('Manager note not found: $noteId');
+    }
+
+    final updatedNotes = [...job.managerNotes];
+    updatedNotes[idx] = job.managerNotes[idx].copyWith(text: trimmed);
+
+    await jobStore.writeJob(
+      jobJsonFile,
+      job.copyWith(managerNotes: updatedNotes),
+    );
+  }
+
   Future<void> persistAndRecordPreCleanLayoutPhoto({
     required Directory jobDir,
     required File sourceImageFile,
@@ -1157,6 +1249,7 @@ class JobsService {
       schemaVersion: job.schemaVersion,
       units: job.units,
       notes: job.notes,
+      managerNotes: job.managerNotes,
       preCleanLayoutPhotos: job.preCleanLayoutPhotos,
       videos: job.videos,
       scheduledDate: scheduledDate,
@@ -1183,6 +1276,7 @@ class JobsService {
       schemaVersion: job.schemaVersion,
       units: job.units,
       notes: job.notes,
+      managerNotes: job.managerNotes,
       preCleanLayoutPhotos: job.preCleanLayoutPhotos,
       videos: job.videos,
       scheduledDate: job.scheduledDate,

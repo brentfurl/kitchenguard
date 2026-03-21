@@ -102,7 +102,8 @@ job
  ├ schemaVersion      (integer, current = 2)
  ├ units[]
  ├ preCleanLayoutPhotos[]
- ├ notes[]
+ ├ notes[]            (field notes — tech-entered, included in export)
+ ├ managerNotes[]     (manager job notes — NOT included in export)
  └ videos
       ├ exit[]
       └ other[]
@@ -168,10 +169,10 @@ Day-grouped layout. Jobs with a `scheduledDate` appear in day cards sorted chron
 
 ```
 Day Card (date header)
-  └─ Shift Notes section (date-level, manager-entered)
+  └─ Shift Notes section (collapsed counter + add button; expand to view/delete)
   └─ Job tiles (sorted by sortOrder, then createdAt)
        └─ Move up / Move down buttons (reorder within day)
-       └─ Note count chip (tap → NotesScreen)
+       └─ Manager note count chip (tap → ManagerNotesScreen)
 
 Unscheduled Section
   └─ Job tiles (sorted by createdAt desc)
@@ -182,9 +183,7 @@ Unscheduled Section
 ```
 Header (restaurant name + scheduled date + schedule/clear controls)
 ↓
-Shift Notes section (read-only, from DayNote for this job's scheduledDate)
-↓
-Job Notes preview (last 3 active notes, tap → NotesScreen)
+Job Notes card (manager notes count → ManagerNotesScreen)
 ↓
 Tools Card
 ↓
@@ -197,7 +196,7 @@ Contains:
 
 ```
 Pre-clean Layout
-Notes
+Field Notes
 Exit Videos
 Other Videos
 ```
@@ -293,10 +292,10 @@ Hoods/
 Fans/
 Misc/
 Videos/
-notes.txt (optional)
+notes.txt (optional — field notes only)
 ```
 
-Pre-clean layout photos are **excluded**.
+Pre-clean layout photos are **excluded**. Manager job notes are **excluded** from export (only field notes appear in `notes.txt`).
 
 ---
 
@@ -514,17 +513,23 @@ Computed: `isActive`, `isDeleted`.
 
 # Note Type Distinction
 
-Two distinct note types exist, clearly labeled in the UI:
+Three distinct note types exist, clearly labeled in the UI:
 
 **Shift Notes** (`DayNote` entity, `day_notes.json`) — date-level, manager-entered. Logistics, crew assignments, arrival times.
-- Displayed at the day-card level on Jobs Home
-- Displayed as a read-only section on Job Detail (for the job's `scheduledDate`)
+- Displayed at the day-card level on Jobs Home (collapsed counter with expand toggle + add button)
+- NOT displayed on Job Detail
 
-**Job Notes** (`notes[]` on `Job`, `job.json`) — job-level, tech-entered. Field observations during cleaning.
-- Displayed as a count chip on Jobs Home job tiles
-- Displayed as an inline preview (last 3) on Job Detail
+**Manager Job Notes** (`managerNotes[]` on `Job`, `job.json`) — job-level, manager-entered. Job-specific instructions and context.
+- Displayed as a count chip on Jobs Home job tiles (tap → ManagerNotesScreen)
+- Displayed as a card with count on Job Detail (tap → ManagerNotesScreen)
+- Supports add, edit, and soft-delete
+- NOT included in export
 
-Both use the same soft-delete pattern (`status = 'deleted'`). Labeling and placement establish the ownership convention before a full role/permissions layer exists.
+**Field Notes** (`notes[]` on `Job`, `job.json`) — job-level, tech-entered. Field observations during cleaning.
+- Accessible only via Tools → Field Notes
+- Included in export as `notes.txt`
+
+All note types use the same soft-delete pattern (`status = 'deleted'`). Labeling and placement establish the ownership convention before a full role/permissions layer exists.
 
 ---
 
@@ -574,7 +579,8 @@ Unit
 PhotoRecord
 VideoRecord
 Videos (helper for exit/other lists)
-JobNote (moved from lib/application/models/)
+JobNote (field notes — tech-entered)
+ManagerJobNote (manager job notes — manager-entered)
 ```
 
 All domain data must flow through these models. No raw `Map<String, dynamic>` access for job/unit/photo/video data outside the storage layer.

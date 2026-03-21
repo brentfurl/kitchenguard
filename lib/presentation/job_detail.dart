@@ -3,13 +3,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../application/jobs_service.dart';
-import '../domain/models/day_note.dart';
 import '../domain/models/job.dart';
-import '../domain/models/job_note.dart';
 import '../domain/models/photo_record.dart';
 import '../domain/models/unit.dart';
 import '../utils/unit_sorter.dart';
 import 'controllers/job_detail_controller.dart';
+import 'screens/manager_notes_screen.dart';
 import 'screens/notes_screen.dart';
 import 'screens/pre_clean_layout_screen.dart';
 import 'screens/photo_viewer_screen.dart';
@@ -37,7 +36,6 @@ class _JobDetailState extends State<JobDetail> {
   late Job _job;
   bool _isBusy = false;
   final ImagePicker _picker = ImagePicker();
-  List<DayNote> _shiftNotes = const [];
 
   @override
   void initState() {
@@ -97,15 +95,6 @@ class _JobDetailState extends State<JobDetail> {
     setState(() {
       _job = fresh;
     });
-    await _reloadShiftNotes();
-  }
-
-  Future<void> _reloadShiftNotes() async {
-    final notes = await _controller.loadShiftNotes();
-    if (!mounted) return;
-    setState(() {
-      _shiftNotes = notes;
-    });
   }
 
   Future<void> _openSchedulePicker() async {
@@ -130,12 +119,6 @@ class _JobDetailState extends State<JobDetail> {
   Future<void> _clearScheduledDate() async {
     await _controller.setScheduledDate(null);
     await _reloadJob();
-  }
-
-  List<JobNote> get _activeNotes {
-    final notes = _job.notes.where((n) => n.isActive).toList();
-    notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return notes;
   }
 
   Future<int> _loadUnitVisiblePhotoCount({
@@ -629,6 +612,27 @@ class _JobDetailState extends State<JobDetail> {
     await _reloadJob();
   }
 
+  Future<void> _openManagerNotesScreen() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ManagerNotesScreen(
+          loadNotes: () async {
+            await _controller.loadJob();
+            return _controller.activeManagerNotes;
+          },
+          addNote: (text) => _controller.addManagerNote(text),
+          editNote: (noteId, newText) =>
+              _controller.editManagerNote(noteId, newText),
+          softDeleteNote: (noteId) =>
+              _controller.softDeleteManagerNote(noteId),
+          onMutated: _reloadJob,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _reloadJob();
+  }
+
   Future<void> _exportJob() async {
     if (_isExporting) return;
     setState(() => _isExporting = true);
@@ -891,11 +895,9 @@ class _JobDetailState extends State<JobDetail> {
             onSchedule: _openSchedulePicker,
             onClearSchedule: _clearScheduledDate,
           ),
-          if (_job.scheduledDate != null)
-            _ShiftNotesSection(notes: _shiftNotes),
-          _JobNotesPreview(
-            notes: _activeNotes,
-            onOpenNotes: _openNotesScreen,
+          _ManagerNotesCard(
+            count: _job.managerNotes.where((n) => n.isActive).length,
+            onTap: _openManagerNotesScreen,
           ),
           _ToolsCard(onTap: _openToolsScreen),
           Padding(
@@ -1239,84 +1241,15 @@ class _JobHeader extends StatelessWidget {
   }
 }
 
-class _ShiftNotesSection extends StatelessWidget {
-  const _ShiftNotesSection({required this.notes});
+class _ManagerNotesCard extends StatelessWidget {
+  const _ManagerNotesCard({required this.count, required this.onTap});
 
-  final List<DayNote> notes;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-      child: Container(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.secondaryContainer,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.assignment_outlined,
-                  size: 16,
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Shift Notes',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.onSecondaryContainer,
-                  ),
-                ),
-              ],
-            ),
-            if (notes.isEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                'No shift notes for this date.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSecondaryContainer,
-                ),
-              ),
-            ] else ...[
-              const SizedBox(height: 8),
-              ...notes.map(
-                (n) => Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    '• ${n.text}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSecondaryContainer,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _JobNotesPreview extends StatelessWidget {
-  const _JobNotesPreview({
-    required this.notes,
-    required this.onOpenNotes,
-  });
-
-  final List<JobNote> notes;
-  final VoidCallback onOpenNotes;
+  final int count;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final preview = notes.take(3).toList();
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Card(
@@ -1324,58 +1257,29 @@ class _JobNotesPreview extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: onOpenNotes,
+          onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.notes_outlined,
-                      size: 16,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Job Notes',
-                      style: theme.textTheme.labelLarge,
-                    ),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: onOpenNotes,
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text('View all / Add'),
-                    ),
-                  ],
+                Icon(
+                  Icons.note_alt_outlined,
+                  size: 20,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
-                if (preview.isEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'No notes yet — Add one',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                const SizedBox(width: 10),
+                Text('Job Notes', style: theme.textTheme.titleMedium),
+                const SizedBox(width: 8),
+                if (count > 0)
+                  Chip(
+                    label: Text('$count'),
+                    labelStyle: theme.textTheme.labelSmall,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    side: BorderSide.none,
                   ),
-                ] else ...[
-                  const SizedBox(height: 6),
-                  ...preview.map(
-                    (n) => Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        '• ${n.text}',
-                        style: theme.textTheme.bodySmall,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ],
+                const Spacer(),
+                const Icon(Icons.chevron_right),
               ],
             ),
           ),
@@ -1415,7 +1319,7 @@ class _ToolsCard extends StatelessWidget {
                       Text('Tools', style: theme.textTheme.titleMedium),
                       const SizedBox(height: 4),
                       Text(
-                        'Pre-clean layout, notes, and videos',
+                        'Pre-clean layout, field notes, and videos',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
