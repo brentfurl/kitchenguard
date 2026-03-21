@@ -3,7 +3,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../application/jobs_service.dart';
+import '../domain/models/day_note.dart';
 import '../domain/models/job.dart';
+import '../domain/models/job_note.dart';
 import '../domain/models/photo_record.dart';
 import '../domain/models/unit.dart';
 import '../utils/unit_sorter.dart';
@@ -35,6 +37,7 @@ class _JobDetailState extends State<JobDetail> {
   late Job _job;
   bool _isBusy = false;
   final ImagePicker _picker = ImagePicker();
+  List<DayNote> _shiftNotes = const [];
 
   @override
   void initState() {
@@ -94,6 +97,45 @@ class _JobDetailState extends State<JobDetail> {
     setState(() {
       _job = fresh;
     });
+    await _reloadShiftNotes();
+  }
+
+  Future<void> _reloadShiftNotes() async {
+    final notes = await _controller.loadShiftNotes();
+    if (!mounted) return;
+    setState(() {
+      _shiftNotes = notes;
+    });
+  }
+
+  Future<void> _openSchedulePicker() async {
+    final current = _job.scheduledDate;
+    final initial = current != null
+        ? DateTime.tryParse(current) ?? DateTime.now()
+        : DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+    if (picked == null || !mounted) return;
+    final y = picked.year.toString().padLeft(4, '0');
+    final m = picked.month.toString().padLeft(2, '0');
+    final d = picked.day.toString().padLeft(2, '0');
+    await _controller.setScheduledDate('$y-$m-$d');
+    await _reloadJob();
+  }
+
+  Future<void> _clearScheduledDate() async {
+    await _controller.setScheduledDate(null);
+    await _reloadJob();
+  }
+
+  List<JobNote> get _activeNotes {
+    final notes = _job.notes.where((n) => n.isActive).toList();
+    notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return notes;
   }
 
   Future<int> _loadUnitVisiblePhotoCount({
@@ -845,6 +887,15 @@ class _JobDetailState extends State<JobDetail> {
           _JobHeader(
             restaurantName: _job.restaurantName,
             shiftStartDate: _job.shiftStartDate,
+            scheduledDate: _job.scheduledDate,
+            onSchedule: _openSchedulePicker,
+            onClearSchedule: _clearScheduledDate,
+          ),
+          if (_job.scheduledDate != null)
+            _ShiftNotesSection(notes: _shiftNotes),
+          _JobNotesPreview(
+            notes: _activeNotes,
+            onOpenNotes: _openNotesScreen,
           ),
           _ToolsCard(onTap: _openToolsScreen),
           Padding(
@@ -1053,16 +1104,36 @@ class _JobHeader extends StatelessWidget {
   const _JobHeader({
     required this.restaurantName,
     required this.shiftStartDate,
+    required this.scheduledDate,
+    required this.onSchedule,
+    required this.onClearSchedule,
   });
 
   final String restaurantName;
   final String shiftStartDate;
+  final String? scheduledDate;
+  final VoidCallback onSchedule;
+  final VoidCallback onClearSchedule;
+
+  String _formatScheduledDate(String date) {
+    try {
+      final dt = DateTime.parse(date);
+      const months = [
+        '',
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      return '${months[dt.month]} ${dt.day}, ${dt.year}';
+    } catch (_) {
+      return date;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1080,7 +1151,235 @@ class _JobHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
+          if (scheduledDate != null) ...[
+            Row(
+              children: [
+                Icon(
+                  Icons.calendar_today_outlined,
+                  size: 14,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _formatScheduledDate(scheduledDate!),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: onSchedule,
+                  borderRadius: BorderRadius.circular(4),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    child: Text(
+                      'Change',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                InkWell(
+                  onTap: onClearSchedule,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(3),
+                    child: Icon(
+                      Icons.close,
+                      size: 14,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            InkWell(
+              onTap: onSchedule,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  border: Border.all(color: theme.colorScheme.outline),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.calendar_today_outlined,
+                      size: 14,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Schedule',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+class _ShiftNotesSection extends StatelessWidget {
+  const _ShiftNotesSection({required this.notes});
+
+  final List<DayNote> notes;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Container(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.secondaryContainer,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.assignment_outlined,
+                  size: 16,
+                  color: theme.colorScheme.onSecondaryContainer,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Shift Notes',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.onSecondaryContainer,
+                  ),
+                ),
+              ],
+            ),
+            if (notes.isEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                'No shift notes for this date.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSecondaryContainer,
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 8),
+              ...notes.map(
+                (n) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    '• ${n.text}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _JobNotesPreview extends StatelessWidget {
+  const _JobNotesPreview({
+    required this.notes,
+    required this.onOpenNotes,
+  });
+
+  final List<JobNote> notes;
+  final VoidCallback onOpenNotes;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final preview = notes.take(3).toList();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Card(
+        elevation: 1.5,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onOpenNotes,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.notes_outlined,
+                      size: 16,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Job Notes',
+                      style: theme.textTheme.labelLarge,
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: onOpenNotes,
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text('View all / Add'),
+                    ),
+                  ],
+                ),
+                if (preview.isEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'No notes yet — Add one',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 6),
+                  ...preview.map(
+                    (n) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '• ${n.text}',
+                        style: theme.textTheme.bodySmall,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

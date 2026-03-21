@@ -285,6 +285,33 @@ class _JobsHomeState extends State<JobsHome> {
   }
 
   // ---------------------------------------------------------------------------
+  // Reordering
+  // ---------------------------------------------------------------------------
+
+  Future<void> _reorderJobs(
+    String date,
+    List<JobScanResult> jobs,
+    int fromIndex,
+    int toIndex,
+  ) async {
+    final reordered = List<JobScanResult>.from(jobs);
+    final item = reordered.removeAt(fromIndex);
+    reordered.insert(toIndex, item);
+
+    try {
+      for (var i = 0; i < reordered.length; i++) {
+        await widget.jobs.setSortOrder(reordered[i].jobDir, i);
+      }
+      await _loadAll();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Job deletion
   // ---------------------------------------------------------------------------
 
@@ -455,7 +482,17 @@ class _JobsHomeState extends State<JobsHome> {
           _buildShiftNotesSection(context, date: date, notes: shiftNotes),
           // Job tiles
           const Divider(height: 1),
-          ...jobs.map((result) => _buildJobTile(context, result)),
+          for (var i = 0; i < jobs.length; i++)
+            _buildJobTile(
+              context,
+              jobs[i],
+              onMoveUp: i > 0
+                  ? () => _reorderJobs(date, jobs, i, i - 1)
+                  : null,
+              onMoveDown: i < jobs.length - 1
+                  ? () => _reorderJobs(date, jobs, i, i + 1)
+                  : null,
+            ),
         ],
       ),
     );
@@ -561,13 +598,19 @@ class _JobsHomeState extends State<JobsHome> {
     );
   }
 
-  Widget _buildJobTile(BuildContext context, JobScanResult result) {
+  Widget _buildJobTile(
+    BuildContext context,
+    JobScanResult result, {
+    VoidCallback? onMoveUp,
+    VoidCallback? onMoveDown,
+  }) {
     final job = result.job;
     final restaurant =
         job.restaurantName.isNotEmpty ? job.restaurantName : 'Unknown';
     final activeNoteCount = job.notes.where((n) => n.isActive).length;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final hasReorder = onMoveUp != null || onMoveDown != null;
 
     return InkWell(
       onTap: () => _openJobDetail(result),
@@ -607,6 +650,22 @@ class _JobsHomeState extends State<JobsHome> {
                   ),
                 ),
               ),
+            if (hasReorder) ...[
+              IconButton(
+                icon: const Icon(Icons.keyboard_arrow_up),
+                iconSize: 20,
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Move up',
+                onPressed: onMoveUp,
+              ),
+              IconButton(
+                icon: const Icon(Icons.keyboard_arrow_down),
+                iconSize: 20,
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Move down',
+                onPressed: onMoveDown,
+              ),
+            ],
             PopupMenuButton<String>(
               onSelected: (value) async {
                 if (value == 'delete') {

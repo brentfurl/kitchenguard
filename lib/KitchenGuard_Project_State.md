@@ -94,6 +94,7 @@ Example job structure:
 
 ```
 KitchenCleaningJobs/
+  day_notes.json        ← date-level shift notes (all dates)
   Json_test_2026_03_06/
       job.json
 
@@ -117,6 +118,7 @@ Key points:
 - Jobs are **self-contained folders**
 - Media files live inside the job folder
 - `job.json` tracks metadata only
+- `day_notes.json` lives in the root `KitchenCleaningJobs/` directory, not inside any job folder
 
 ---
 
@@ -129,6 +131,8 @@ Example structure (schema version 2):
   "jobId": "a1b2c3d4-...",
   "restaurantName": "Json test",
   "shiftStartDate": "2026-03-06",
+  "scheduledDate": "2026-03-20",
+  "sortOrder": 0,
   "createdAt": "2026-03-06T14:00:00.000Z",
   "updatedAt": "2026-03-06T15:30:00.000Z",
   "schemaVersion": 2,
@@ -167,7 +171,8 @@ Key changes from schema version 1:
 - `videoId` added to all video records (UUID v4)
 - `updatedAt` bumped on every `job.json` write
 - `schemaVersion` integer field added (missing = version 1)
-```
+- `scheduledDate` (String?, YYYY-MM-DD) — nullable, omitted from JSON when null
+- `sortOrder` (int?, 0-based within a day) — nullable, omitted from JSON when null
 
 ---
 
@@ -598,6 +603,8 @@ Computed: `isActive`, `isDeleted`, `isMissing`.
 | jobId | String | UUID v4 | |
 | restaurantName | String | required | |
 | shiftStartDate | String | required | YYYY-MM-DD |
+| scheduledDate | String? | null | YYYY-MM-DD; omitted from JSON when null |
+| sortOrder | int? | null | 0-based within a day; omitted from JSON when null |
 | createdAt | String | required | ISO 8601 UTC |
 | updatedAt | String? | null | bumped on every write |
 | schemaVersion | int | 2 | missing = version 1 |
@@ -605,6 +612,20 @@ Computed: `isActive`, `isDeleted`, `isMissing`.
 | notes | List\<JobNote\> | [] | |
 | preCleanLayoutPhotos | List\<PhotoRecord\> | [] | |
 | videos | Videos | empty | |
+
+### DayNote
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| noteId | String | UUID v4 | |
+| date | String | required | YYYY-MM-DD |
+| text | String | required | |
+| createdAt | String | required | ISO 8601 UTC |
+| status | String | 'active' | 'active' / 'deleted' |
+
+Computed: `isActive`, `isDeleted`.
+
+Stored in `KitchenCleaningJobs/day_notes.json` (root of jobs directory, not inside any job folder). Format: `{ "YYYY-MM-DD": [ {DayNote}, ... ] }`.
 
 ### Videos
 
@@ -673,12 +694,20 @@ No more raw `Map<String, dynamic>` access for job/unit/photo/video data anywhere
 
 All 58 tests pass.
 
-### Phase 2: Scheduling and Management Features
+### Phase 2: Scheduling and Management Features (complete)
 
-- `scheduledDate`, `sortOrder`, `managerNotes`, `clientInfo` fields on Job
-- `DayNote` entity for date-level notes
-- Jobs Home screen redesign: day-grouped cards with reordering
-- Pull-on-refresh sync model for scheduling data (not real-time)
+**Completed:**
+
+- `scheduledDate` (String?, YYYY-MM-DD) and `sortOrder` (int?) added to `Job` model (backward-compatible, null defaults)
+- `DayNote` model at `lib/domain/models/day_note.dart` — `noteId`, `date`, `text`, `createdAt`, `status`; same immutable/fromJson/toJson/copyWith pattern as `JobNote`
+- `DayNoteStore` at `lib/storage/day_note_store.dart` — reads/writes `day_notes.json` in root jobs directory
+- `JobsService` additions: `setScheduledDate`, `setSortOrder`, `addDayNote`, `softDeleteDayNote`, `loadDayNotes`, `loadAllDayNotes`
+- `JobsHome` redesign: day-grouped cards, shift notes section per day, job note count chips, move up/down reorder buttons within day cards
+- `JobDetail` additions: schedule picker in header, read-only shift notes section, job notes inline preview (last 3 active notes)
+- `JobDetailController` additions: `loadShiftNotes()`, `setScheduledDate()`
+- Model and service tests updated/extended
+
+Note: `managerNotes` and `clientInfo` deferred to Phase 3. Sync model deferred to Phase 4.
 
 ### Phase 3: Pre-Sync Architecture
 
@@ -696,7 +725,56 @@ All 58 tests pass.
 
 ---
 
-# 15. Field Testing Plan
+# 15. Jobs Home — Day-Grouped Layout
+
+Jobs Home uses a day-grouped layout as of Phase 2.
+
+### Scheduled Jobs (Day Cards)
+
+Jobs with a `scheduledDate` are grouped into day cards sorted chronologically.
+
+Each day card contains:
+- Date header (formatted: "Monday, March 20, 2026")
+- Shift notes section (date-level, add/delete; long-press or delete icon to remove)
+- Job tiles sorted by `sortOrder` (ascending), then `createdAt` (ascending) as fallback
+- Move up / move down buttons on each job tile for in-day reordering
+
+### Unscheduled Section
+
+Jobs with `scheduledDate == null` appear at the bottom, sorted by `createdAt` descending (newest first). No reorder controls.
+
+### Job Tile
+
+Each job tile shows:
+- Restaurant name
+- Shift start date
+- Note count chip (if > 0 active notes; tap → NotesScreen)
+- Move up / move down icon buttons (scheduled jobs only)
+- Overflow menu (Delete Job)
+
+---
+
+# 16. Notes Visibility
+
+Two distinct note types are labeled and placed to establish ownership convention before a full permissions layer exists.
+
+### Shift Notes (DayNote)
+
+- **Scope:** date-level
+- **Intended author:** manager (logistics, crew info, arrival times)
+- **Storage:** `day_notes.json` in root jobs directory
+- **UI placement:** Shift Notes section on each day card (Jobs Home) and read-only section on Job Detail (only shown when job has a `scheduledDate`)
+
+### Job Notes (JobNote)
+
+- **Scope:** job-level
+- **Intended author:** technician (field observations during cleaning)
+- **Storage:** `notes[]` in `job.json`
+- **UI placement:** Note count chip on job tile (Jobs Home) and inline preview (last 3 active) on Job Detail; full Notes Screen accessible via "View all / Add" or Tools → Notes
+
+---
+
+# 17. Field Testing Plan
 
 Basic workflow:
 
@@ -935,15 +1013,14 @@ Data integrity: **9 / 10**
 Workflow clarity: **9 / 10**
 Field readiness: **9 / 10**
 
-Core field documentation workflow is complete. Phase 1 foundation work is complete.
+Core field documentation workflow is complete. Phase 1 and Phase 2 are complete.
 
-Next priority is Phase 2: scheduling and job management features.
+Next priority is Phase 3: state management, repository abstraction, and lightweight role model.
 
-Phase 1 progress:
-- Model classes: **complete**
-- `UnitSorter` utility: **complete**
-- `AppPaths.categoryForUnitType()`: **complete**
-- Storage layer (JobStore, JobScanner): **complete**
-- Service layer (JobsService): **complete**
-- Controller and UI layers: **complete**
-- Automated tests (models + UnitSorter): **complete** — 58 tests passing
+Phase 2 progress:
+- `scheduledDate` + `sortOrder` on `Job`: **complete**
+- `DayNote` model + `DayNoteStore`: **complete**
+- `JobsService` scheduling methods: **complete**
+- `JobsHome` day-grouped redesign with shift notes + reordering: **complete**
+- `JobDetail` scheduling UI + shift notes + job notes preview: **complete**
+- Automated tests (model round-trips, service methods): **complete**

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/models/day_note.dart';
 import '../../domain/models/job.dart';
 import '../../domain/models/job_note.dart';
 import '../../domain/models/photo_record.dart';
@@ -310,5 +311,24 @@ class JobDetailController {
   Future<File> exportJob() async {
     final jobName = _job?.restaurantName ?? 'Job';
     return await jobs.exportJobZip(jobDir: jobDir, zipBaseName: jobName);
+  }
+
+  /// Returns active [DayNote]s for this job's [Job.scheduledDate].
+  /// Returns an empty list if [scheduledDate] is null or unset.
+  Future<List<DayNote>> loadShiftNotes() async {
+    final job = _job ?? await loadJob();
+    final date = job.scheduledDate;
+    if (date == null || date.isEmpty) return const [];
+    return jobs.loadDayNotes(date);
+  }
+
+  /// Sets or clears the scheduled date on this job.
+  ///
+  /// Pass [date] as YYYY-MM-DD, or null to unschedule.
+  /// Updates the cached [_job] and returns the updated [Job].
+  Future<Job> setScheduledDate(String? date) async {
+    final updated = await jobs.setScheduledDate(jobDir, date);
+    _job = updated;
+    return updated;
   }
 }

@@ -95,6 +95,8 @@ job
  ├ jobId              (UUID v4)
  ├ restaurantName
  ├ shiftStartDate
+ ├ scheduledDate      (String?, YYYY-MM-DD, null = unscheduled)
+ ├ sortOrder          (int?, null = unset; 0-based within a day)
  ├ createdAt
  ├ updatedAt          (bumped on every write)
  ├ schemaVersion      (integer, current = 2)
@@ -105,6 +107,8 @@ job
       ├ exit[]
       └ other[]
 ```
+
+`scheduledDate` and `sortOrder` are nullable and backward-compatible. Jobs without them appear in the "Unscheduled" section. `toJson` omits null values for these fields.
 
 Each unit contains:
 
@@ -158,10 +162,29 @@ UI counts always reflect **visible photos only**.
 
 # Current UI Structure
 
+## Jobs Home Screen
+
+Day-grouped layout. Jobs with a `scheduledDate` appear in day cards sorted chronologically. Jobs without a `scheduledDate` appear in an "Unscheduled" section at the bottom.
+
+```
+Day Card (date header)
+  └─ Shift Notes section (date-level, manager-entered)
+  └─ Job tiles (sorted by sortOrder, then createdAt)
+       └─ Move up / Move down buttons (reorder within day)
+       └─ Note count chip (tap → NotesScreen)
+
+Unscheduled Section
+  └─ Job tiles (sorted by createdAt desc)
+```
+
 ## Job Detail Screen
 
 ```
-Header
+Header (restaurant name + scheduled date + schedule/clear controls)
+↓
+Shift Notes section (read-only, from DayNote for this job's scheduledDate)
+↓
+Job Notes preview (last 3 active notes, tap → NotesScreen)
 ↓
 Tools Card
 ↓
@@ -431,9 +454,9 @@ Smaller images:
 
 # Current Development Phase
 
-KitchenGuard has reached a **field-test milestone** and is now preparing for **collaboration features**.
+**Phase 2 complete** — scheduling fields, DayNote entity, day-grouped JobsHome, and notes visibility on Job Detail are fully implemented.
 
-Core capabilities already complete:
+Core capabilities complete:
 
 - rapid photo capture
 - structured job storage
@@ -441,14 +464,67 @@ Core capabilities already complete:
 - smart unit naming
 - job sorting and deletion
 - export packaging
+- scheduling (`scheduledDate`, `sortOrder`) on `Job`
+- `DayNote` entity and `day_notes.json` storage
+- day-grouped Jobs Home with shift notes and job note counts
+- in-day job reordering (move up / move down)
+- Job Detail: shift notes section + job notes preview + schedule picker
 
-Current phase: **Phase 1 complete** — typed data models, UUID-based IDs, and change-tracking metadata are fully wired through every layer (storage → service → controller → UI screens).
+Note: `managerNotes` and `clientInfo` fields are deferred to Phase 3 (no role distinction yet).
 
-Next phases after foundation:
+Next phases:
 
-1. Scheduling and job management features (manager workflow)
-2. State management and repository abstraction (pre-sync architecture)
-3. Cloud database, sync, auth, and web access for management
+1. Phase 3: State management and repository abstraction (pre-sync architecture), lightweight role model
+2. Phase 4: Cloud database, sync, auth, and web access for management
+
+---
+
+# DayNote Storage
+
+`DayNote` entities are stored in a separate file at the root of the jobs directory:
+
+```
+KitchenCleaningJobs/
+    day_notes.json
+    Restaurant_2026_03_06/
+        job.json
+        ...
+```
+
+`day_notes.json` format:
+
+```json
+{
+  "2026-03-20": [
+    {
+      "noteId": "uuid-v4",
+      "date": "2026-03-20",
+      "text": "Arrive by 8am. Check in with manager.",
+      "createdAt": "2026-03-20T12:00:00.000Z",
+      "status": "active"
+    }
+  ]
+}
+```
+
+`DayNote` fields: `noteId` (UUID v4), `date` (YYYY-MM-DD), `text`, `createdAt` (ISO 8601), `status` (`active` / `deleted`).
+Computed: `isActive`, `isDeleted`.
+
+---
+
+# Note Type Distinction
+
+Two distinct note types exist, clearly labeled in the UI:
+
+**Shift Notes** (`DayNote` entity, `day_notes.json`) — date-level, manager-entered. Logistics, crew assignments, arrival times.
+- Displayed at the day-card level on Jobs Home
+- Displayed as a read-only section on Job Detail (for the job's `scheduledDate`)
+
+**Job Notes** (`notes[]` on `Job`, `job.json`) — job-level, tech-entered. Field observations during cleaning.
+- Displayed as a count chip on Jobs Home job tiles
+- Displayed as an inline preview (last 3) on Job Detail
+
+Both use the same soft-delete pattern (`status = 'deleted'`). Labeling and placement establish the ownership convention before a full role/permissions layer exists.
 
 ---
 
