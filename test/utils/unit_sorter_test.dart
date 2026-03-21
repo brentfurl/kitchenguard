@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kitchenguard_photo_organizer/domain/models/photo_record.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/unit.dart';
 import 'package:kitchenguard_photo_organizer/utils/unit_sorter.dart';
 

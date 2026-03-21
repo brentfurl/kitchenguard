@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kitchenguard_photo_organizer/domain/models/day_note.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/job.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/job_note.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/photo_record.dart';
@@ -243,7 +244,7 @@ void main() {
   // Unit
   // ---------------------------------------------------------------------------
   group('Unit', () {
-    PhotoRecord _activePhoto(String id) => PhotoRecord(
+    PhotoRecord activePhoto(String id) => PhotoRecord(
           photoId: id,
           fileName: '$id.jpg',
           relativePath: '$id.jpg',
@@ -253,7 +254,7 @@ void main() {
           recovered: false,
         );
 
-    PhotoRecord _deletedPhoto(String id) => PhotoRecord(
+    PhotoRecord deletedPhoto(String id) => PhotoRecord(
           photoId: id,
           fileName: '$id.jpg',
           relativePath: '$id.jpg',
@@ -263,7 +264,7 @@ void main() {
           recovered: false,
         );
 
-    PhotoRecord _missingPhoto(String id) => PhotoRecord(
+    PhotoRecord missingPhoto(String id) => PhotoRecord(
           photoId: id,
           fileName: '$id.jpg',
           relativePath: '$id.jpg',
@@ -320,7 +321,7 @@ void main() {
       final u = Unit(
         unitId: 'u1', type: 'hood', name: 'hood 1', unitFolderName: 'hood_1',
         isComplete: false,
-        photosBefore: [_activePhoto('a'), _deletedPhoto('b'), _missingPhoto('c'), _activePhoto('d')],
+        photosBefore: [activePhoto('a'), deletedPhoto('b'), missingPhoto('c'), activePhoto('d')],
         photosAfter: [],
       );
       expect(u.visibleBeforeCount, 2);
@@ -331,7 +332,7 @@ void main() {
         unitId: 'u1', type: 'hood', name: 'hood 1', unitFolderName: 'hood_1',
         isComplete: false,
         photosBefore: [],
-        photosAfter: [_activePhoto('x'), _deletedPhoto('y')],
+        photosAfter: [activePhoto('x'), deletedPhoto('y')],
       );
       expect(u.visibleAfterCount, 1);
     });
@@ -340,7 +341,7 @@ void main() {
       final u = Unit(
         unitId: 'u1', type: 'fan', name: 'fan 1', unitFolderName: 'fan_1',
         isComplete: false,
-        photosBefore: [_deletedPhoto('a'), _missingPhoto('b')],
+        photosBefore: [deletedPhoto('a'), missingPhoto('b')],
         photosAfter: [],
       );
       expect(u.visibleBeforeCount, 0);
@@ -368,7 +369,7 @@ void main() {
   // Job
   // ---------------------------------------------------------------------------
   group('Job', () {
-    Map<String, dynamic> _minimalJobJson() => {
+    Map<String, dynamic> minimalJobJson() => {
           'jobId': 'job-001',
           'restaurantName': 'Test Restaurant',
           'shiftStartDate': '2026-03-06',
@@ -382,7 +383,7 @@ void main() {
         };
 
     test('fromJson / toJson round-trip preserves top-level fields', () {
-      final job = Job.fromJson(_minimalJobJson());
+      final job = Job.fromJson(minimalJobJson());
       final back = job.toJson();
       expect(back['jobId'], 'job-001');
       expect(back['restaurantName'], 'Test Restaurant');
@@ -393,14 +394,14 @@ void main() {
     });
 
     test('fromJson handles missing updatedAt (schema version 1 data)', () {
-      final json = _minimalJobJson()..remove('updatedAt');
+      final json = minimalJobJson()..remove('updatedAt');
       final job = Job.fromJson(json);
       expect(job.updatedAt, isNull);
       expect(job.toJson().containsKey('updatedAt'), isFalse);
     });
 
     test('fromJson defaults schemaVersion to 1 when absent', () {
-      final json = _minimalJobJson()..remove('schemaVersion');
+      final json = minimalJobJson()..remove('schemaVersion');
       final job = Job.fromJson(json);
       expect(job.schemaVersion, 1);
     });
@@ -422,7 +423,7 @@ void main() {
     });
 
     test('nested units survive fromJson / toJson round-trip', () {
-      final json = _minimalJobJson();
+      final json = minimalJobJson();
       json['units'] = [
         {
           'unitId': 'u1', 'type': 'hood', 'name': 'hood 1', 'unitFolderName': 'hood_1',
@@ -438,7 +439,7 @@ void main() {
     });
 
     test('nested notes survive fromJson / toJson round-trip', () {
-      final json = _minimalJobJson();
+      final json = minimalJobJson();
       json['notes'] = [
         {'noteId': 'n1', 'text': 'check pilot lights', 'createdAt': 'now', 'status': 'active'},
       ];
@@ -448,7 +449,7 @@ void main() {
     });
 
     test('nested preCleanLayoutPhotos survive round-trip', () {
-      final json = _minimalJobJson();
+      final json = minimalJobJson();
       json['preCleanLayoutPhotos'] = [
         {'photoId': 'pc1', 'fileName': 'layout.jpg', 'relativePath': 'PreCleanLayout/layout.jpg', 'capturedAt': 'now', 'status': 'local', 'missingLocal': false, 'recovered': false},
       ];
@@ -458,17 +459,147 @@ void main() {
     });
 
     test('copyWith produces independent copy with updated field', () {
-      final job = Job.fromJson(_minimalJobJson());
+      final job = Job.fromJson(minimalJobJson());
       final copy = job.copyWith(restaurantName: 'New Restaurant');
       expect(copy.restaurantName, 'New Restaurant');
       expect(job.restaurantName, 'Test Restaurant');
     });
 
     test('copyWith with updatedAt replaces value', () {
-      final job = Job.fromJson(_minimalJobJson());
+      final job = Job.fromJson(minimalJobJson());
       final copy = job.copyWith(updatedAt: '2026-03-06T20:00:00.000Z');
       expect(copy.updatedAt, '2026-03-06T20:00:00.000Z');
       expect(job.updatedAt, '2026-03-06T15:00:00.000Z');
+    });
+
+    test('fromJson defaults scheduledDate and sortOrder to null when absent', () {
+      final job = Job.fromJson(minimalJobJson());
+      expect(job.scheduledDate, isNull);
+      expect(job.sortOrder, isNull);
+    });
+
+    test('fromJson parses scheduledDate and sortOrder when present', () {
+      final json = minimalJobJson()
+        ..['scheduledDate'] = '2026-03-20'
+        ..['sortOrder'] = 3;
+      final job = Job.fromJson(json);
+      expect(job.scheduledDate, '2026-03-20');
+      expect(job.sortOrder, 3);
+    });
+
+    test('toJson omits null scheduledDate and sortOrder', () {
+      final job = Job.fromJson(minimalJobJson());
+      final json = job.toJson();
+      expect(json.containsKey('scheduledDate'), isFalse);
+      expect(json.containsKey('sortOrder'), isFalse);
+    });
+
+    test('toJson includes scheduledDate and sortOrder when set', () {
+      final json = minimalJobJson()
+        ..['scheduledDate'] = '2026-04-01'
+        ..['sortOrder'] = 0;
+      final job = Job.fromJson(json);
+      final back = job.toJson();
+      expect(back['scheduledDate'], '2026-04-01');
+      expect(back['sortOrder'], 0);
+    });
+
+    test('round-trip preserves scheduledDate and sortOrder', () {
+      final json = minimalJobJson()
+        ..['scheduledDate'] = '2026-05-15'
+        ..['sortOrder'] = 2;
+      final job = Job.fromJson(json);
+      final rebuilt = Job.fromJson(job.toJson());
+      expect(rebuilt.scheduledDate, '2026-05-15');
+      expect(rebuilt.sortOrder, 2);
+    });
+
+    test('copyWith for scheduledDate and sortOrder', () {
+      final job = Job.fromJson(minimalJobJson());
+      final copy = job.copyWith(scheduledDate: '2026-06-01', sortOrder: 5);
+      expect(copy.scheduledDate, '2026-06-01');
+      expect(copy.sortOrder, 5);
+      expect(job.scheduledDate, isNull);
+      expect(job.sortOrder, isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // DayNote
+  // ---------------------------------------------------------------------------
+  group('DayNote', () {
+    final fullJson = <String, dynamic>{
+      'noteId': 'dn-001',
+      'date': '2026-03-20',
+      'text': 'Crew arrives at 6am, bring extra filters',
+      'createdAt': '2026-03-19T22:00:00.000Z',
+      'status': 'active',
+    };
+
+    test('fromJson / toJson round-trip preserves all fields', () {
+      final note = DayNote.fromJson(fullJson);
+      final back = note.toJson();
+      expect(back['noteId'], 'dn-001');
+      expect(back['date'], '2026-03-20');
+      expect(back['text'], 'Crew arrives at 6am, bring extra filters');
+      expect(back['createdAt'], '2026-03-19T22:00:00.000Z');
+      expect(back['status'], 'active');
+    });
+
+    test('fromJson uses defaults for missing fields', () {
+      final note = DayNote.fromJson({
+        'date': '2026-03-20',
+        'text': 'hello',
+        'createdAt': 'now',
+      });
+      expect(note.noteId, '');
+      expect(note.status, 'active');
+    });
+
+    test('fromJson normalizes unknown status to active', () {
+      final note = DayNote.fromJson({
+        ...fullJson,
+        'status': 'some_future_status',
+      });
+      expect(note.status, 'active');
+    });
+
+    test('isActive when status is active', () {
+      final note = DayNote.fromJson(fullJson);
+      expect(note.isActive, isTrue);
+      expect(note.isDeleted, isFalse);
+    });
+
+    test('isDeleted when status is deleted', () {
+      final note = DayNote.fromJson({...fullJson, 'status': 'deleted'});
+      expect(note.isDeleted, isTrue);
+      expect(note.isActive, isFalse);
+    });
+
+    test('copyWith produces independent copy', () {
+      final note = DayNote.fromJson(fullJson);
+      final copy = note.copyWith(status: 'deleted');
+      expect(copy.status, 'deleted');
+      expect(note.status, 'active');
+    });
+
+    test('copyWith replaces date and text', () {
+      final note = DayNote.fromJson(fullJson);
+      final copy = note.copyWith(date: '2026-04-01', text: 'Updated note');
+      expect(copy.date, '2026-04-01');
+      expect(copy.text, 'Updated note');
+      expect(note.date, '2026-03-20');
+      expect(note.text, 'Crew arrives at 6am, bring extra filters');
+    });
+
+    test('full round-trip through fromJson/toJson/fromJson', () {
+      final note = DayNote.fromJson(fullJson);
+      final rebuilt = DayNote.fromJson(note.toJson());
+      expect(rebuilt.noteId, note.noteId);
+      expect(rebuilt.date, note.date);
+      expect(rebuilt.text, note.text);
+      expect(rebuilt.createdAt, note.createdAt);
+      expect(rebuilt.status, note.status);
     });
   });
 }

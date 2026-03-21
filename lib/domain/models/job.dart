@@ -15,6 +15,8 @@ class Job {
     required this.preCleanLayoutPhotos,
     required this.videos,
     this.updatedAt,
+    this.scheduledDate,
+    this.sortOrder,
   });
 
   final String jobId;
@@ -23,6 +25,8 @@ class Job {
   final String createdAt;
   final String? updatedAt;
   final int schemaVersion;
+  final String? scheduledDate;
+  final int? sortOrder;
   final List<Unit> units;
   final List<JobNote> notes;
   final List<PhotoRecord> preCleanLayoutPhotos;
@@ -50,6 +54,8 @@ class Job {
       createdAt: (json['createdAt'] ?? '').toString(),
       updatedAt: json['updatedAt'] as String?,
       schemaVersion: (json['schemaVersion'] as int?) ?? 1,
+      scheduledDate: json['scheduledDate'] as String?,
+      sortOrder: json['sortOrder'] as int?,
       units: unitList,
       notes: noteList,
       preCleanLayoutPhotos: layoutPhotos,
@@ -64,6 +70,8 @@ class Job {
       'shiftStartDate': shiftStartDate,
       'createdAt': createdAt,
       if (updatedAt != null) 'updatedAt': updatedAt,
+      if (scheduledDate != null) 'scheduledDate': scheduledDate,
+      if (sortOrder != null) 'sortOrder': sortOrder,
       'schemaVersion': schemaVersion,
       'units': units.map((u) => u.toJson()).toList(),
       'notes': notes.map((n) => n.toJson()).toList(),
@@ -79,7 +87,9 @@ class Job {
     String? shiftStartDate,
     String? createdAt,
     String? updatedAt,
+    String? scheduledDate,
     int? schemaVersion,
+    int? sortOrder,
     List<Unit>? units,
     List<JobNote>? notes,
     List<PhotoRecord>? preCleanLayoutPhotos,
@@ -91,6 +101,8 @@ class Job {
       shiftStartDate: shiftStartDate ?? this.shiftStartDate,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      scheduledDate: scheduledDate ?? this.scheduledDate,
+      sortOrder: sortOrder ?? this.sortOrder,
       schemaVersion: schemaVersion ?? this.schemaVersion,
       units: units ?? this.units,
       notes: notes ?? this.notes,
