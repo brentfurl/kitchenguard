@@ -5,11 +5,17 @@ import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-import 'models/job_note.dart';
+import '../domain/models/job.dart';
+import '../domain/models/job_note.dart';
+import '../domain/models/photo_record.dart';
+import '../domain/models/unit.dart';
+import '../domain/models/video_record.dart';
+import '../domain/models/videos.dart';
 import '../storage/app_paths.dart';
 import '../storage/image_file_store.dart';
 import '../storage/job_store.dart';
 import '../storage/video_file_store.dart';
+import '../utils/unit_sorter.dart';
 
 /// Creates and updates job folders backed by `job.json`.
 class JobsService {
@@ -52,23 +58,20 @@ class JobsService {
       p.join(jobDir.path, AppPaths.miscCategory),
     ).create(recursive: true);
 
-    final jobJson = <String, dynamic>{
-      // TODO: Replace with UUID v4 once a UUID dependency is approved for v1.
-      'jobId': _newId('job'),
-      'restaurantName': restaurantName,
-      'shiftStartDate': _formatDateYyyyMmDd(localDate),
-      'createdAt': DateTime.now().toUtc().toIso8601String(),
-      'units': <Map<String, dynamic>>[],
-      'notes': <Map<String, dynamic>>[],
-      'preCleanLayoutPhotos': <Map<String, dynamic>>[],
-      'videos': <String, dynamic>{
-        'exit': <Map<String, dynamic>>[],
-        'other': <Map<String, dynamic>>[],
-      },
-    };
+    final job = Job(
+      jobId: _uuid.v4(),
+      restaurantName: restaurantName,
+      shiftStartDate: _formatDateYyyyMmDd(localDate),
+      createdAt: DateTime.now().toUtc().toIso8601String(),
+      schemaVersion: 2,
+      units: const [],
+      notes: const [],
+      preCleanLayoutPhotos: const [],
+      videos: const Videos.empty(),
+    );
 
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    await jobStore.writeJobJson(jobJsonFile, jobJson);
+    await jobStore.writeJob(jobJsonFile, job);
 
     return jobDir;
   }
@@ -99,7 +102,7 @@ class JobsService {
     required String unitType, // "hood" | "fan" | "misc"
   }) async {
     final normalizedType = unitType.trim().toLowerCase();
-    final category = _categoryForUnitType(normalizedType);
+    final category = AppPaths.categoryForUnitType(normalizedType);
     if (category == null) {
       throw ArgumentError.value(
         unitType,
@@ -118,37 +121,27 @@ class JobsService {
     }
 
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('job.json missing: ${jobDir.path}');
     }
 
-    final units = (job['units'] as List?) ?? const [];
     final newNorm = _normalizeUnitName(displayName);
-    for (final u in units) {
-      if (u is! Map) {
-        continue;
-      }
-      final existingType = (u['type'] ?? '').toString().trim().toLowerCase();
-      if (existingType != normalizedType) {
-        continue;
-      }
-      final existingName = (u['name'] ?? '').toString();
-      if (_normalizeUnitName(existingName) == newNorm) {
+    for (final u in job.units) {
+      if (u.type.trim().toLowerCase() != normalizedType) continue;
+      if (_normalizeUnitName(u.name) == newNorm) {
         throw StateError('Unit name already exists: $displayName');
       }
     }
 
-    final restaurantName = (job['restaurantName'] ?? '').toString();
-    final shiftStartRaw = (job['shiftStartDate'] ?? '').toString();
-    if (restaurantName.isEmpty || shiftStartRaw.isEmpty) {
+    if (job.restaurantName.isEmpty || job.shiftStartDate.isEmpty) {
       throw StateError('Invalid job.json in ${jobDir.path}');
     }
-    final shiftStartDate = DateTime.parse(shiftStartRaw);
-    final unitId = _newId('unit');
+    final shiftStartDate = DateTime.parse(job.shiftStartDate);
+    final unitId = _uuid.v4();
 
     final unitPath = await paths.getUnitPathV2(
-      restaurantName: restaurantName,
+      restaurantName: job.restaurantName,
       shiftStartDate: shiftStartDate,
       categoryName: category,
       unitName: displayName,
@@ -168,22 +161,20 @@ class JobsService {
     await beforeDir.create(recursive: true);
     await afterDir.create(recursive: true);
 
-    final unitsForWrite =
-        (job['units'] as List?)?.cast<Map<String, dynamic>>() ??
-        <Map<String, dynamic>>[];
-    unitsForWrite.add(<String, dynamic>{
-      // TODO: Replace with UUID v4 once a UUID dependency is approved for v1.
-      'unitId': unitId,
-      'type': normalizedType,
-      'name': displayName,
-      'unitFolderName': unitFolderName,
-      'isComplete': false,
-      'photosBefore': <dynamic>[],
-      'photosAfter': <dynamic>[],
-    });
+    final newUnit = Unit(
+      unitId: unitId,
+      type: normalizedType,
+      name: displayName,
+      unitFolderName: unitFolderName,
+      isComplete: false,
+      photosBefore: const [],
+      photosAfter: const [],
+    );
 
-    job['units'] = unitsForWrite;
-    await jobStore.writeJobJson(jobJsonFile, job);
+    await jobStore.writeJob(
+      jobJsonFile,
+      job.copyWith(units: [...job.units, newUnit]),
+    );
   }
 
   Future<void> renameUnit({
@@ -201,64 +192,32 @@ class JobsService {
     }
 
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final unitsRaw = job['units'];
-    if (unitsRaw is! List) {
-      throw StateError('Invalid units data in ${jobDir.path}');
-    }
-
-    Map<String, dynamic>? targetUnit;
-    for (var i = 0; i < unitsRaw.length; i++) {
-      final entry = unitsRaw[i];
-      if (entry is! Map) {
-        continue;
-      }
-      final map = entry is Map<String, dynamic>
-          ? entry
-          : Map<String, dynamic>.from(entry);
-      unitsRaw[i] = map;
-      if ((map['unitId'] ?? '').toString() == unitId) {
-        targetUnit = map;
-        break;
-      }
-    }
-
-    if (targetUnit == null) {
+    final targetIndex = job.units.indexWhere((u) => u.unitId == unitId);
+    if (targetIndex < 0) {
       throw StateError('Unit not found for unitId: $unitId');
     }
+    final target = job.units[targetIndex];
+    final targetType = target.type.trim().toLowerCase();
 
-    final targetType = (targetUnit['type'] ?? '')
-        .toString()
-        .trim()
-        .toLowerCase();
     final normalizedNew = _normalizeUnitName(displayName);
-    for (final entry in unitsRaw) {
-      if (entry is! Map) {
-        continue;
-      }
-      final map = entry is Map<String, dynamic>
-          ? entry
-          : Map<String, dynamic>.from(entry);
-      final existingUnitId = (map['unitId'] ?? '').toString();
-      if (existingUnitId == unitId) {
-        continue;
-      }
-      final existingType = (map['type'] ?? '').toString().trim().toLowerCase();
-      if (existingType != targetType) {
-        continue;
-      }
-      final existingName = (map['name'] ?? '').toString();
-      if (_normalizeUnitName(existingName) == normalizedNew) {
+    for (final u in job.units) {
+      if (u.unitId == unitId) continue;
+      if (u.type.trim().toLowerCase() != targetType) continue;
+      if (_normalizeUnitName(u.name) == normalizedNew) {
         throw StateError('Unit name already exists: $displayName');
       }
     }
 
-    targetUnit['name'] = displayName;
-    await jobStore.writeJobJson(jobJsonFile, job);
+    final updatedUnits = job.units
+        .map((u) => u.unitId == unitId ? u.copyWith(name: displayName) : u)
+        .toList();
+
+    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
   }
 
   Future<void> deleteUnitIfEmpty({
@@ -266,48 +225,27 @@ class JobsService {
     required String unitId,
   }) async {
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final unitsRaw = job['units'];
-    if (unitsRaw is! List) {
-      throw StateError('Invalid units data in ${jobDir.path}');
-    }
-
-    var targetIndex = -1;
-    Map<String, dynamic>? targetUnit;
-    for (var i = 0; i < unitsRaw.length; i++) {
-      final entry = unitsRaw[i];
-      if (entry is! Map) {
-        continue;
-      }
-      final map = entry is Map<String, dynamic>
-          ? entry
-          : Map<String, dynamic>.from(entry);
-      unitsRaw[i] = map;
-      if ((map['unitId'] ?? '').toString() == unitId) {
-        targetIndex = i;
-        targetUnit = map;
-        break;
-      }
-    }
-
-    if (targetIndex < 0 || targetUnit == null) {
+    final target = job.units.cast<Unit?>().firstWhere(
+      (u) => u!.unitId == unitId,
+      orElse: () => null,
+    );
+    if (target == null) {
       throw StateError('Unit not found for unitId: $unitId');
     }
 
-    final hasBefore = _hasVisiblePhotos(targetUnit['photosBefore']);
-    final hasAfter = _hasVisiblePhotos(targetUnit['photosAfter']);
-    if (hasBefore || hasAfter) {
+    if (target.visibleBeforeCount > 0 || target.visibleAfterCount > 0) {
       throw StateError(
         'Cannot delete unit with photos. Remove photos before deleting the unit.',
       );
     }
 
-    unitsRaw.removeAt(targetIndex);
-    await jobStore.writeJobJson(jobJsonFile, job);
+    final updatedUnits = job.units.where((u) => u.unitId != unitId).toList();
+    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
   }
 
   Future<void> setUnitCompletion({
@@ -316,40 +254,35 @@ class JobsService {
     required bool isComplete,
   }) async {
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final unitsRaw = (job['units'] as List?) ?? const [];
-    Map<String, dynamic>? targetUnit;
-    for (final entry in unitsRaw) {
-      if (entry is Map<String, dynamic> && entry['unitId'] == unitId) {
-        targetUnit = entry;
-        break;
-      }
-      if (entry is Map && entry['unitId'] == unitId) {
-        targetUnit = Map<String, dynamic>.from(entry);
-        final index = unitsRaw.indexOf(entry);
-        if (index >= 0 && index < unitsRaw.length) {
-          unitsRaw[index] = targetUnit;
-        }
-        break;
-      }
-    }
-
-    if (targetUnit == null) {
+    final target = job.units.cast<Unit?>().firstWhere(
+      (u) => u!.unitId == unitId,
+      orElse: () => null,
+    );
+    if (target == null) {
       throw StateError('Unit not found for unitId: $unitId');
     }
 
-    targetUnit['isComplete'] = isComplete;
-    if (isComplete) {
-      targetUnit['completedAt'] = DateTime.now().toUtc().toIso8601String();
-    } else {
-      targetUnit.remove('completedAt');
-    }
+    final updatedUnit = Unit(
+      unitId: target.unitId,
+      type: target.type,
+      name: target.name,
+      unitFolderName: target.unitFolderName,
+      isComplete: isComplete,
+      completedAt: isComplete ? DateTime.now().toUtc().toIso8601String() : null,
+      photosBefore: target.photosBefore,
+      photosAfter: target.photosAfter,
+    );
 
-    await jobStore.writeJobJson(jobJsonFile, job);
+    final updatedUnits = job.units
+        .map((u) => u.unitId == unitId ? updatedUnit : u)
+        .toList();
+
+    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
   }
 
   Future<void> addPhotoRecord({
@@ -358,31 +291,17 @@ class JobsService {
     required String phase, // "before" | "after"
     required File finalImageFile,
   }) async {
-    final photosKey = _photosKeyForPhase(phase);
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final jobJson = await jobStore.readJobJson(jobJsonFile);
-    if (jobJson == null) {
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final unitsRaw = (jobJson['units'] as List?) ?? const [];
-    Map<String, dynamic>? targetUnit;
-    for (final entry in unitsRaw) {
-      if (entry is Map<String, dynamic> && entry['unitId'] == unitId) {
-        targetUnit = entry;
-        break;
-      }
-      if (entry is Map && entry['unitId'] == unitId) {
-        targetUnit = Map<String, dynamic>.from(entry);
-        final index = unitsRaw.indexOf(entry);
-        if (index >= 0 && index < unitsRaw.length) {
-          unitsRaw[index] = targetUnit;
-        }
-        break;
-      }
-    }
-
-    if (targetUnit == null) {
+    final target = job.units.cast<Unit?>().firstWhere(
+      (u) => u!.unitId == unitId,
+      orElse: () => null,
+    );
+    if (target == null) {
       throw StateError('Unit not found for unitId: $unitId');
     }
 
@@ -390,82 +309,94 @@ class JobsService {
         .relative(finalImageFile.path, from: jobDir.path)
         .replaceAll('\\', '/');
 
-    final photoRecord = <String, dynamic>{
-      'fileName': p.basename(finalImageFile.path),
-      'relativePath': relativePath,
-      'capturedAt': DateTime.now().toUtc().toIso8601String(),
-      'status': 'local',
-    };
+    final photoRecord = PhotoRecord(
+      photoId: _uuid.v4(),
+      fileName: p.basename(finalImageFile.path),
+      relativePath: relativePath,
+      capturedAt: DateTime.now().toUtc().toIso8601String(),
+      status: 'local',
+      missingLocal: false,
+      recovered: false,
+    );
 
-    final photoListRaw = (targetUnit[photosKey] as List?) ?? <dynamic>[];
-    photoListRaw.add(photoRecord);
-    targetUnit[photosKey] = photoListRaw;
+    final normalizedPhase = phase.trim().toLowerCase();
+    final Unit updatedUnit;
+    if (normalizedPhase == 'before') {
+      updatedUnit = target.copyWith(
+        photosBefore: [...target.photosBefore, photoRecord],
+      );
+    } else if (normalizedPhase == 'after') {
+      updatedUnit = target.copyWith(
+        photosAfter: [...target.photosAfter, photoRecord],
+      );
+    } else {
+      throw ArgumentError.value(
+        phase,
+        'phase',
+        'Invalid phase. Use "before" or "after".',
+      );
+    }
 
-    await jobStore.writeJobJson(jobJsonFile, jobJson);
+    final updatedUnits = job.units
+        .map((u) => u.unitId == unitId ? updatedUnit : u)
+        .toList();
+
+    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
   }
 
   Future<void> softDeletePhoto({
     required Directory jobDir,
     required String unitId,
     required String phase, // 'before' | 'after'
-    required String relativePath, // unique key for the photo record
+    required String relativePath,
   }) async {
-    final photosKey = _photosKeyForPhase(phase);
+    final normalizedPhase = phase.trim().toLowerCase();
+    if (normalizedPhase != 'before' && normalizedPhase != 'after') {
+      throw ArgumentError.value(
+        phase,
+        'phase',
+        'Invalid phase. Use "before" or "after".',
+      );
+    }
+
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final jobJson = await jobStore.readJobJson(jobJsonFile);
-    if (jobJson == null) {
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final unitsRaw = (jobJson['units'] as List?) ?? const [];
-    Map<String, dynamic>? targetUnit;
-    for (final entry in unitsRaw) {
-      if (entry is Map<String, dynamic> && entry['unitId'] == unitId) {
-        targetUnit = entry;
-        break;
-      }
-      if (entry is Map && entry['unitId'] == unitId) {
-        targetUnit = Map<String, dynamic>.from(entry);
-        final index = unitsRaw.indexOf(entry);
-        if (index >= 0 && index < unitsRaw.length) {
-          unitsRaw[index] = targetUnit;
-        }
-        break;
-      }
-    }
-
-    if (targetUnit == null) {
+    final target = job.units.cast<Unit?>().firstWhere(
+      (u) => u!.unitId == unitId,
+      orElse: () => null,
+    );
+    if (target == null) {
       throw StateError('Unit not found for unitId: $unitId');
     }
 
-    final photosRaw = (targetUnit[photosKey] as List?) ?? const [];
-    Map<String, dynamic>? targetPhoto;
-    for (final photo in photosRaw) {
-      if (photo is Map<String, dynamic> &&
-          (photo['relativePath'] ?? '').toString() == relativePath) {
-        targetPhoto = photo;
-        break;
-      }
-      if (photo is Map &&
-          (photo['relativePath'] ?? '').toString() == relativePath) {
-        targetPhoto = Map<String, dynamic>.from(photo);
-        final index = photosRaw.indexOf(photo);
-        if (index >= 0 && index < photosRaw.length) {
-          photosRaw[index] = targetPhoto;
-        }
-        break;
-      }
-    }
-
-    if (targetPhoto == null) {
+    final photos = normalizedPhase == 'before'
+        ? target.photosBefore
+        : target.photosAfter;
+    final photoIdx = photos.indexWhere((ph) => ph.relativePath == relativePath);
+    if (photoIdx < 0) {
       throw StateError('Photo record not found: $relativePath');
     }
 
-    targetPhoto['status'] = 'deleted';
-    targetPhoto['deletedAt'] = DateTime.now().toIso8601String();
-    targetUnit[photosKey] = photosRaw;
+    final now = DateTime.now().toIso8601String();
+    final updatedPhotos = [...photos];
+    updatedPhotos[photoIdx] = photos[photoIdx].copyWith(
+      status: 'deleted',
+      deletedAt: now,
+    );
 
-    await jobStore.writeJobJson(jobJsonFile, jobJson);
+    final updatedUnit = normalizedPhase == 'before'
+        ? target.copyWith(photosBefore: updatedPhotos)
+        : target.copyWith(photosAfter: updatedPhotos);
+
+    final updatedUnits = job.units
+        .map((u) => u.unitId == unitId ? updatedUnit : u)
+        .toList();
+
+    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
   }
 
   Future<void> persistAndRecordPhoto({
@@ -514,12 +445,11 @@ class JobsService {
     }
 
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final videos = _getVideosBuckets(job);
     final now = DateTime.now();
     final timestamp = _formatTimestampForFilename(now);
 
@@ -527,16 +457,13 @@ class JobsService {
     if (normalizedKind == 'exit') {
       fileBaseName = 'Exit_video_$timestamp';
     } else {
-      final otherVideos = videos['other'] ?? const <Map<String, dynamic>>[];
       var maxIndex = 0;
       var activeCount = 0;
-      for (final record in otherVideos) {
-        final status = (record['status'] ?? 'local').toString();
-        if (status != 'deleted') {
+      for (final record in job.videos.other) {
+        if (record.isActive) {
           activeCount += 1;
         }
-        final fileName = (record['fileName'] ?? '').toString();
-        final match = RegExp(r'^Video(\d+)_').firstMatch(fileName);
+        final match = RegExp(r'^Video(\d+)_').firstMatch(record.fileName);
         final parsed = match == null ? null : int.tryParse(match.group(1)!);
         if (parsed != null && parsed > maxIndex) {
           maxIndex = parsed;
@@ -556,16 +483,26 @@ class JobsService {
     final relativePath = p
         .relative(finalVideoFile.path, from: jobDir.path)
         .replaceAll('\\', '/');
-    final record = <String, dynamic>{
-      'fileName': p.basename(finalVideoFile.path),
-      'relativePath': relativePath,
-      'capturedAt': DateTime.now().toUtc().toIso8601String(),
-      'status': 'local',
-    };
+    final videoRecord = VideoRecord(
+      videoId: _uuid.v4(),
+      fileName: p.basename(finalVideoFile.path),
+      relativePath: relativePath,
+      capturedAt: DateTime.now().toUtc().toIso8601String(),
+      status: 'local',
+    );
 
-    final bucket = videos[normalizedKind]!;
-    bucket.add(record);
-    await jobStore.writeJobJson(jobJsonFile, job);
+    final Videos updatedVideos;
+    if (normalizedKind == 'exit') {
+      updatedVideos = job.videos.copyWith(
+        exit: [...job.videos.exit, videoRecord],
+      );
+    } else {
+      updatedVideos = job.videos.copyWith(
+        other: [...job.videos.other, videoRecord],
+      );
+    }
+
+    await jobStore.writeJob(jobJsonFile, job.copyWith(videos: updatedVideos));
   }
 
   Future<void> softDeleteVideo({
@@ -583,28 +520,34 @@ class JobsService {
     }
 
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final videos = _getVideosBuckets(job);
-    final bucket = videos[normalizedKind]!;
-    Map<String, dynamic>? target;
-    for (final record in bucket) {
-      if ((record['relativePath'] ?? '').toString() == relativePath) {
-        target = record;
-        break;
-      }
-    }
-
-    if (target == null) {
+    final bucket = normalizedKind == 'exit'
+        ? job.videos.exit
+        : job.videos.other;
+    final idx = bucket.indexWhere((v) => v.relativePath == relativePath);
+    if (idx < 0) {
       throw StateError('Video record not found: $relativePath');
     }
 
-    target['status'] = 'deleted';
-    target['deletedAt'] = DateTime.now().toIso8601String();
-    await jobStore.writeJobJson(jobJsonFile, job);
+    final now = DateTime.now().toIso8601String();
+    final updatedBucket = [...bucket];
+    updatedBucket[idx] = bucket[idx].copyWith(
+      status: 'deleted',
+      deletedAt: now,
+    );
+
+    final Videos updatedVideos;
+    if (normalizedKind == 'exit') {
+      updatedVideos = job.videos.copyWith(exit: updatedBucket);
+    } else {
+      updatedVideos = job.videos.copyWith(other: updatedBucket);
+    }
+
+    await jobStore.writeJob(jobJsonFile, job.copyWith(videos: updatedVideos));
   }
 
   Future<JobNote> addJobNote({
@@ -617,20 +560,22 @@ class JobsService {
     }
 
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final notes = _getNotes(job);
     final note = JobNote(
       noteId: _uuid.v4(),
       text: noteText,
       createdAt: DateTime.now().toIso8601String(),
       status: 'active',
     );
-    notes.add(note.toJson());
-    await jobStore.writeJobJson(jobJsonFile, job);
+
+    await jobStore.writeJob(
+      jobJsonFile,
+      job.copyWith(notes: [...job.notes, note]),
+    );
     return note;
   }
 
@@ -639,25 +584,20 @@ class JobsService {
     required String noteId,
   }) async {
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final notes = _getNotes(job);
-    Map<String, dynamic>? target;
-    for (final note in notes) {
-      if ((note['noteId'] ?? '').toString() == noteId) {
-        target = note;
-        break;
-      }
-    }
-    if (target == null) {
+    final idx = job.notes.indexWhere((n) => n.noteId == noteId);
+    if (idx < 0) {
       throw StateError('Note not found: $noteId');
     }
 
-    target['status'] = 'deleted';
-    await jobStore.writeJobJson(jobJsonFile, job);
+    final updatedNotes = [...job.notes];
+    updatedNotes[idx] = job.notes[idx].copyWith(status: 'deleted');
+
+    await jobStore.writeJob(jobJsonFile, job.copyWith(notes: updatedNotes));
   }
 
   Future<void> persistAndRecordPreCleanLayoutPhoto({
@@ -690,23 +630,30 @@ class JobsService {
     await tempFile.rename(finalFile.path);
 
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final records = _getPreCleanLayoutPhotos(job);
     final relativePath = p
         .relative(finalFile.path, from: jobDir.path)
         .replaceAll('\\', '/');
-    records.add(<String, dynamic>{
-      'fileName': p.basename(finalFile.path),
-      'relativePath': relativePath,
-      'capturedAt': DateTime.now().toUtc().toIso8601String(),
-      'status': 'local',
-    });
+    final photoRecord = PhotoRecord(
+      photoId: _uuid.v4(),
+      fileName: p.basename(finalFile.path),
+      relativePath: relativePath,
+      capturedAt: DateTime.now().toUtc().toIso8601String(),
+      status: 'local',
+      missingLocal: false,
+      recovered: false,
+    );
 
-    await jobStore.writeJobJson(jobJsonFile, job);
+    await jobStore.writeJob(
+      jobJsonFile,
+      job.copyWith(
+        preCleanLayoutPhotos: [...job.preCleanLayoutPhotos, photoRecord],
+      ),
+    );
   }
 
   Future<void> softDeletePreCleanLayoutPhoto({
@@ -714,26 +661,29 @@ class JobsService {
     required String relativePath,
   }) async {
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJobJson(jobJsonFile);
+    final job = await jobStore.readJob(jobJsonFile);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final records = _getPreCleanLayoutPhotos(job);
-    Map<String, dynamic>? target;
-    for (final record in records) {
-      if ((record['relativePath'] ?? '').toString() == relativePath) {
-        target = record;
-        break;
-      }
-    }
-    if (target == null) {
+    final idx = job.preCleanLayoutPhotos.indexWhere(
+      (ph) => ph.relativePath == relativePath,
+    );
+    if (idx < 0) {
       throw StateError('Pre-clean layout photo not found: $relativePath');
     }
 
-    target['status'] = 'deleted';
-    target['deletedAt'] = DateTime.now().toIso8601String();
-    await jobStore.writeJobJson(jobJsonFile, job);
+    final now = DateTime.now().toIso8601String();
+    final updatedPhotos = [...job.preCleanLayoutPhotos];
+    updatedPhotos[idx] = job.preCleanLayoutPhotos[idx].copyWith(
+      status: 'deleted',
+      deletedAt: now,
+    );
+
+    await jobStore.writeJob(
+      jobJsonFile,
+      job.copyWith(preCleanLayoutPhotos: updatedPhotos),
+    );
   }
 
   Future<File> exportJobZip({
@@ -761,7 +711,11 @@ class JobsService {
     File? tempExportJobJsonFile;
 
     try {
-      final exportJobJson = await _buildExportJobJson(jobDir);
+      final exportJob = await _buildSortedExportJob(jobDir);
+      final exportJobJson = exportJob?.toJson();
+      final sortedUnits = exportJob?.units ?? const <Unit>[];
+      final liveUnitPhotoPaths = _collectLiveUnitPhotoPaths(sortedUnits);
+
       if (exportJobJson != null) {
         tempExportJobJsonFile = File(
           p.join(
@@ -802,6 +756,10 @@ class JobsService {
         if (_isExcludedFromExport(relativePath)) {
           continue;
         }
+        if (_isUnitGalleryPhotoPath(relativePath) &&
+            !liveUnitPhotoPaths.contains(relativePath)) {
+          continue;
+        }
         if (tempExportJobJsonFile != null && relativePath == 'job.json') {
           continue;
         }
@@ -814,7 +772,7 @@ class JobsService {
       filesForExport.sort((a, b) {
         final left = (a['relativePath'] ?? '').toString();
         final right = (b['relativePath'] ?? '').toString();
-        return _compareExportPaths(left, right, exportJobJson);
+        return _compareExportPaths(left, right, sortedUnits);
       });
 
       for (final item in filesForExport) {
@@ -889,24 +847,17 @@ class JobsService {
     }
   }
 
-  Future<Map<String, dynamic>?> _buildExportJobJson(Directory jobDir) async {
+  Future<Job?> _buildSortedExportJob(Directory jobDir) async {
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
     if (!await jobJsonFile.exists()) {
       return null;
     }
 
     try {
-      final raw = await jobJsonFile.readAsString();
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) {
-        return null;
-      }
-      final job = decoded is Map<String, dynamic>
-          ? Map<String, dynamic>.from(decoded)
-          : Map<String, dynamic>.from(decoded);
-      final orderedUnits = _getWorkflowOrderedUnits(job['units']);
-      job['units'] = orderedUnits;
-      return job;
+      final job = await jobStore.readJob(jobJsonFile);
+      if (job == null) return null;
+      final sortedUnits = UnitSorter.sort(job.units);
+      return job.copyWith(units: sortedUnits);
     } on FormatException {
       return null;
     } on FileSystemException {
@@ -919,25 +870,62 @@ class JobsService {
         relativePath.startsWith('PreCleanLayout/');
   }
 
+  Set<String> _collectLiveUnitPhotoPaths(List<Unit> units) {
+    final livePaths = <String>{};
+    for (final unit in units) {
+      for (final photo in unit.photosBefore) {
+        if (photo.isActive) {
+          livePaths.add(photo.relativePath.replaceAll('\\', '/'));
+        }
+      }
+      for (final photo in unit.photosAfter) {
+        if (photo.isActive) {
+          livePaths.add(photo.relativePath.replaceAll('\\', '/'));
+        }
+      }
+    }
+    return livePaths;
+  }
+
+  bool _isUnitGalleryPhotoPath(String relativePath) {
+    final normalized = relativePath.replaceAll('\\', '/');
+    final parts = p.posix.split(normalized);
+    if (parts.length < 4) {
+      return false;
+    }
+
+    final root = parts.first;
+    if (root != AppPaths.hoodsCategory &&
+        root != AppPaths.fansCategory &&
+        root != AppPaths.miscCategory) {
+      return false;
+    }
+
+    final phaseDir = parts[2].toLowerCase();
+    final beforeDir = AppPaths.beforeFolderName.toLowerCase();
+    final afterDir = AppPaths.afterFolderName.toLowerCase();
+    return phaseDir == beforeDir || phaseDir == afterDir;
+  }
+
   int _compareExportPaths(
     String left,
     String right,
-    Map<String, dynamic>? exportJobJson,
+    List<Unit> sortedUnits,
   ) {
     final leftParts = p.posix.split(left);
     final rightParts = p.posix.split(right);
     final leftRoot = leftParts.isEmpty ? '' : leftParts.first;
     final rightRoot = rightParts.isEmpty ? '' : rightParts.first;
 
-    final rootCmp = _exportRootRank(
-      leftRoot,
-    ).compareTo(_exportRootRank(rightRoot));
+    final rootCmp = _exportRootRank(leftRoot).compareTo(
+      _exportRootRank(rightRoot),
+    );
     if (rootCmp != 0) {
       return rootCmp;
     }
 
     if (_isUnitCategoryRoot(leftRoot) && _isUnitCategoryRoot(rightRoot)) {
-      final unitOrder = _exportUnitFolderOrderMap(exportJobJson);
+      final unitOrder = _exportUnitFolderOrderMap(sortedUnits);
       final leftUnitFolder = leftParts.length > 1 ? leftParts[1] : '';
       final rightUnitFolder = rightParts.length > 1 ? rightParts[1] : '';
       final leftUnitRank = unitOrder[leftUnitFolder] ?? 1 << 20;
@@ -976,108 +964,21 @@ class JobsService {
         root == AppPaths.miscCategory;
   }
 
-  Map<String, int> _exportUnitFolderOrderMap(
-    Map<String, dynamic>? exportJobJson,
-  ) {
+  Map<String, int> _exportUnitFolderOrderMap(List<Unit> sortedUnits) {
     final map = <String, int>{};
-    if (exportJobJson == null) {
-      return map;
-    }
-    final orderedUnits = _getWorkflowOrderedUnits(exportJobJson['units']);
-    for (var i = 0; i < orderedUnits.length; i++) {
-      final unit = orderedUnits[i];
-      final unitName = (unit['name'] ?? '').toString();
-      final unitId = (unit['unitId'] ?? '').toString();
-      final storedFolder = (unit['unitFolderName'] ?? '').toString().trim();
-      if (storedFolder.isNotEmpty) {
-        map[storedFolder] = i;
+    for (var i = 0; i < sortedUnits.length; i++) {
+      final unit = sortedUnits[i];
+      if (unit.unitFolderName.isNotEmpty) {
+        map[unit.unitFolderName] = i;
       }
-      if (unitName.isNotEmpty && unitId.isNotEmpty) {
-        map[paths.unitFolderName(unitName: unitName, unitId: unitId)] = i;
+      if (unit.name.isNotEmpty && unit.unitId.isNotEmpty) {
+        map[paths.unitFolderName(unitName: unit.name, unitId: unit.unitId)] = i;
       }
-      if (unitName.isNotEmpty) {
-        map[paths.sanitizeName(unitName)] = i;
+      if (unit.name.isNotEmpty) {
+        map[paths.sanitizeName(unit.name)] = i;
       }
     }
     return map;
-  }
-
-  List<Map<String, dynamic>> _getWorkflowOrderedUnits(dynamic rawUnits) {
-    if (rawUnits is! List) {
-      return const <Map<String, dynamic>>[];
-    }
-
-    final units = <Map<String, dynamic>>[];
-    for (final item in rawUnits) {
-      if (item is Map<String, dynamic>) {
-        units.add(Map<String, dynamic>.from(item));
-      } else if (item is Map) {
-        units.add(Map<String, dynamic>.from(item));
-      }
-    }
-
-    units.sort((a, b) {
-      final typeCmp = _unitTypeRankForExport(
-        (a['type'] ?? '').toString(),
-      ).compareTo(_unitTypeRankForExport((b['type'] ?? '').toString()));
-      if (typeCmp != 0) {
-        return typeCmp;
-      }
-
-      final aName = _normalizeUnitSortName((a['name'] ?? '').toString());
-      final bName = _normalizeUnitSortName((b['name'] ?? '').toString());
-      final aNumber = _extractFirstNumber(aName);
-      final bNumber = _extractFirstNumber(bName);
-
-      if (aNumber != null && bNumber != null) {
-        final numCmp = aNumber.compareTo(bNumber);
-        if (numCmp != 0) {
-          return numCmp;
-        }
-      } else if (aNumber != null) {
-        return -1;
-      } else if (bNumber != null) {
-        return 1;
-      }
-
-      final nameCmp = aName.compareTo(bName);
-      if (nameCmp != 0) {
-        return nameCmp;
-      }
-
-      final aId = (a['unitId'] ?? '').toString();
-      final bId = (b['unitId'] ?? '').toString();
-      return aId.compareTo(bId);
-    });
-
-    return units;
-  }
-
-  int _unitTypeRankForExport(String rawType) {
-    switch (rawType.trim().toLowerCase()) {
-      case 'hood':
-        return 0;
-      case 'fan':
-        return 1;
-      default:
-        return 2;
-    }
-  }
-
-  String _normalizeUnitSortName(String name) {
-    final compact = name.trim().toLowerCase();
-    return compact
-        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
-
-  int? _extractFirstNumber(String value) {
-    final match = RegExp(r'(\d+)').firstMatch(value);
-    if (match == null) {
-      return null;
-    }
-    return int.tryParse(match.group(1)!);
   }
 
   Future<String?> _buildExportNotesText(Directory jobDir) async {
@@ -1086,71 +987,46 @@ class JobsService {
       return null;
     }
 
-    Map<String, dynamic> jobJson;
+    final Job job;
     try {
-      final raw = await jobJsonFile.readAsString();
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) {
-        return null;
-      }
-      jobJson = decoded is Map<String, dynamic>
-          ? decoded
-          : Map<String, dynamic>.from(decoded);
+      final loaded = await jobStore.readJob(jobJsonFile);
+      if (loaded == null) return null;
+      job = loaded;
     } on FormatException {
       return null;
     } on FileSystemException {
       return null;
     }
 
-    final notesRaw = jobJson['notes'];
-    if (notesRaw is! List) {
+    final activeNotes = job.notes
+        .where((n) => n.isActive)
+        .map((n) => <String, String>{
+              'text': n.text
+                  .replaceAll(RegExp(r'[\r\n]+'), ' ')
+                  .trim(),
+              'createdAt': n.createdAt,
+            })
+        .where((m) => (m['text'] ?? '').isNotEmpty)
+        .toList();
+
+    if (activeNotes.isEmpty) {
       return null;
     }
 
-    final notes = <Map<String, String>>[];
-    for (final item in notesRaw) {
-      if (item is! Map) {
-        continue;
-      }
-      final map = item is Map<String, dynamic>
-          ? item
-          : Map<String, dynamic>.from(item);
-      final status = (map['status'] ?? 'active').toString();
-      if (status == 'deleted') {
-        continue;
-      }
-      final text = (map['text'] ?? '')
-          .toString()
-          .replaceAll(RegExp(r'[\r\n]+'), ' ')
-          .trim();
-      if (text.isEmpty) {
-        continue;
-      }
-      final createdAt = (map['createdAt'] ?? '').toString();
-      notes.add(<String, String>{'text': text, 'createdAt': createdAt});
-    }
-
-    if (notes.isEmpty) {
-      return null;
-    }
-
-    notes.sort(
+    activeNotes.sort(
       (a, b) => (a['createdAt'] ?? '').compareTo(b['createdAt'] ?? ''),
     );
 
-    final restaurantName = (jobJson['restaurantName'] ?? '').toString().trim();
-    final shiftStartDate = (jobJson['shiftStartDate'] ?? '').toString().trim();
-
     final buffer = StringBuffer();
     buffer.writeln('Notes');
-    if (restaurantName.isNotEmpty) {
-      buffer.writeln('Restaurant: $restaurantName');
+    if (job.restaurantName.isNotEmpty) {
+      buffer.writeln('Restaurant: ${job.restaurantName}');
     }
-    if (shiftStartDate.isNotEmpty) {
-      buffer.writeln('Shift: $shiftStartDate');
+    if (job.shiftStartDate.isNotEmpty) {
+      buffer.writeln('Shift: ${job.shiftStartDate}');
     }
     buffer.writeln();
-    for (final note in notes) {
+    for (final note in activeNotes) {
       buffer.writeln('- ${note['text'] ?? ''}');
     }
     return buffer.toString();
@@ -1162,7 +1038,7 @@ class JobsService {
     required String unitName,
     required String unitId,
   }) async {
-    final category = _categoryForUnitType(unitType.trim().toLowerCase());
+    final category = AppPaths.categoryForUnitType(unitType.trim().toLowerCase());
     if (category == null) {
       throw ArgumentError.value(
         unitType,
@@ -1172,57 +1048,40 @@ class JobsService {
     }
 
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final jobJson = await jobStore.readJobJson(jobJsonFile);
-    if (jobJson == null) {
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
 
-    final unitsRaw = (jobJson['units'] as List?) ?? const [];
-    Map<String, dynamic>? targetUnit;
-    for (final entry in unitsRaw) {
-      if (entry is Map<String, dynamic> && entry['unitId'] == unitId) {
-        targetUnit = entry;
-        break;
-      }
-      if (entry is Map && entry['unitId'] == unitId) {
-        targetUnit = Map<String, dynamic>.from(entry);
-        final index = unitsRaw.indexOf(entry);
-        if (index >= 0 && index < unitsRaw.length) {
-          unitsRaw[index] = targetUnit;
-        }
-        break;
-      }
-    }
-
-    if (targetUnit == null) {
+    final target = job.units.cast<Unit?>().firstWhere(
+      (u) => u!.unitId == unitId,
+      orElse: () => null,
+    );
+    if (target == null) {
       throw StateError('Unit not found in job.json: $unitId');
     }
 
-    final effectiveUnitName = (targetUnit['name'] ?? unitName).toString();
+    final effectiveUnitName =
+        target.name.isNotEmpty ? target.name : unitName;
 
-    final storedFolderName = (targetUnit['unitFolderName'] ?? '')
-        .toString()
-        .trim();
-    if (storedFolderName.isNotEmpty) {
-      return storedFolderName;
+    if (target.unitFolderName.isNotEmpty) {
+      return target.unitFolderName;
     }
 
-    final restaurantName = (jobJson['restaurantName'] ?? '').toString();
-    final shiftStartRaw = (jobJson['shiftStartDate'] ?? '').toString();
-    if (restaurantName.isEmpty || shiftStartRaw.isEmpty) {
+    if (job.restaurantName.isEmpty || job.shiftStartDate.isEmpty) {
       throw StateError('Invalid job.json in ${jobDir.path}');
     }
-    final shiftStartDate = DateTime.parse(shiftStartRaw);
+    final shiftStartDate = DateTime.parse(job.shiftStartDate);
 
     final unitPathV2 = await paths.getUnitPathV2(
-      restaurantName: restaurantName,
+      restaurantName: job.restaurantName,
       shiftStartDate: shiftStartDate,
       categoryName: category,
       unitName: effectiveUnitName,
       unitId: unitId,
     );
     final unitPathLegacy = await paths.getUnitPath(
-      restaurantName: restaurantName,
+      restaurantName: job.restaurantName,
       shiftStartDate: shiftStartDate,
       categoryName: category,
       unitName: effectiveUnitName,
@@ -1231,7 +1090,7 @@ class JobsService {
     final unitDirV2 = Directory(unitPathV2);
     final unitDirLegacy = Directory(unitPathLegacy);
 
-    String resolvedFolderName;
+    final String resolvedFolderName;
     if (await unitDirV2.exists()) {
       resolvedFolderName = p.basename(unitDirV2.path);
     } else if (await unitDirLegacy.exists()) {
@@ -1246,111 +1105,24 @@ class JobsService {
       resolvedFolderName = p.basename(unitDirV2.path);
     }
 
-    targetUnit['unitFolderName'] = resolvedFolderName;
-    await jobStore.writeJobJson(jobJsonFile, jobJson);
+    final updatedUnit = Unit(
+      unitId: target.unitId,
+      type: target.type,
+      name: target.name,
+      unitFolderName: resolvedFolderName,
+      isComplete: target.isComplete,
+      completedAt: target.completedAt,
+      photosBefore: target.photosBefore,
+      photosAfter: target.photosAfter,
+    );
+
+    final updatedUnits = job.units
+        .map((u) => u.unitId == unitId ? updatedUnit : u)
+        .toList();
+
+    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
 
     return resolvedFolderName;
-  }
-
-  Map<String, List<Map<String, dynamic>>> _getVideosBuckets(
-    Map<String, dynamic> job,
-  ) {
-    final videosRaw = job['videos'];
-    Map<String, dynamic> videos;
-    if (videosRaw is Map<String, dynamic>) {
-      videos = videosRaw;
-    } else if (videosRaw is Map) {
-      videos = Map<String, dynamic>.from(videosRaw);
-      job['videos'] = videos;
-    } else {
-      videos = <String, dynamic>{};
-      job['videos'] = videos;
-    }
-
-    List<Map<String, dynamic>> normalizeBucket(String key) {
-      final raw = videos[key];
-      if (raw is List<Map<String, dynamic>>) {
-        return raw;
-      }
-      if (raw is List) {
-        final normalized = <Map<String, dynamic>>[];
-        for (final item in raw) {
-          if (item is Map<String, dynamic>) {
-            normalized.add(item);
-          } else if (item is Map) {
-            normalized.add(Map<String, dynamic>.from(item));
-          }
-        }
-        videos[key] = normalized;
-        return normalized;
-      }
-      final created = <Map<String, dynamic>>[];
-      videos[key] = created;
-      return created;
-    }
-
-    final exit = normalizeBucket('exit');
-    final other = normalizeBucket('other');
-    return <String, List<Map<String, dynamic>>>{'exit': exit, 'other': other};
-  }
-
-  List<Map<String, dynamic>> _getNotes(Map<String, dynamic> job) {
-    final raw = job['notes'];
-    if (raw is List<Map<String, dynamic>>) {
-      return raw;
-    }
-    if (raw is List) {
-      final normalized = <Map<String, dynamic>>[];
-      for (final item in raw) {
-        if (item is Map<String, dynamic>) {
-          normalized.add(item);
-        } else if (item is Map) {
-          normalized.add(Map<String, dynamic>.from(item));
-        }
-      }
-      job['notes'] = normalized;
-      return normalized;
-    }
-    final created = <Map<String, dynamic>>[];
-    job['notes'] = created;
-    return created;
-  }
-
-  List<Map<String, dynamic>> _getPreCleanLayoutPhotos(
-    Map<String, dynamic> job,
-  ) {
-    final raw = job['preCleanLayoutPhotos'];
-    if (raw is List<Map<String, dynamic>>) {
-      return raw;
-    }
-    if (raw is List) {
-      final normalized = <Map<String, dynamic>>[];
-      for (final item in raw) {
-        if (item is Map<String, dynamic>) {
-          normalized.add(item);
-        } else if (item is Map) {
-          normalized.add(Map<String, dynamic>.from(item));
-        }
-      }
-      job['preCleanLayoutPhotos'] = normalized;
-      return normalized;
-    }
-    final created = <Map<String, dynamic>>[];
-    job['preCleanLayoutPhotos'] = created;
-    return created;
-  }
-
-  String? _categoryForUnitType(String unitType) {
-    switch (unitType) {
-      case 'hood':
-        return AppPaths.hoodsCategory;
-      case 'fan':
-        return AppPaths.fansCategory;
-      case 'misc':
-        return AppPaths.miscCategory;
-      default:
-        return null;
-    }
   }
 
   String _formatDateYyyyMmDd(DateTime date) {
@@ -1395,42 +1167,5 @@ class JobsService {
 
   String _normalizeUnitName(String name) {
     return name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-  }
-
-  String _newId(String prefix) {
-    final micros = DateTime.now().toUtc().microsecondsSinceEpoch;
-    return '$prefix-$micros';
-  }
-
-  String _photosKeyForPhase(String phase) {
-    switch (phase.trim().toLowerCase()) {
-      case 'before':
-        return 'photosBefore';
-      case 'after':
-        return 'photosAfter';
-      default:
-        throw ArgumentError.value(
-          phase,
-          'phase',
-          'Invalid phase. Use "before" or "after".',
-        );
-    }
-  }
-
-  bool _hasVisiblePhotos(dynamic list) {
-    if (list is! List) {
-      return false;
-    }
-    for (final item in list) {
-      if (item is! Map) {
-        continue;
-      }
-      final status = (item['status'] ?? 'local').toString();
-      final missingLocal = item['missingLocal'] == true;
-      if (status != 'deleted' && status != 'missing_local' && !missingLocal) {
-        return true;
-      }
-    }
-    return false;
   }
 }

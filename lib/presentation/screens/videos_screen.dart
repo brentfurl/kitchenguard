@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../domain/models/video_record.dart';
 import 'video_player_screen.dart';
 
 class VideosScreen extends StatefulWidget {
@@ -17,7 +18,7 @@ class VideosScreen extends StatefulWidget {
 
   final String title;
   final String kind; // 'exit' | 'other'
-  final Future<List<Map<String, dynamic>>> Function() loadVideos;
+  final Future<List<VideoRecord>> Function() loadVideos;
   final Future<void> Function() captureVideo;
   final Future<File?> Function(String relativePath) resolveVideoFile;
   final Future<void> Function(String relativePath)? softDelete;
@@ -28,7 +29,7 @@ class VideosScreen extends StatefulWidget {
 
 class _VideosScreenState extends State<VideosScreen> {
   bool _isLoading = true;
-  List<Map<String, dynamic>> _videos = const [];
+  List<VideoRecord> _videos = const [];
 
   @override
   void initState() {
@@ -160,10 +161,10 @@ class _VideosScreenState extends State<VideosScreen> {
                   )
                 else
                   ..._videos.map((video) {
-                    final fileName = (video['fileName'] ?? 'Unnamed video')
-                        .toString();
-                    final relativePath = (video['relativePath'] ?? '')
-                        .toString();
+                    final fileName = video.fileName.isEmpty
+                        ? 'Unnamed video'
+                        : video.fileName;
+                    final relativePath = video.relativePath;
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(fileName),

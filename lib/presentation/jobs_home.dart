@@ -52,7 +52,7 @@ class _JobsHomeState extends State<JobsHome> {
   }
 
   Future<String?> _showCreateJobDialog() {
-    final controller = TextEditingController(text: 'Test_Restaurant');
+    final controller = TextEditingController();
     return showDialog<String>(
       context: context,
       builder: (context) {
@@ -127,8 +127,8 @@ class _JobsHomeState extends State<JobsHome> {
   List<JobScanResult> _sortJobsNewestFirst(List<JobScanResult> jobs) {
     final indexed = jobs.asMap().entries.toList();
     indexed.sort((a, b) {
-      final left = _jobSortDate(a.value.jobData);
-      final right = _jobSortDate(b.value.jobData);
+      final left = _jobSortDate(a.value);
+      final right = _jobSortDate(b.value);
       if (left != null && right != null) {
         final cmp = right.compareTo(left);
         if (cmp != 0) {
@@ -144,20 +144,18 @@ class _JobsHomeState extends State<JobsHome> {
     return indexed.map((entry) => entry.value).toList(growable: false);
   }
 
-  DateTime? _jobSortDate(Map<String, dynamic> data) {
-    DateTime? parse(String key) {
-      final raw = (data[key] ?? '').toString().trim();
-      if (raw.isEmpty) {
-        return null;
-      }
-      return DateTime.tryParse(raw);
+  DateTime? _jobSortDate(JobScanResult result) {
+    DateTime? parse(String raw) {
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty) return null;
+      return DateTime.tryParse(trimmed);
     }
 
-    final createdAt = parse('createdAt');
+    final createdAt = parse(result.job.createdAt);
     if (createdAt != null) {
       return createdAt.toUtc();
     }
-    final shiftStartDate = parse('shiftStartDate');
+    final shiftStartDate = parse(result.job.shiftStartDate);
     if (shiftStartDate != null) {
       return shiftStartDate.toUtc();
     }
@@ -165,7 +163,9 @@ class _JobsHomeState extends State<JobsHome> {
   }
 
   Future<void> _confirmDeleteJob(JobScanResult job) async {
-    final name = (job.jobData['restaurantName'] ?? 'this job').toString();
+    final name = job.job.restaurantName.isNotEmpty
+        ? job.job.restaurantName
+        : 'this job';
     final shouldDelete = await showDialog<bool>(
       context: context,
       builder: (context) {
@@ -224,18 +224,20 @@ class _JobsHomeState extends State<JobsHome> {
       body = ListView.builder(
         itemCount: _results.length,
         itemBuilder: (context, index) {
-          final data = _results[index].jobData;
-          final restaurant = (data['restaurantName'] ?? 'Unknown').toString();
-          final shiftStart = (data['shiftStartDate'] ?? '').toString();
+          final result = _results[index];
+          final restaurant = result.job.restaurantName.isNotEmpty
+              ? result.job.restaurantName
+              : 'Unknown';
+          final shiftStart = result.job.shiftStartDate;
 
           return ListTile(
             title: Text(restaurant),
             subtitle: Text(shiftStart),
-            onTap: () => _openJobDetail(_results[index]),
+            onTap: () => _openJobDetail(result),
             trailing: PopupMenuButton<String>(
               onSelected: (value) async {
                 if (value == 'delete') {
-                  await _confirmDeleteJob(_results[index]);
+                  await _confirmDeleteJob(result);
                 }
               },
               itemBuilder: (context) => const [

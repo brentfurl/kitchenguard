@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/models/photo_record.dart';
+
 class PhotoViewerScreen extends StatefulWidget {
   const PhotoViewerScreen({
     super.key,
@@ -17,11 +19,11 @@ class PhotoViewerScreen extends StatefulWidget {
 
   final Directory jobDir;
   final String title;
-  final List<Map<String, dynamic>> photos;
+  final List<PhotoRecord> photos;
   final int initialIndex;
   final Future<void> Function(String relativePath) onSoftDelete;
   final Future<void> Function() onJobMutated;
-  final Future<List<Map<String, dynamic>>> Function()? reloadPhotos;
+  final Future<List<PhotoRecord>> Function()? reloadPhotos;
 
   @override
   State<PhotoViewerScreen> createState() => _PhotoViewerScreenState();
@@ -30,16 +32,13 @@ class PhotoViewerScreen extends StatefulWidget {
 class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
   late final PageController _pageController;
   late int _currentIndex;
-  late List<Map<String, dynamic>> _photos;
+  late List<PhotoRecord> _photos;
 
   @override
   void initState() {
     super.initState();
     _photos = widget.photos
-        .where((photo) {
-          final status = (photo['status'] ?? 'local').toString();
-          return status != 'deleted';
-        })
+        .where((photo) => !photo.isDeleted)
         .toList(growable: true);
     final initial = _photos.isEmpty
         ? 0
@@ -85,7 +84,7 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
     }
 
     final photo = _photos[_currentIndex];
-    final relativePath = (photo['relativePath'] ?? '').toString();
+    final relativePath = photo.relativePath;
     if (relativePath.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Cannot remove photo: missing path.')),
@@ -136,15 +135,13 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
             },
             itemBuilder: (context, index) {
               final photo = _photos[index];
-              final status = (photo['status'] ?? 'local').toString();
-              final relativePath = (photo['relativePath'] ?? '').toString();
-
+              final relativePath = photo.relativePath;
               final hasPath = relativePath.isNotEmpty;
               final file = hasPath
                   ? File(p.join(widget.jobDir.path, relativePath))
                   : null;
               final missing =
-                  status == 'missing_local' ||
+                  photo.isMissing ||
                   !hasPath ||
                   file == null ||
                   !file.existsSync();

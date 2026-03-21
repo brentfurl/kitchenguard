@@ -3,7 +3,10 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 
-import '../../application/models/job_note.dart';
+import '../../domain/models/job.dart';
+import '../../domain/models/job_note.dart';
+import '../../domain/models/photo_record.dart';
+import '../../domain/models/video_record.dart';
 import '../../application/jobs_service.dart';
 
 class JobDetailController {
@@ -11,112 +14,79 @@ class JobDetailController {
 
   final JobsService jobs;
   final Directory jobDir;
-  Map<String, dynamic>? _jobData;
-  List<JobNote> _notes = const [];
+  Job? _job;
 
-  List<JobNote> get activeNotes =>
-      _notes.where((note) => note.status == 'active').toList(growable: false);
-  List<JobNote> get allNotes => List<JobNote>.unmodifiable(_notes);
+  List<JobNote> get activeNotes {
+    final notes = _job?.notes ?? const [];
+    final active = notes
+        .where((note) => note.status == 'active')
+        .toList(growable: false);
+    // newest first
+    active.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return active;
+  }
 
-  int get photosBeforeCount => _countPhotosForPhase('before');
-  int get photosAfterCount => _countPhotosForPhase('after');
+  List<JobNote> get allNotes =>
+      List<JobNote>.unmodifiable(_job?.notes ?? const []);
+
+  int get photosBeforeCount {
+    final units = _job?.units ?? const [];
+    return units.fold(0, (sum, u) => sum + u.visibleBeforeCount);
+  }
+
+  int get photosAfterCount {
+    final units = _job?.units ?? const [];
+    return units.fold(0, (sum, u) => sum + u.visibleAfterCount);
+  }
+
   int get preCleanLayoutCount =>
-      countDisplayablePhotos(_jobData?['preCleanLayoutPhotos']);
-  int get videosExitCount => _countVideosForKind('exit');
-  int get videosOtherCount => _countVideosForKind('other');
-  int get missingPhotosCount => _countMissingPhotos();
+      _job?.preCleanLayoutPhotos.where((photo) => photo.isActive).length ?? 0;
 
-  Future<Map<String, dynamic>> loadJob() async {
-    final jobJson = File(p.join(jobDir.path, 'job.json'));
-    final data = await jobs.jobStore.readJobJson(jobJson);
-    if (data == null) {
-      throw StateError('job.json missing: ${jobDir.path}');
-    }
-    _jobData = data;
-    _notes = _parseNotes(data);
-    return data;
-  }
+  int get notesCount => activeNotes.length;
 
-  Map<String, dynamic>? findUnitById(Map<String, dynamic> job, String unitId) {
-    final units = (job['units'] as List?) ?? const [];
-    for (final unit in units) {
-      if (unit is! Map) {
-        continue;
-      }
-      if ((unit['unitId'] ?? '').toString() == unitId) {
-        return unit is Map<String, dynamic>
-            ? unit
-            : Map<String, dynamic>.from(unit);
-      }
-    }
-    return null;
-  }
+  int get videosExitCount =>
+      _job?.videos.exit.where((v) => v.isActive).length ?? 0;
 
-  List<Map<String, dynamic>> bucketPhotos(
-    Map<String, dynamic> unit,
-    String phase, {
-    bool includeDeleted = false,
-  }) {
-    final normalized = phase.trim().toLowerCase();
-    final key = switch (normalized) {
-      'before' => 'photosBefore',
-      'after' => 'photosAfter',
-      _ => throw ArgumentError.value(
-        phase,
-        'phase',
-        'Invalid phase. Use "before" or "after".',
-      ),
-    };
+  int get videosOtherCount =>
+      _job?.videos.other.where((v) => v.isActive).length ?? 0;
 
-    final source = unit[key];
-    if (source is! List) {
-      return const [];
-    }
-
-    final result = <Map<String, dynamic>>[];
-    for (final item in source) {
-      if (item is! Map) {
-        continue;
-      }
-      final map = Map<String, dynamic>.from(item);
-      if (!includeDeleted && !_isDisplayablePhoto(map)) {
-        continue;
-      }
-      result.add(map);
-    }
-    return result;
-  }
-
-  int countDisplayablePhotos(dynamic source) {
-    if (source is! List) {
-      return 0;
-    }
-
+  int get missingPhotosCount {
+    final units = _job?.units ?? const [];
     var count = 0;
-    for (final item in source) {
-      if (item is! Map) {
-        continue;
-      }
-      final map = item is Map<String, dynamic>
-          ? item
-          : Map<String, dynamic>.from(item);
-      if (_isDisplayablePhoto(map)) {
-        count += 1;
-      }
+    for (final unit in units) {
+      count += unit.photosBefore
+          .where((photo) => photo.isMissing && !photo.isDeleted)
+          .length;
+      count += unit.photosAfter
+          .where((photo) => photo.isMissing && !photo.isDeleted)
+          .length;
     }
     return count;
   }
 
+  Future<Job> loadJob() async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobs.jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('job.json missing: ${jobDir.path}');
+    }
+    _job = job;
+    return job;
+  }
+
   Future<void> capturePhoto({
-    required Map<String, dynamic> unit,
+    required String unitId,
     required String phase,
     required ImagePicker picker,
   }) async {
     final normalizedPhase = phase.trim().toLowerCase();
-    final unitId = (unit['unitId'] ?? '').toString();
-    final unitType = (unit['type'] ?? '').toString();
-    final unitName = (unit['name'] ?? '').toString();
-    if (unitId.isEmpty || unitType.isEmpty || unitName.trim().isEmpty) {
+    final job = _job ?? await loadJob();
+    final unit = job.units.firstWhere(
+      (u) => u.unitId == unitId,
+      orElse: () => throw StateError('Unit not found'),
+    );
+
+    if (unit.type.isEmpty || unit.name.trim().isEmpty) {
       throw ArgumentError('Invalid unit data.');
     }
 
@@ -130,9 +100,9 @@ class JobDetailController {
 
     await jobs.persistAndRecordPhoto(
       jobDir: jobDir,
-      unitType: unitType,
-      unitName: unitName,
-      unitId: unitId,
+      unitType: unit.type,
+      unitName: unit.name,
+      unitId: unit.unitId,
       phase: normalizedPhase,
       sourceImageFile: File(picked.path),
     );
@@ -145,22 +115,20 @@ class JobDetailController {
     required File sourceImageFile,
   }) async {
     final normalizedPhase = phase.trim().toLowerCase();
-    final job = _jobData ?? await loadJob();
-    final unit = findUnitById(job, unitId);
-    if (unit == null) {
-      throw StateError('Unit not found');
-    }
+    final job = _job ?? await loadJob();
+    final unit = job.units.firstWhere(
+      (u) => u.unitId == unitId,
+      orElse: () => throw StateError('Unit not found'),
+    );
 
-    final unitType = (unit['type'] ?? '').toString();
-    final unitName = (unit['name'] ?? '').toString();
-    if (unitType.isEmpty || unitName.trim().isEmpty) {
+    if (unit.type.isEmpty || unit.name.trim().isEmpty) {
       throw ArgumentError('Invalid unit data.');
     }
 
     await jobs.persistAndRecordPhoto(
       jobDir: jobDir,
-      unitType: unitType,
-      unitName: unitName,
+      unitType: unit.type,
+      unitName: unit.name,
       unitId: unitId,
       phase: normalizedPhase,
       sourceImageFile: sourceImageFile,
@@ -244,7 +212,7 @@ class JobDetailController {
     await loadJob();
   }
 
-  Future<List<Map<String, dynamic>>> loadVideos({required String kind}) async {
+  Future<List<VideoRecord>> loadVideos({required String kind}) async {
     final normalized = kind.trim().toLowerCase();
     if (normalized != 'exit' && normalized != 'other') {
       throw ArgumentError.value(
@@ -254,30 +222,9 @@ class JobDetailController {
       );
     }
 
-    final job = _jobData ?? await loadJob();
-    final videos = job['videos'];
-    if (videos is! Map) {
-      return const [];
-    }
-
-    final bucket = videos[normalized];
-    if (bucket is! List) {
-      return const [];
-    }
-
-    final result = <Map<String, dynamic>>[];
-    for (final item in bucket) {
-      if (item is! Map) {
-        continue;
-      }
-      final map = Map<String, dynamic>.from(item);
-      final status = (map['status'] ?? 'local').toString();
-      if (status == 'deleted') {
-        continue;
-      }
-      result.add(map);
-    }
-    return result;
+    final job = _job ?? await loadJob();
+    final bucket = normalized == 'exit' ? job.videos.exit : job.videos.other;
+    return bucket.where((v) => v.isActive).toList(growable: false);
   }
 
   Future<void> captureVideo({
@@ -313,26 +260,11 @@ class JobDetailController {
     await loadJob();
   }
 
-  Future<List<Map<String, dynamic>>> loadPreCleanLayoutPhotos() async {
-    final job = _jobData ?? await loadJob();
-    final raw = job['preCleanLayoutPhotos'];
-    if (raw is! List) {
-      return const [];
-    }
-
-    final result = <Map<String, dynamic>>[];
-    for (final item in raw) {
-      if (item is! Map) {
-        continue;
-      }
-      final map = item is Map<String, dynamic>
-          ? Map<String, dynamic>.from(item)
-          : Map<String, dynamic>.from(item);
-      if (_isDisplayablePhoto(map)) {
-        result.add(map);
-      }
-    }
-    return result;
+  Future<List<PhotoRecord>> loadPreCleanLayoutPhotos() async {
+    final job = _job ?? await loadJob();
+    return job.preCleanLayoutPhotos
+        .where((photo) => photo.isActive)
+        .toList(growable: false);
   }
 
   Future<void> capturePreCleanLayoutPhoto({required ImagePicker picker}) async {
@@ -376,112 +308,7 @@ class JobDetailController {
   }
 
   Future<File> exportJob() async {
-    final jobName = (_jobData?['restaurantName'] ?? 'Job').toString();
+    final jobName = _job?.restaurantName ?? 'Job';
     return await jobs.exportJobZip(jobDir: jobDir, zipBaseName: jobName);
-  }
-
-  List<JobNote> _parseNotes(Map<String, dynamic> job) {
-    final raw = job['notes'];
-    if (raw is! List) {
-      return const [];
-    }
-
-    final parsed = <JobNote>[];
-    for (final item in raw) {
-      if (item is Map<String, dynamic>) {
-        parsed.add(JobNote.fromJson(item));
-      } else if (item is Map) {
-        parsed.add(JobNote.fromJson(Map<String, dynamic>.from(item)));
-      }
-    }
-    parsed.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return parsed;
-  }
-
-  List<Map<String, dynamic>> _unitsFromState() {
-    final source = _jobData?['units'];
-    if (source is! List) {
-      return const [];
-    }
-
-    final units = <Map<String, dynamic>>[];
-    for (final entry in source) {
-      if (entry is Map<String, dynamic>) {
-        units.add(entry);
-      } else if (entry is Map) {
-        units.add(Map<String, dynamic>.from(entry));
-      }
-    }
-    return units;
-  }
-
-  int _countPhotosForPhase(String phase) {
-    final key = phase == 'before' ? 'photosBefore' : 'photosAfter';
-    var count = 0;
-    for (final unit in _unitsFromState()) {
-      count += countDisplayablePhotos(unit[key]);
-    }
-    return count;
-  }
-
-  int _countVideosForKind(String kind) {
-    final videos = _jobData?['videos'];
-    if (videos is! Map) {
-      return 0;
-    }
-    final bucket = videos[kind];
-    if (bucket is! List) {
-      return 0;
-    }
-
-    var count = 0;
-    for (final item in bucket) {
-      if (item is! Map) {
-        continue;
-      }
-      final status = (item['status'] ?? 'local').toString();
-      if (status == 'deleted') {
-        continue;
-      }
-      count += 1;
-    }
-    return count;
-  }
-
-  int _countMissingPhotos() {
-    var count = 0;
-    for (final unit in _unitsFromState()) {
-      count += _countMissingInList(unit['photosBefore']);
-      count += _countMissingInList(unit['photosAfter']);
-    }
-    return count;
-  }
-
-  int _countMissingInList(dynamic rawList) {
-    if (rawList is! List) {
-      return 0;
-    }
-
-    var count = 0;
-    for (final item in rawList) {
-      if (item is! Map) {
-        continue;
-      }
-      final status = (item['status'] ?? 'local').toString();
-      if (status == 'deleted') {
-        continue;
-      }
-      final missingLocal = item['missingLocal'] == true;
-      if (status == 'missing_local' || missingLocal) {
-        count += 1;
-      }
-    }
-    return count;
-  }
-
-  bool _isDisplayablePhoto(Map<String, dynamic> photo) {
-    final status = (photo['status'] ?? 'local').toString();
-    final missingLocal = photo['missingLocal'] == true;
-    return status != 'deleted' && status != 'missing_local' && !missingLocal;
   }
 }

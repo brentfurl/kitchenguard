@@ -88,12 +88,16 @@ Never reconstruct paths from names.
 
 ---
 
-# job.json Structure (Simplified)
+# job.json Structure
 
 ```
 job
+ ├ jobId              (UUID v4)
  ├ restaurantName
  ├ shiftStartDate
+ ├ createdAt
+ ├ updatedAt          (bumped on every write)
+ ├ schemaVersion      (integer, current = 2)
  ├ units[]
  ├ preCleanLayoutPhotos[]
  ├ notes[]
@@ -105,13 +109,14 @@ job
 Each unit contains:
 
 ```
-unitId
+unitId               (UUID v4)
 type
 name
 unitFolderName
+isComplete
+completedAt
 photosBefore[]
 photosAfter[]
-completionState
 ```
 
 ---
@@ -121,11 +126,25 @@ completionState
 Photo entries include:
 
 ```
+photoId              (UUID v4)
 fileName
 relativePath
 capturedAt
 status
 missingLocal
+recovered
+deletedAt
+```
+
+Video entries include:
+
+```
+videoId              (UUID v4)
+fileName
+relativePath
+capturedAt
+status
+deletedAt
 ```
 
 Visible photos exclude:
@@ -307,9 +326,212 @@ When suggesting changes:
 - do not break relativePath rule
 - keep filesystem model intact
 - prioritize field usability
+- all domain data must use typed model classes, not raw maps
+- all new entities must use UUID v4 for IDs
+- respect the two-domain split (scheduling vs. documentation)
 
 When proposing code:
 
 - keep explanations concise
 - avoid unnecessary abstractions
 - avoid large refactors unless requested
+- use the existing `JobNote` pattern for new model classes
+- ensure `fromJson` handles missing fields gracefully for backward compatibility
+
+## ---------------------------------------
+
+# Rapid Capture Architecture
+
+KitchenGuard now includes a **persistent rapid capture camera system**.
+
+The goal is to support **high-speed field documentation** without repeated camera open/confirm cycles.
+
+Rapid capture behavior:
+
+
+open camera
+↓
+tap capture
+↓
+photo saved immediately
+↓
+camera stays open
+↓
+repeat
+
+
+This is used for:
+
+- Unit Before photos
+- Unit After photos
+- Pre-clean Layout photos
+
+Design goals:
+
+- minimal capture latency
+- clear feedback on save
+- minimal technician interaction per photo
+
+---
+
+# Capture UX Rules
+
+Rapid capture screens include several usability safeguards.
+
+### Portrait Lock
+
+Camera UI is locked to portrait orientation.
+
+Reason:
+
+Technicians frequently move and tilt phones while working around equipment.
+
+Preventing UI rotation improves stability and tap accuracy.
+
+---
+
+### Capture Feedback
+
+Two forms of feedback occur after capture:
+
+1. brief flash overlay
+2. light haptic feedback
+
+These mimic native camera behavior and reduce uncertainty about capture success.
+
+---
+
+# Camera Performance Principles
+
+Rapid capture must prioritize:
+
+
+speed
+reliability
+low latency
+
+
+Preferred configuration:
+
+
+ResolutionPreset.medium
+ImageFormatGroup.jpeg
+
+
+High-resolution capture is unnecessary for hood cleaning documentation.
+
+Smaller images:
+
+- write faster
+- export faster
+- reduce storage pressure
+- improve capture throughput
+
+---
+
+# Current Development Phase
+
+KitchenGuard has reached a **field-test milestone** and is now preparing for **collaboration features**.
+
+Core capabilities already complete:
+
+- rapid photo capture
+- structured job storage
+- job-level tools
+- smart unit naming
+- job sorting and deletion
+- export packaging
+
+Current phase: **Phase 1 complete** — typed data models, UUID-based IDs, and change-tracking metadata are fully wired through every layer (storage → service → controller → UI screens).
+
+Next phases after foundation:
+
+1. Scheduling and job management features (manager workflow)
+2. State management and repository abstraction (pre-sync architecture)
+3. Cloud database, sync, auth, and web access for management
+
+---
+
+# Two-Domain Architecture
+
+The app is evolving into a **two-domain system**:
+
+**Scheduling and job management** — cloud-first, multi-platform, manager-driven.
+
+- Manager creates jobs with scheduled dates
+- Jobs grouped and ordered by day
+- Day-level notes and manager notes for crew
+- Eventually accessible via web for desktop management
+
+**Field documentation** — offline-first, mobile-only, technician-driven.
+
+- Technician captures photos, videos, and field notes
+- Local filesystem remains source of truth for captured media
+- Documentation syncs to cloud when connectivity allows
+
+Both domains share the `Job` entity but have opposite data-flow directions:
+
+- Manager pushes scheduling data down to devices
+- Technicians push documentation data up to the cloud
+
+The job model must cleanly separate scheduling fields from documentation fields.
+
+---
+
+# Typed Data Models
+
+All domain entities must have **typed Dart model classes** in `lib/domain/models/`.
+
+Model pattern (same as existing `JobNote`):
+
+- immutable fields
+- `fromJson` factory constructor
+- `toJson` method
+- `copyWith` method
+- defensive parsing (null-safe defaults in `fromJson`)
+
+Required model classes:
+
+```
+Job
+Unit
+PhotoRecord
+VideoRecord
+Videos (helper for exit/other lists)
+JobNote (moved from lib/application/models/)
+```
+
+All domain data must flow through these models. No raw `Map<String, dynamic>` access for job/unit/photo/video data outside the storage layer.
+
+---
+
+# ID Strategy
+
+All entities use **UUID v4** for unique identification.
+
+| Entity | ID field | Format |
+|--------|----------|--------|
+| Job | jobId | UUID v4 |
+| Unit | unitId | UUID v4 |
+| Photo | photoId | UUID v4 |
+| Video | videoId | UUID v4 |
+| Note | noteId | UUID v4 |
+
+UUID v4 is required because:
+
+- jobs and units will be created on multiple devices and platforms
+- microsecond-based IDs can collide across devices
+- UUIDs are safe for sync, merge, and conflict resolution
+
+Existing jobs without UUIDs on photos/videos get IDs backfilled on load via `JobScanner`.
+
+---
+
+# Schema Versioning
+
+`job.json` includes a `schemaVersion` integer field.
+
+- Version 1: implicit (no field present), original schema
+- Version 2: adds `updatedAt`, `schemaVersion`, `photoId` on photos, `videoId` on videos
+
+`JobScanner` detects missing `schemaVersion` and treats it as version 1. The `Job.fromJson` factory handles migration by generating missing IDs on load.

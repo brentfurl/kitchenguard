@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-class ToolsScreen extends StatelessWidget {
+class ToolsScreen extends StatefulWidget {
   const ToolsScreen({
     super.key,
     required this.onPrecleanLayout,
@@ -8,20 +8,50 @@ class ToolsScreen extends StatelessWidget {
     required this.onExitVideos,
     required this.onOtherVideos,
     required this.preCleanLayoutCount,
+    required this.notesCount,
     required this.exitVideosCount,
     required this.otherVideosCount,
   });
 
-  final VoidCallback onPrecleanLayout;
-  final VoidCallback onNotes;
-  final VoidCallback onExitVideos;
-  final VoidCallback onOtherVideos;
-  final int preCleanLayoutCount;
-  final int exitVideosCount;
-  final int otherVideosCount;
+  final Future<void> Function() onPrecleanLayout;
+  final Future<void> Function() onNotes;
+  final Future<void> Function() onExitVideos;
+  final Future<void> Function() onOtherVideos;
+  final int Function() preCleanLayoutCount;
+  final int Function() notesCount;
+  final int Function() exitVideosCount;
+  final int Function() otherVideosCount;
+
+  @override
+  State<ToolsScreen> createState() => _ToolsScreenState();
+}
+
+class _ToolsScreenState extends State<ToolsScreen> {
+  bool _isOpening = false;
+
+  Future<void> _openAndRefresh(Future<void> Function() open) async {
+    if (_isOpening) return;
+    setState(() => _isOpening = true);
+    try {
+      await open();
+      if (!mounted) return;
+      setState(() {});
+    } finally {
+      if (mounted) {
+        setState(() => _isOpening = false);
+      } else {
+        _isOpening = false;
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final preCleanLayoutCount = widget.preCleanLayoutCount();
+    final notesCount = widget.notesCount();
+    final exitVideosCount = widget.exitVideosCount();
+    final otherVideosCount = widget.otherVideosCount();
+
     return Scaffold(
       appBar: AppBar(title: const Text('Tools')),
       body: ListView(
@@ -32,15 +62,15 @@ class ToolsScreen extends StatelessWidget {
             title: 'Pre-clean Layout ($preCleanLayoutCount)',
             subtitle: 'Capture and review initial setup layout',
             icon: Icons.grid_view_outlined,
-            onTap: onPrecleanLayout,
+            onTap: () => _openAndRefresh(widget.onPrecleanLayout),
           ),
           const SizedBox(height: 14),
           _SectionLabel('Documentation'),
           _ToolTile(
-            title: 'Notes',
+            title: 'Notes ($notesCount)',
             subtitle: 'Review or add job-level notes',
             icon: Icons.sticky_note_2_outlined,
-            onTap: onNotes,
+            onTap: () => _openAndRefresh(widget.onNotes),
           ),
           const SizedBox(height: 14),
           _SectionLabel('Closeout'),
@@ -48,14 +78,14 @@ class ToolsScreen extends StatelessWidget {
             title: 'Exit Videos ($exitVideosCount)',
             subtitle: 'Manage exit recording and files',
             icon: Icons.videocam_outlined,
-            onTap: onExitVideos,
+            onTap: () => _openAndRefresh(widget.onExitVideos),
           ),
           const SizedBox(height: 8),
           _ToolTile(
             title: 'Other Videos ($otherVideosCount)',
             subtitle: 'Manage additional video files',
             icon: Icons.video_collection_outlined,
-            onTap: onOtherVideos,
+            onTap: () => _openAndRefresh(widget.onOtherVideos),
           ),
         ],
       ),

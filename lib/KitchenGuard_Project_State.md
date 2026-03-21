@@ -2,30 +2,30 @@
 
 ## 1. Project Overview
 
-**App Name:** KitchenGuard
+**App Name:** KitchenGuard  
 **Platform:** Flutter (Android primary, iOS planned)
 
-**Primary Use:**
+**Primary Use:**  
 Field technicians capturing cleaning documentation for restaurant hood systems.
 
 **Core data captured:**
 
-* Jobs (restaurant + shift date)
-* Units (hoods, fans, misc)
-* Before / After photos
-* Exit videos
-* Other videos
-* Job notes
-* Pre-clean layout photos
+- Jobs (restaurant + shift date)
+- Units (hoods, fans, misc)
+- Before / After photos
+- Exit videos
+- Other videos
+- Job notes
+- Pre-clean layout photos
 
-**Primary goal right now:**
+**Primary goal right now:**  
 Reliable **field-ready offline documentation tool** for technicians.
 
 The app prioritizes:
 
-* offline-first storage
-* reliability in field conditions
-* simple workflows for technicians
+- offline-first storage
+- reliability in field conditions
+- simple workflows for technicians
 
 ---
 
@@ -47,38 +47,38 @@ Storage Layer
     - job_scanner.dart
 ```
 
-## Responsibilities
+### Responsibilities
 
-### UI
+#### UI
 
-* Display jobs
-* Capture photos/videos
-* Add notes
-* Export job
-* Navigate between screens
+- Display jobs
+- Capture photos/videos
+- Add notes
+- Export job
+- Navigate between screens
 
-### Controller
+#### Controller
 
-* Coordinate UI + services
-* Provide computed counts
-* Resolve file paths
-* Manage job reloads
+- Coordinate UI + services
+- Provide computed counts
+- Resolve file paths
+- Manage job reloads
 
-### Services
+#### Services
 
 Business logic:
 
-* Persist metadata
-* Soft deletes
-* Export generation
+- Persist metadata
+- Soft deletes
+- Export generation
 
-### Storage
+#### Storage
 
 Handles filesystem interaction:
 
-* File writes
-* Job JSON read/write
-* Startup integrity scanning
+- File writes
+- Job JSON read/write
+- Startup integrity scanning
 
 ---
 
@@ -114,38 +114,45 @@ KitchenCleaningJobs/
 
 Key points:
 
-* Jobs are **self-contained folders**
-* Media files live inside the job folder
-* `job.json` tracks metadata only
+- Jobs are **self-contained folders**
+- Media files live inside the job folder
+- `job.json` tracks metadata only
 
 ---
 
 # 4. job.json Schema
 
-Example structure:
+Example structure (schema version 2):
 
 ```json
 {
-  "jobId": "job-...",
+  "jobId": "a1b2c3d4-...",
   "restaurantName": "Json test",
   "shiftStartDate": "2026-03-06",
-  "createdAt": "...",
-
+  "createdAt": "2026-03-06T14:00:00.000Z",
+  "updatedAt": "2026-03-06T15:30:00.000Z",
+  "schemaVersion": 2,
   "units": [
     {
-      "unitId": "...",
+      "unitId": "e5f6a7b8-...",
       "type": "hood",
       "name": "hood 1",
-      "unitFolderName": "hood_1__unit-177...",
-      "photosBefore": [],
+      "unitFolderName": "hood_1__unit-e5f6a7b8...",
+      "isComplete": false,
+      "photosBefore": [
+        {
+          "photoId": "c9d0e1f2-...",
+          "fileName": "hood_1_before_20260306_140500.jpg",
+          "relativePath": "Hoods/hood_1__unit-e5f6.../Before/hood_1_before_20260306_140500.jpg",
+          "capturedAt": "2026-03-06T14:05:00.000Z",
+          "status": "local"
+        }
+      ],
       "photosAfter": []
     }
   ],
-
   "preCleanLayoutPhotos": [],
-
   "notes": [],
-
   "videos": {
     "exit": [],
     "other": []
@@ -153,44 +160,33 @@ Example structure:
 }
 ```
 
-## Photo entry structure
+Key changes from schema version 1:
 
-```json
-{
-  "fileName": "...jpg",
-  "relativePath": "Hoods/.../Before/...jpg",
-  "capturedAt": "...",
-  "status": "local | deleted | missing_local",
-  "missingLocal": false
-}
+- `jobId` and `unitId` are now UUID v4 (previously microsecond-based)
+- `photoId` added to all photo records (UUID v4)
+- `videoId` added to all video records (UUID v4)
+- `updatedAt` bumped on every `job.json` write
+- `schemaVersion` integer field added (missing = version 1)
 ```
 
 ---
 
 # 5. Pre-clean Layout Feature
 
-**Purpose**
+Purpose: capture reference photos **before equipment is moved for cleaning**.
 
-Capture reference photos of kitchen equipment layout **before moving items for cleaning**.
+Characteristics:
 
-Technicians use these photos to restore equipment placement after the job.
-
-**Important characteristics**
-
-* Job-level gallery
-* Before-only reference photos
-* Can be taken anytime during the job
-* Created automatically when job is created
-* Exists as a reminder for technicians
-
-**Storage**
+- Job-level gallery
+- Before-only photos
+- Can be captured anytime during the job
+- Stored in:
 
 ```
 PreCleanLayout/
-    pre_clean_layout_*.jpg
 ```
 
-**Metadata field**
+Tracked in metadata:
 
 ```
 preCleanLayoutPhotos[]
@@ -198,29 +194,21 @@ preCleanLayoutPhotos[]
 
 ---
 
-# 6. Important Design Rules (Current)
+# 6. Important Design Rules
 
-## 1️⃣ File resolution rule
+### File resolution rule
 
-Every photo/video must resolve using:
+All media must resolve using:
 
 ```
 File(p.join(jobDir.path, relativePath))
 ```
 
-Never reconstruct file paths from:
-
-* unit names
-* unit types
-* folder guesses
-
-**relativePath is authoritative.**
+`relativePath` is authoritative.
 
 ---
 
-## 2️⃣ Unit folder naming rule
-
-Media folders use:
+### Unit folder naming
 
 ```
 <unitNameSanitized>__<unitId>
@@ -232,11 +220,9 @@ Example:
 hood_1__unit-177...
 ```
 
-Double underscore separates name and ID.
-
 ---
 
-## 3️⃣ Soft delete rule
+### Soft delete rule
 
 Deleted media:
 
@@ -244,23 +230,17 @@ Deleted media:
 status = "deleted"
 ```
 
-Behavior:
-
-* hidden from UI
-* file remains on disk
-* metadata preserved
+Files remain on disk but are hidden from the UI.
 
 ---
 
-## 4️⃣ Missing media rule
+### Missing media rule
 
-Missing only if:
+Media is considered missing only if:
 
 ```
 !File(jobDir + relativePath).exists()
 ```
-
-This logic was recently corrected.
 
 ---
 
@@ -278,7 +258,7 @@ Export location:
 cache/KitchenGuardExports/
 ```
 
-Zip contents:
+Zip contains:
 
 ```
 job.json
@@ -289,17 +269,13 @@ Videos/
 notes.txt (optional)
 ```
 
-**Important**
-
-Pre-clean layout photos are **NOT included in export**.
-
-These are operational reference photos, not compliance documentation.
+Pre-clean layout photos are **not exported**.
 
 ---
 
-## notes.txt generation
+# 8. Notes Export
 
-Created only during export.
+A `notes.txt` file is generated when notes exist.
 
 Example:
 
@@ -312,27 +288,21 @@ Shift: 2026-03-06
 - didn't relight pilot lights
 ```
 
-Rules:
-
-* chronological order
-* no timestamps
-* omitted if no notes
-
 ---
 
-# 8. Photo UI Behavior
+# 9. Photo UI Behavior
 
 Photo grids:
 
-* show only active photos
-* hide deleted
-* hide missing_local
+- show only active photos
+- hide deleted
+- hide missing_local
 
 Counts reflect **visible photos only**.
 
 ---
 
-# 9. Camera Configuration
+# 10. Camera Configuration
 
 Using `image_picker`.
 
@@ -342,33 +312,221 @@ Rear camera forced:
 preferredCameraDevice: CameraDevice.rear
 ```
 
-Used for:
+# 10.1
 
-* `pickImage()`
-* `pickVideo()`
+# 10.1 Rapid Capture System
 
----
+The app now supports **rapid capture photography** for high-speed field documentation.
 
-# 10. Known Limitations
+This replaced the earlier `image_picker` confirmation workflow for unit photos.
 
-## Photo capture workflow
+## Purpose
 
-Current flow:
+Technicians often take **many photos quickly** during hood cleaning jobs.
+
+The previous flow required:
 
 1. Open camera
 2. Take photo
-3. Confirm
+3. Confirm photo
 4. Return to app
 
-Not optimized for rapid capture.
+This slowed documentation.
 
-Future improvement:
+Rapid capture introduces a **persistent camera mode**.
 
-Use `camera` package for persistent capture mode.
+## Rapid Capture Behavior
+
+When entering rapid capture:
+
+- Camera opens once
+- Camera remains active between photos
+- Each tap captures and saves immediately
+- Subtle "Saved" feedback appears
+- User can continue capturing without leaving the screen
+
+Flow:
+
+
+tap capture
+↓
+photo saved
+↓
+camera remains open
+↓
+tap again
+
+
+This significantly reduces capture friction.
 
 ---
 
-## Emulator share bug
+## Camera Configuration
+
+Rapid capture uses the `camera` package.
+
+Configuration:
+
+
+ResolutionPreset.medium
+ImageFormatGroup.jpeg
+rear camera
+audio disabled
+
+
+Reasons:
+
+- faster capture speed
+- smaller files
+- reduced storage pressure
+- adequate documentation quality
+
+---
+
+## Rapid Capture UX Enhancements
+
+To improve usability in field conditions:
+
+### Portrait Orientation Lock
+
+Rapid capture screens lock orientation to:
+
+
+DeviceOrientation.portraitUp
+
+
+This prevents UI rotation while technicians move around equipment.
+
+Orientation returns to normal when leaving the screen.
+
+---
+
+### Capture Flash Overlay
+
+A brief white overlay flashes after capture.
+
+Purpose:
+
+- mimics native camera shutter behavior
+- improves perceived responsiveness
+- reassures technician that the photo was captured
+
+Duration is intentionally short (~80–100 ms).
+
+---
+
+### Haptic Feedback
+
+Light haptic feedback triggers after successful capture.
+
+Purpose:
+
+- tactile confirmation in noisy environments
+- helpful when technicians are not looking directly at the screen
+
+---
+
+# 10.2 Rapid Capture Scope
+
+Rapid capture is currently used for:
+
+
+Unit Before photos
+Unit After photos
+Pre-clean Layout photos
+
+
+The behavior is consistent across all photo capture entry points.
+
+# 10.3 Pre-clean Layout Improvements
+
+The Pre-clean Layout feature now supports rapid capture.
+
+Changes include:
+
+- persistent camera capture
+- visible photo count
+- gallery access
+- consistent behavior with unit photo capture
+
+Purpose:
+
+Maintain consistent camera interaction throughout the app.
+
+---
+
+# 10.4 Job List Improvements
+
+The Jobs screen now includes:
+
+### Sorting
+
+Jobs are sorted by:
+
+
+createdAt (descending)
+
+
+Newest jobs appear first.
+
+Fallback sorting may use `shiftStartDate` if needed.
+
+---
+
+### Job Removal
+
+Users can remove jobs directly from the job list.
+
+Behavior:
+
+- confirmation dialog
+- deletes the entire job folder
+- removes all associated media
+- updates UI immediately
+
+This allows technicians to remove old test jobs or completed jobs.
+
+---
+
+# 10.5 Smart Unit Naming
+
+When adding a new unit:
+
+- Hood units auto-increment
+- Fan units auto-increment
+
+Examples:
+
+
+hood 1
+hood 2
+hood 3
+
+
+and
+
+
+fan 1
+fan 2
+fan 3
+
+
+Misc units are **not auto-populated**.
+
+Users enter custom names for miscellaneous equipment.
+
+Purpose:
+
+- reduce typing
+- maintain consistent naming
+- speed up job setup
+---
+
+---
+
+# 11. Known Limitations
+
+### Emulator Share Bug
 
 `share_plus` may throw:
 
@@ -376,23 +534,171 @@ Use `camera` package for persistent capture mode.
 PlatformException: Reply already submitted
 ```
 
-Occurs on emulator only.
-
-Works correctly on real devices.
+Occurs only on emulator. Works correctly on physical devices.
 
 ---
 
-# 11. Version Control Status
+# 12. Engineering Principle
 
-Git integration planned but not fully used.
+Offline-first architecture.
 
-Codebase stable enough to commit **baseline snapshot soon**.
+The job folder + job.json remain the authoritative state for field documentation.
+
+Scheduling and management data will be cloud-first when sync is implemented.
 
 ---
 
-# 12. Field Testing Plan
+# 13. Typed Data Model Specifications
 
-Test flow:
+All domain entities have typed Dart classes in `lib/domain/models/`. Models are complete and ready for use. The service, storage, and UI layers are being migrated to use them (see Phase 1 roadmap below).
+
+### PhotoRecord
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| photoId | String | UUID v4 | generated at creation; backfilled for old data |
+| fileName | String | required | |
+| relativePath | String | required | authoritative path within job folder |
+| capturedAt | String | required | ISO 8601 UTC |
+| status | String | 'local' | 'local' / 'deleted' / 'missing_local' |
+| missingLocal | bool | false | |
+| recovered | bool | false | set by JobScanner for orphan recovery |
+| deletedAt | String? | null | set on soft delete |
+
+Computed: `isActive`, `isDeleted`, `isMissing`.
+
+### VideoRecord
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| videoId | String | UUID v4 | generated at creation; backfilled for old data |
+| fileName | String | required | |
+| relativePath | String | required | |
+| capturedAt | String | required | ISO 8601 UTC |
+| status | String | 'local' | 'local' / 'deleted' |
+| deletedAt | String? | null | |
+
+### Unit
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| unitId | String | UUID v4 | |
+| type | String | required | 'hood' / 'fan' / 'misc' |
+| name | String | required | |
+| unitFolderName | String | required | |
+| isComplete | bool | false | |
+| completedAt | String? | null | |
+| photosBefore | List\<PhotoRecord\> | [] | |
+| photosAfter | List\<PhotoRecord\> | [] | |
+
+### Job
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| jobId | String | UUID v4 | |
+| restaurantName | String | required | |
+| shiftStartDate | String | required | YYYY-MM-DD |
+| createdAt | String | required | ISO 8601 UTC |
+| updatedAt | String? | null | bumped on every write |
+| schemaVersion | int | 2 | missing = version 1 |
+| units | List\<Unit\> | [] | |
+| notes | List\<JobNote\> | [] | |
+| preCleanLayoutPhotos | List\<PhotoRecord\> | [] | |
+| videos | Videos | empty | |
+
+### Videos
+
+| Field | Type | Default |
+|-------|------|---------|
+| exit | List\<VideoRecord\> | [] |
+| other | List\<VideoRecord\> | [] |
+
+### JobNote (moved to `lib/domain/models/`)
+
+| Field | Type | Default |
+|-------|------|---------|
+| noteId | String | UUID v4 |
+| text | String | required |
+| createdAt | String | required |
+| status | String | 'active' |
+
+All models follow the same pattern: immutable fields, `fromJson` factory, `toJson` method, `copyWith` method. `fromJson` must handle missing fields gracefully for backward compatibility with schema version 1 data.
+
+All model files live in `lib/domain/models/`:
+
+```
+photo_record.dart
+video_record.dart
+videos.dart
+unit.dart
+job.dart
+job_note.dart
+```
+
+`JobNote` was previously in `lib/application/models/`. It is now in `lib/domain/models/`. All callers have been updated to import from the new path. The `lib/application/models/` directory no longer exists.
+
+---
+
+# 14. Collaboration Roadmap
+
+### Phase 1: Foundation (complete)
+
+Typed data models, UUID v4 for all entity IDs, `updatedAt` and `schemaVersion` on jobs.
+
+**Completed:**
+
+- `lib/domain/models/` — all model classes created (`Job`, `Unit`, `PhotoRecord`, `VideoRecord`, `Videos`, `JobNote`)
+- `lib/utils/unit_sorter.dart` — canonical `UnitSorter` utility for UI, export, and upload ordering
+- `AppPaths.categoryForUnitType()` — shared static helper replacing duplicate private methods
+- `JobNote` moved from `lib/application/models/` to `lib/domain/models/`; all imports updated
+- `lib/storage/job_store.dart` — added `readJob()` and `writeJob()` (stamps `updatedAt` to now UTC on every write; returns stamped `Job`)
+- `lib/storage/job_scanner.dart` — `JobScanResult` now holds a typed `Job` field; backward-compat `jobData` getter bridges callers not yet migrated; `JobScanner` uses `Job.fromJson`, backfills missing `photoId`/`videoId` (UUID v4) with `schemaVersion` upgrade to 2, replaced private `_categoryForUnitType` with `AppPaths.categoryForUnitType()`
+- `lib/application/jobs_service.dart` — fully migrated to typed models; all raw map manipulation replaced with `Job`/`Unit`/`PhotoRecord`/`VideoRecord`/`Videos` operations; `_newId()` replaced with `_uuid.v4()`; `_categoryForUnitType` replaced with `AppPaths.categoryForUnitType()`; `_getWorkflowOrderedUnits` and private sort helpers replaced with `UnitSorter.sort()`; `readJobJson`/`writeJobJson` replaced with `readJob`/`writeJob` throughout
+- `lib/presentation/controllers/job_detail_controller.dart` — fully migrated to typed `Job`; `loadJob()` returns `Future<Job>`; `loadVideos()` returns `Future<List<VideoRecord>>`; `loadPreCleanLayoutPhotos()` returns `Future<List<PhotoRecord>>`; all raw map helpers removed; computed counts use typed model properties
+- `lib/presentation/job_detail.dart` — fully migrated to typed `Job`/`Unit`; `_job` field replaces `_jobData`; `_getWorkflowOrderedUnits` and all duplicate sort helpers removed; replaced with `UnitSorter.sort(_job.units)`; unit card accesses typed `unit.unitId`, `unit.name`, `unit.type`, `unit.visibleBeforeCount`, `unit.visibleAfterCount`; gallery callbacks pass `List<PhotoRecord>`
+- `lib/presentation/jobs_home.dart` — migrated to typed `Job` via `result.job`; `_sortJobsNewestFirst` and `_jobSortDate` use `result.job.createdAt`/`result.job.shiftStartDate`; `'Test_Restaurant'` pre-fill removed; list items use `result.job.restaurantName`, `result.job.shiftStartDate`
+- `lib/presentation/screens/photo_viewer_screen.dart` — `photos` and `reloadPhotos` callback use `List<PhotoRecord>`; photo field accesses use typed model properties
+- `lib/presentation/screens/unit_photo_bucket_screen.dart` — `loadPhotos` and `onOpenViewer` use `List<PhotoRecord>`; `_visiblePhotos` uses `photo.isActive`
+- `lib/presentation/screens/pre_clean_layout_screen.dart` — `loadPhotos` uses `List<PhotoRecord>`
+- `lib/presentation/screens/videos_screen.dart` — `loadVideos` uses `List<VideoRecord>`; video field accesses use typed model properties
+
+**Phase 1 foundation work: COMPLETE.**
+
+No more raw `Map<String, dynamic>` access for job/unit/photo/video data anywhere outside the storage layer.
+
+**Automated tests added:**
+
+- `test/domain/models/model_roundtrip_test.dart` — 38 tests covering `fromJson`/`toJson` round-trips, missing-field defaults, status normalization, computed properties (`isActive`, `isDeleted`, `isMissing`, `visibleBeforeCount`, `visibleAfterCount`), optional field presence/absence in JSON output, and `copyWith` independence for all six domain models (`PhotoRecord`, `VideoRecord`, `Videos`, `JobNote`, `Unit`, `Job`). Includes schema version 1 backward-compatibility cases.
+- `test/utils/unit_sorter_test.dart` — 20 tests covering type ordering (Hood → Fan → Other), natural number sort, letter-suffix sort, name normalization variations (`hood1` / `Hood 1` / `HOOD 1`), edge cases (empty list, single item, original list not mutated), and a full realistic job unit list.
+
+All 58 tests pass.
+
+### Phase 2: Scheduling and Management Features
+
+- `scheduledDate`, `sortOrder`, `managerNotes`, `clientInfo` fields on Job
+- `DayNote` entity for date-level notes
+- Jobs Home screen redesign: day-grouped cards with reordering
+- Pull-on-refresh sync model for scheduling data (not real-time)
+
+### Phase 3: Pre-Sync Architecture
+
+- Riverpod state management (replace setState + manual reload)
+- Repository pattern between service and storage layers
+- Lightweight role model (manager vs. technician)
+
+### Phase 4: Cloud and Multi-Platform
+
+- Cloud database (Firestore)
+- Object storage for media (Firebase Storage)
+- Authentication (Firebase Auth with role claims)
+- Flutter web for management dashboard
+- Sync engine: scheduling cloud-first, documentation device-first
+
+---
+
+# 15. Field Testing Plan
+
+Basic workflow:
 
 1. Create job
 2. Add units
@@ -407,286 +713,237 @@ Test flow:
 
 ---
 
-# 13. Next Development Focus (Before Monday Demo)
+# 19. Tools System
 
-Priority: **UI/UX polish and workflow clarity**
+Job-level utilities are now accessed through a **Tools hub**.
 
-Focus areas:
+Accessible via:
 
-### Job Detail Screen
+- Tools card on Job Detail screen
+- AppBar quick-access icon
 
-Add **job-level action buttons**:
+Tools screen groups features by job phase.
 
-* Pre-clean layout
-* Notes
-* Exit videos
-* Other videos
+```
+SETUP
+  Pre-clean Layout
 
-Goal: reduce clutter and keep units as the main workflow.
+DOCUMENTATION
+  Notes
+
+CLOSEOUT
+  Exit Videos
+  Other Videos
+```
 
 ---
 
-### Pre-clean Layout Screen
+# 20. Pre-clean Layout Gallery
 
-Dedicated gallery screen.
+Dedicated gallery for capturing equipment placement before cleaning.
 
 Features:
 
-* photo grid
-* capture button
-* photo count
-* empty state reminder
+- capture photos
+- view photos
+- delete photos
+- same interaction model as other galleries
 
----
-
-### Notes Screen
-
-Move notes off the main screen.
-
-Notes accessible through a **Notes button**.
-
----
-
-### Visual polish
-
-Improve:
-
-* spacing
-* button clarity
-* consistent section structure
-* empty states
-
----
-
-# 14. Longer-Term Product Direction
-
-KitchenGuard expected to evolve into a broader system including:
-
-* Field technician mobile app
-* Manager dashboard
-* Owner reporting
-* QA review system
-* Job assignment workflow
-* Multi-user collaboration
-
----
-
-# 15. Future Sync Architecture (Not Yet Implemented)
-
-Possible approaches:
-
-### Option A
-
-Google Drive sync layer.
-
-### Option B
-
-Remote database + object storage.
-
-Both must preserve the rule:
+Photos stored in:
 
 ```
-Local filesystem + job.json remain the offline source of truth.
+PreCleanLayout/
 ```
 
 ---
 
-# 16. Engineering Principle
+# 21. Notes Screen
 
-**Offline-first architecture**
+Notes were moved from the main screen to:
 
-The local job folder + job.json is the **source of truth**.
+```
+Tools → Notes
+```
 
-Future sync systems must layer on top without breaking this invariant.
+Features:
+
+- view notes
+- add notes
+- delete notes
+
+This reduces clutter on the main job screen.
 
 ---
 
-# 17. Current Stability Assessment
+# 22. Video Screens
 
-Architecture: **8.5 / 10**
+Videos are now separated into two dedicated screens.
+
+### Exit Videos
+
+```
+Videos/Exit/
+```
+
+### Other Videos
+
+```
+Videos/Other/
+```
+
+Counts are shown directly on the Tools screen.
+
+---
+
+# 23. Unit Card System
+
+Units are displayed as cards.
+
+Layout:
+
+```
+Unit Name
+Unit Type
+
+Status Chip     Mark Complete / Incomplete
+
+Before Button   After Button
+```
+
+Benefits:
+
+- clearer separation
+- faster scanning
+- easier tapping
+
+---
+
+# 24. Before / After Button Styling
+
+Buttons are visually distinct.
+
+```
+Before → filled
+After  → outlined
+```
+
+Counts displayed directly on buttons.
+
+---
+
+# 25. Unit Completion State
+
+Units can be marked:
+
+```
+In Progress
+Complete
+```
+
+Completion **does not lock the unit**.
+
+Photos can still be added later.
+
+---
+
+# 26. Unit Editing
+
+Overflow menu per unit:
+
+```
+Edit Name
+Remove Unit
+```
+
+Rename updates metadata only.
+
+Filesystem folders are not renamed.
+
+---
+
+# 27. Unit Removal
+
+Units can be removed **only if they contain zero visible photos**.
+
+Rules:
+
+If photos exist:
+
+```
+Cannot Delete Unit
+Remove unit photos first.
+```
+
+If no photos exist:
+
+```
+Remove Unit?
+Cancel / Remove
+```
+
+Removal updates:
+
+- job.json
+- UI
+- persists across restart
+
+---
+
+# 28. Smart Unit Ordering
+
+Unit sorting is implemented in `lib/utils/unit_sorter.dart`.
+
+`UnitSorter.sort(List<Unit>)` is the canonical implementation used for UI display, export ordering, and future upload preparation.
+
+Sort order:
+
+1. Hoods
+2. Fans
+3. Other units
+
+Within each type group, units sort by natural number order with letter-suffix support:
+
+```
+hood 1
+hood 1a
+hood 2
+hood 10
+fryer hood
+fan 1
+fan 2
+misc item
+```
+
+Name normalization handles:
+
+```
+hood1
+hood 1
+Hood 1
+```
+
+All treated as equivalent for sort purposes.
+
+The `job_detail.dart` and `jobs_service.dart` previously contained their own private sort implementations (duplicated before this utility existed). Both have been replaced with `UnitSorter.sort()`. The sort logic is now covered by automated tests.
+
+---
+
+# Current Stability Assessment
+
+Architecture: **9 / 10**
 Data integrity: **9 / 10**
-Field readiness: **8 / 10**
+Workflow clarity: **9 / 10**
+Field readiness: **9 / 10**
 
-Core system is stable.
+Core field documentation workflow is complete. Phase 1 foundation work is complete.
 
-Remaining work is primarily **UX polish**.
+Next priority is Phase 2: scheduling and job management features.
 
----
-
-# 18. Immediate Task (Next Session)
-
-Add **Pre-clean layout** feature.
-
-Implementation goals:
-
-* job-level photo gallery
-* created when job is created
-* accessible via button on Job Detail screen
-* dedicated gallery screen
-* uses existing photo metadata model
-* stored in `PreCleanLayout/`
-* tracked in `preCleanLayoutPhotos`
-* excluded from export zip
-
-Secondary improvement:
-
-Move **Notes** to button-based screen to reduce clutter.
-
- 
-
-
- # KitchenGuard — Job Detail Screen Layout (v1 UI Structure)
-
-```
----------------------------------------------------
-| Restaurant Name                                 |
-| Shift Date                                      |
----------------------------------------------------
-
-JOB ACTIONS
----------------------------------------------------
-| [ Pre-clean Layout (3) ]                        |
-|                                                 |
-| [ Notes (2) ]                                   |
-|                                                 |
-| [ Exit Videos (1) ]                             |
-|                                                 |
-| [ Other Videos (0) ]                            |
----------------------------------------------------
-
-UNITS
----------------------------------------------------
-| + Add Unit                                      |
----------------------------------------------------
-
-| Hood 1                                          |
-| Before (5)      After (3)                       |
----------------------------------------------------
-
-| Hood 2                                          |
-| Before (4)      After (4)                       |
----------------------------------------------------
-
-| Fan 1                                           |
-| Before (2)      After (1)                       |
----------------------------------------------------
-
-| Misc Item                                       |
-| Before (1)      After (1)                       |
----------------------------------------------------
-```
-
----
-
-# Pre-clean Layout Screen
-
-```
----------------------------------------------------
-| ← Pre-clean Layout                              |
----------------------------------------------------
-
-| + Take Photo                                    |
-
----------------------------------------------------
-
-|  □   □   □   □                                   |
-|  □   □   □   □                                   |
-|  □   □                                           |
-
-(photo grid)
-
----------------------------------------------------
-
-Empty state message if none:
-
-"Take photos of equipment placement before
-moving items for cleaning."
-```
-
----
-
-# Notes Screen
-
-```
----------------------------------------------------
-| ← Notes                                         |
----------------------------------------------------
-
-| + Add Note                                      |
-
----------------------------------------------------
-
-| - Need grease pillow                            |
-| - Pilot lights were off                         |
-| - Filter missing                                |
----------------------------------------------------
-```
-
----
-
-# Design Principles Behind Layout
-
-### 1. Job tools separated from unit workflow
-
-Technicians primarily interact with **units**, so unit controls remain the main focus.
-
-Job tools (notes, videos, layout photos) sit above as secondary tools.
-
----
-
-### 2. Quick visual counts
-
-Counts show:
-
-* progress
-* captured documentation
-* missing items
-
-Example:
-
-```
-Before (5)   After (3)
-```
-
----
-
-### 3. Clean demo flow
-
-A boss demo would naturally follow this order:
-
-1. Create job
-2. Open job
-3. Tap **Pre-clean Layout**
-4. Take reference photos
-5. Add unit
-6. Capture before/after photos
-7. Add note
-8. Export job
-
----
-
-### 4. Reduced screen clutter
-
-Moving **Notes** and **Layout photos** into buttons keeps the main screen focused on:
-
-```
-Units
-Before photos
-After photos
-```
-
-Which is the technician's primary task.
-
-### 5. 
-I’d also strongly consider adding a tiny **Setup / Units / Closeout** heading structure to the Job Detail screen, because that could improve clarity fast without a big rewrite.
----
-
-# Future UX Improvements (Post-Monday)
-
-Possible enhancements later:
-
-* horizontal action buttons instead of vertical list
-* persistent camera mode
-* progress indicators per unit
-* swipe-to-delete media
-* quick capture button directly on unit cards
+Phase 1 progress:
+- Model classes: **complete**
+- `UnitSorter` utility: **complete**
+- `AppPaths.categoryForUnitType()`: **complete**
+- Storage layer (JobStore, JobScanner): **complete**
+- Service layer (JobsService): **complete**
+- Controller and UI layers: **complete**
+- Automated tests (models + UnitSorter): **complete** — 58 tests passing

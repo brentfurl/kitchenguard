@@ -3,6 +3,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../application/jobs_service.dart';
+import '../domain/models/job.dart';
+import '../domain/models/photo_record.dart';
+import '../domain/models/unit.dart';
+import '../utils/unit_sorter.dart';
 import 'controllers/job_detail_controller.dart';
 import 'screens/notes_screen.dart';
 import 'screens/pre_clean_layout_screen.dart';
@@ -28,7 +32,7 @@ class _JobDetailState extends State<JobDetail> {
   bool _isOpeningRapidBefore = false;
   bool _isOpeningRapidAfter = false;
   late final JobDetailController _controller;
-  late Map<String, dynamic> _jobData;
+  late Job _job;
   bool _isBusy = false;
   final ImagePicker _picker = ImagePicker();
 
@@ -39,18 +43,14 @@ class _JobDetailState extends State<JobDetail> {
       jobs: widget.jobs,
       jobDir: widget.job.jobDir,
     );
-    _jobData = Map<String, dynamic>.from(widget.job.jobData);
-    Future<void>.microtask(_reloadJobJson);
-  }
-
-  int _countActivePhotos(dynamic list) {
-    return _controller.countDisplayablePhotos(list);
+    _job = widget.job.job;
+    Future<void>.microtask(_reloadJob);
   }
 
   String _bucketLabel(String bucket, int count) => '$bucket ($count)';
 
   Future<void> _addUnitFlow() async {
-    await _reloadJobJson();
+    await _reloadJob();
     if (!mounted) return;
 
     final request = await _showAddUnitDialog();
@@ -68,7 +68,7 @@ class _JobDetailState extends State<JobDetail> {
         unitName: request.unitName,
         unitType: request.unitType,
       );
-      await _reloadJobJson();
+      await _reloadJob();
     } catch (error) {
       if (!mounted) return;
       final raw = error.toString();
@@ -88,40 +88,12 @@ class _JobDetailState extends State<JobDetail> {
     }
   }
 
-  Future<void> _reloadJobJson() async {
+  Future<void> _reloadJob() async {
     final fresh = await _controller.loadJob();
-
     if (!mounted) return;
     setState(() {
-      _jobData = fresh;
+      _job = fresh;
     });
-  }
-
-  Future<void> _setUnitCompletion({
-    required String unitId,
-    required bool isComplete,
-  }) async {
-    try {
-      await _controller.setUnitCompletion(
-        unitId: unitId,
-        isComplete: isComplete,
-      );
-      if (!mounted) return;
-      await _reloadJobJson();
-    } catch (error) {
-      if (!mounted) return;
-      final message = error.toString().replaceFirst(
-        RegExp(r'^(StateError|ArgumentError|Exception):\s*'),
-        '',
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            message.isEmpty ? 'Failed to update unit completion' : message,
-          ),
-        ),
-      );
-    }
   }
 
   Future<int> _loadUnitVisiblePhotoCount({
@@ -129,12 +101,14 @@ class _JobDetailState extends State<JobDetail> {
     required String phase,
   }) async {
     final job = await _controller.loadJob();
-    final unit = _controller.findUnitById(job, unitId);
-    if (unit == null) {
+    try {
+      final unit = job.units.firstWhere((u) => u.unitId == unitId);
+      return phase == 'before'
+          ? unit.visibleBeforeCount
+          : unit.visibleAfterCount;
+    } on StateError {
       return 0;
     }
-    final key = phase == 'before' ? 'photosBefore' : 'photosAfter';
-    return _countActivePhotos(unit[key]);
   }
 
   Future<void> _openRapidBeforeCapture({
@@ -164,7 +138,7 @@ class _JobDetailState extends State<JobDetail> {
         ),
       );
       if (!mounted) return;
-      await _reloadJobJson();
+      await _reloadJob();
     } finally {
       if (mounted) {
         setState(() {
@@ -173,6 +147,21 @@ class _JobDetailState extends State<JobDetail> {
       } else {
         _isOpeningRapidBefore = false;
       }
+    }
+  }
+
+  Future<List<PhotoRecord>> _loadUnitPhotos({
+    required String unitId,
+    required String phase,
+  }) async {
+    final job = await _controller.loadJob();
+    try {
+      final unit = job.units.firstWhere((u) => u.unitId == unitId);
+      final photos =
+          phase == 'before' ? unit.photosBefore : unit.photosAfter;
+      return photos.where((p) => p.isActive).toList(growable: false);
+    } on StateError {
+      return const <PhotoRecord>[];
     }
   }
 
@@ -185,27 +174,12 @@ class _JobDetailState extends State<JobDetail> {
         builder: (_) => UnitPhotoBucketScreen(
           title: '$unitName — Before',
           jobDir: widget.job.jobDir,
-          loadPhotos: () async {
-            final job = await _controller.loadJob();
-            final u = _controller.findUnitById(job, unitId);
-            return (u == null)
-                ? <Map<String, dynamic>>[]
-                : _controller.bucketPhotos(u, 'before');
-          },
+          loadPhotos: () => _loadUnitPhotos(unitId: unitId, phase: 'before'),
           onCapture: () async {
-            final job = await _controller.loadJob();
-            final u = _controller.findUnitById(job, unitId);
-            if (u == null) {
-              throw StateError('Unit not found');
-            }
-            await _controller.capturePhoto(
-              unit: u,
-              phase: 'before',
-              picker: _picker,
-            );
+            await _openRapidBeforeCapture(unitId: unitId, unitName: unitName);
           },
           onJobMutated: () async {
-            await _reloadJobJson();
+            await _reloadJob();
           },
           onSoftDelete: (relativePath) async {
             await _controller.softDeletePhoto(
@@ -228,15 +202,10 @@ class _JobDetailState extends State<JobDetail> {
                     relativePath: relativePath,
                   ),
                   onJobMutated: () async {
-                    await _reloadJobJson();
+                    await _reloadJob();
                   },
-                  reloadPhotos: () async {
-                    final job = await _controller.loadJob();
-                    final u = _controller.findUnitById(job, unitId);
-                    return (u == null)
-                        ? <Map<String, dynamic>>[]
-                        : _controller.bucketPhotos(u, 'before');
-                  },
+                  reloadPhotos: () =>
+                      _loadUnitPhotos(unitId: unitId, phase: 'before'),
                 ),
               ),
             );
@@ -245,7 +214,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJobJson();
+    await _reloadJob();
   }
 
   Future<void> _openRapidAfterCapture({
@@ -275,7 +244,7 @@ class _JobDetailState extends State<JobDetail> {
         ),
       );
       if (!mounted) return;
-      await _reloadJobJson();
+      await _reloadJob();
     } finally {
       if (mounted) {
         setState(() {
@@ -296,27 +265,12 @@ class _JobDetailState extends State<JobDetail> {
         builder: (_) => UnitPhotoBucketScreen(
           title: '$unitName — After',
           jobDir: widget.job.jobDir,
-          loadPhotos: () async {
-            final job = await _controller.loadJob();
-            final u = _controller.findUnitById(job, unitId);
-            return (u == null)
-                ? <Map<String, dynamic>>[]
-                : _controller.bucketPhotos(u, 'after');
-          },
+          loadPhotos: () => _loadUnitPhotos(unitId: unitId, phase: 'after'),
           onCapture: () async {
-            final job = await _controller.loadJob();
-            final u = _controller.findUnitById(job, unitId);
-            if (u == null) {
-              throw StateError('Unit not found');
-            }
-            await _controller.capturePhoto(
-              unit: u,
-              phase: 'after',
-              picker: _picker,
-            );
+            await _openRapidAfterCapture(unitId: unitId, unitName: unitName);
           },
           onJobMutated: () async {
-            await _reloadJobJson();
+            await _reloadJob();
           },
           onSoftDelete: (relativePath) async {
             await _controller.softDeletePhoto(
@@ -339,15 +293,10 @@ class _JobDetailState extends State<JobDetail> {
                     relativePath: relativePath,
                   ),
                   onJobMutated: () async {
-                    await _reloadJobJson();
+                    await _reloadJob();
                   },
-                  reloadPhotos: () async {
-                    final job = await _controller.loadJob();
-                    final u = _controller.findUnitById(job, unitId);
-                    return (u == null)
-                        ? <Map<String, dynamic>>[]
-                        : _controller.bucketPhotos(u, 'after');
-                  },
+                  reloadPhotos: () =>
+                      _loadUnitPhotos(unitId: unitId, phase: 'after'),
                 ),
               ),
             );
@@ -356,7 +305,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJobJson();
+    await _reloadJob();
   }
 
   Future<void> _renameUnitFlow({
@@ -394,7 +343,7 @@ class _JobDetailState extends State<JobDetail> {
     try {
       await _controller.renameUnit(unitId: unitId, newName: newName);
       if (!mounted) return;
-      await _reloadJobJson();
+      await _reloadJob();
     } catch (error) {
       if (!mounted) return;
       final message = error.toString().replaceFirst(
@@ -456,7 +405,7 @@ class _JobDetailState extends State<JobDetail> {
     try {
       await _controller.deleteUnitIfEmpty(unitId: unitId);
       if (!mounted) return;
-      await _reloadJobJson();
+      await _reloadJob();
     } catch (error) {
       if (!mounted) return;
       final message = error.toString().replaceFirst(
@@ -471,123 +420,21 @@ class _JobDetailState extends State<JobDetail> {
     }
   }
 
-  Map? _findUnitInState(String unitId) {
-    final units = (_jobData['units'] as List?) ?? const [];
-    for (final entry in units) {
-      if (entry is! Map) {
-        continue;
-      }
-      if ((entry['unitId'] ?? '').toString() == unitId) {
-        return entry;
-      }
-    }
-    return null;
-  }
-
-  bool _unitHasActivePhotos(Map unit) {
-    final before = _countActivePhotos(unit['photosBefore']);
-    final after = _countActivePhotos(unit['photosAfter']);
-    return before > 0 || after > 0;
-  }
-
-  List<Map<String, dynamic>> _getWorkflowOrderedUnits(dynamic unitsRaw) {
-    if (unitsRaw is! List) {
-      return const <Map<String, dynamic>>[];
-    }
-
-    final units = <Map<String, dynamic>>[];
-    for (final entry in unitsRaw) {
-      if (entry is Map<String, dynamic>) {
-        units.add(entry);
-      } else if (entry is Map) {
-        units.add(Map<String, dynamic>.from(entry));
-      }
-    }
-
-    units.sort((a, b) {
-      final typeCmp = _unitTypeRank(
-        (a['type'] ?? '').toString(),
-      ).compareTo(_unitTypeRank((b['type'] ?? '').toString()));
-      if (typeCmp != 0) {
-        return typeCmp;
-      }
-
-      final aName = _normalizeSortName((a['name'] ?? '').toString());
-      final bName = _normalizeSortName((b['name'] ?? '').toString());
-      final aNumberPart = _extractNumberPart(aName);
-      final bNumberPart = _extractNumberPart(bName);
-      final aNum = aNumberPart?.$1;
-      final bNum = bNumberPart?.$1;
-      final aSuffix = aNumberPart?.$2 ?? '';
-      final bSuffix = bNumberPart?.$2 ?? '';
-
-      if (aNum != null && bNum != null) {
-        final numCmp = aNum.compareTo(bNum);
-        if (numCmp != 0) {
-          return numCmp;
-        }
-        final suffixCmp = aSuffix.compareTo(bSuffix);
-        if (suffixCmp != 0) {
-          return suffixCmp;
-        }
-      } else if (aNum != null) {
-        return -1;
-      } else if (bNum != null) {
-        return 1;
-      }
-
-      final nameCmp = aName.compareTo(bName);
-      if (nameCmp != 0) {
-        return nameCmp;
-      }
-
-      final aId = (a['unitId'] ?? '').toString();
-      final bId = (b['unitId'] ?? '').toString();
-      return aId.compareTo(bId);
-    });
-
-    return units;
-  }
-
-  int _unitTypeRank(String type) {
-    switch (type.trim().toLowerCase()) {
-      case 'hood':
-        return 0;
-      case 'fan':
-        return 1;
-      default:
-        return 2;
-    }
-  }
-
-  String _normalizeSortName(String input) {
-    final separated = input
-        .replaceAllMapped(RegExp(r'([A-Za-z])(\d)'), (m) => '${m[1]} ${m[2]}')
-        .replaceAllMapped(RegExp(r'(\d)([A-Za-z])'), (m) => '${m[1]} ${m[2]}');
-    return separated
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
-
-  (int, String)? _extractNumberPart(String value) {
-    final match = RegExp(r'(\d+)\s*([a-z]*)').firstMatch(value);
-    if (match == null) {
+  Unit? _findUnitInState(String unitId) {
+    try {
+      return _job.units.firstWhere((u) => u.unitId == unitId);
+    } on StateError {
       return null;
     }
-    final number = int.tryParse(match.group(1)!);
-    if (number == null) {
-      return null;
-    }
-    final suffix = (match.group(2) ?? '').trim();
-    return (number, suffix);
+  }
+
+  bool _unitHasActivePhotos(Unit unit) {
+    return unit.visibleBeforeCount > 0 || unit.visibleAfterCount > 0;
   }
 
   String _nextUnitNameSuggestion({
     required String unitType,
-    required List units,
+    required List<Unit> units,
   }) {
     final normalizedType = unitType.trim().toLowerCase();
     if (normalizedType != 'hood' && normalizedType != 'fan') {
@@ -600,19 +447,11 @@ class _JobDetailState extends State<JobDetail> {
     );
     var highest = 0;
 
-    for (final entry in units) {
-      if (entry is! Map) {
+    for (final unit in units) {
+      if (unit.type.trim().toLowerCase() != normalizedType) {
         continue;
       }
-      final existingType = (entry['type'] ?? '')
-          .toString()
-          .trim()
-          .toLowerCase();
-      if (existingType != normalizedType) {
-        continue;
-      }
-      final existingName = (entry['name'] ?? '').toString().trim();
-      final match = pattern.firstMatch(existingName);
+      final match = pattern.firstMatch(unit.name.trim());
       if (match == null) {
         continue;
       }
@@ -638,14 +477,14 @@ class _JobDetailState extends State<JobDetail> {
           loadVideos: () => _controller.loadVideos(kind: 'exit'),
           captureVideo: () async {
             await _controller.captureVideo(kind: 'exit', picker: _picker);
-            await _reloadJobJson();
+            await _reloadJob();
           },
           softDelete: (relativePath) async {
             await _controller.softDeleteVideo(
               kind: 'exit',
               relativePath: relativePath,
             );
-            await _reloadJobJson();
+            await _reloadJob();
           },
           resolveVideoFile: (relativePath) async {
             final file = _controller.videoFileFromRelativePath(relativePath);
@@ -655,7 +494,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJobJson();
+    await _reloadJob();
   }
 
   Future<void> _openOtherVideosScreen() async {
@@ -667,14 +506,14 @@ class _JobDetailState extends State<JobDetail> {
           loadVideos: () => _controller.loadVideos(kind: 'other'),
           captureVideo: () async {
             await _controller.captureVideo(kind: 'other', picker: _picker);
-            await _reloadJobJson();
+            await _reloadJob();
           },
           softDelete: (relativePath) async {
             await _controller.softDeleteVideo(
               kind: 'other',
               relativePath: relativePath,
             );
-            await _reloadJobJson();
+            await _reloadJob();
           },
           resolveVideoFile: (relativePath) async {
             final file = _controller.videoFileFromRelativePath(relativePath);
@@ -684,7 +523,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJobJson();
+    await _reloadJob();
   }
 
   Future<void> _openToolsScreen() async {
@@ -695,14 +534,15 @@ class _JobDetailState extends State<JobDetail> {
           onNotes: _openNotesScreen,
           onExitVideos: _openExitVideosScreen,
           onOtherVideos: _openOtherVideosScreen,
-          preCleanLayoutCount: _controller.preCleanLayoutCount,
-          exitVideosCount: _controller.videosExitCount,
-          otherVideosCount: _controller.videosOtherCount,
+          preCleanLayoutCount: () => _controller.preCleanLayoutCount,
+          notesCount: () => _controller.notesCount,
+          exitVideosCount: () => _controller.videosExitCount,
+          otherVideosCount: () => _controller.videosOtherCount,
         ),
       ),
     );
     if (!mounted) return;
-    await _reloadJobJson();
+    await _reloadJob();
   }
 
   Future<void> _openPreCleanLayoutScreen() async {
@@ -721,12 +561,12 @@ class _JobDetailState extends State<JobDetail> {
               relativePath: relativePath,
             );
           },
-          onJobMutated: _reloadJobJson,
+          onJobMutated: _reloadJob,
         ),
       ),
     );
     if (!mounted) return;
-    await _reloadJobJson();
+    await _reloadJob();
   }
 
   Future<void> _openNotesScreen() async {
@@ -739,12 +579,12 @@ class _JobDetailState extends State<JobDetail> {
           },
           addNote: (text) => _controller.addNote(text),
           softDeleteNote: (noteId) => _controller.softDeleteNote(noteId),
-          onMutated: _reloadJobJson,
+          onMutated: _reloadJob,
         ),
       ),
     );
     if (!mounted) return;
-    await _reloadJobJson();
+    await _reloadJob();
   }
 
   Future<void> _exportJob() async {
@@ -823,7 +663,7 @@ class _JobDetailState extends State<JobDetail> {
   Future<_AddUnitRequest?> _showAddUnitDialog() async {
     final nameController = TextEditingController();
     String selectedType = 'hood';
-    final units = (_jobData['units'] as List?) ?? const [];
+    final units = _job.units;
     String? lastAutoSuggestion;
     var hasManualOverride = false;
     String? validationError;
@@ -945,18 +785,11 @@ class _JobDetailState extends State<JobDetail> {
                     }
 
                     for (final unit in units) {
-                      if (unit is! Map) {
+                      if (unit.type.trim().toLowerCase() !=
+                          selectedType.trim().toLowerCase()) {
                         continue;
                       }
-                      final existingType = (unit['type'] ?? '')
-                          .toString()
-                          .trim()
-                          .toLowerCase();
-                      if (existingType != selectedType.trim().toLowerCase()) {
-                        continue;
-                      }
-                      final existingName = (unit['name'] ?? '').toString();
-                      if (_normalizeUnitNameForValidation(existingName) ==
+                      if (_normalizeUnitNameForValidation(unit.name) ==
                           normalizedCandidate) {
                         setDialogState(() {
                           validationError = 'Unit name already exists.';
@@ -987,9 +820,8 @@ class _JobDetailState extends State<JobDetail> {
 
   @override
   Widget build(BuildContext context) {
-    final restaurantName = (_jobData['restaurantName'] ?? 'Unknown').toString();
-    final shiftStartDate = (_jobData['shiftStartDate'] ?? '').toString();
-    final units = _getWorkflowOrderedUnits(_jobData['units']);
+    final units = UnitSorter.sort(_job.units);
+    final listBottomPadding = 120.0 + MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
       appBar: AppBar(
@@ -1011,17 +843,17 @@ class _JobDetailState extends State<JobDetail> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _JobHeader(
-            restaurantName: restaurantName,
-            shiftStartDate: shiftStartDate,
+            restaurantName: _job.restaurantName,
+            shiftStartDate: _job.shiftStartDate,
           ),
           _ToolsCard(onTap: _openToolsScreen),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Units', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   'Capture before and after photos for each unit',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1035,30 +867,25 @@ class _JobDetailState extends State<JobDetail> {
             child: units.isEmpty
                 ? const Center(child: Text('No units yet.'))
                 : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, listBottomPadding),
                     itemCount: units.length,
                     itemBuilder: (context, index) {
                       final unit = units[index];
-                      final unitId = (unit['unitId'] ?? '').toString();
-                      final name = (unit['name'] ?? '').toString();
-                      final type = (unit['type'] ?? '').toString();
-                      final isComplete = unit['isComplete'] == true;
-                      final beforeCount = _countActivePhotos(
-                        unit['photosBefore'],
-                      );
-                      final afterCount = _countActivePhotos(
-                        unit['photosAfter'],
-                      );
+                      final unitId = unit.unitId;
+                      final name = unit.name;
+                      final type = unit.type;
+                      final beforeCount = unit.visibleBeforeCount;
+                      final afterCount = unit.visibleAfterCount;
 
                       return Card(
                         key: ValueKey(unitId),
-                        margin: const EdgeInsets.only(bottom: 16),
+                        margin: const EdgeInsets.only(bottom: 12),
                         elevation: 2,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Padding(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(14),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -1085,7 +912,7 @@ class _JobDetailState extends State<JobDetail> {
                                           currentName: name,
                                         );
                                       } else if (value == 'delete') {
-                                        await _reloadJobJson();
+                                        await _reloadJob();
                                         if (!mounted) return;
                                         final latestUnit =
                                             _findUnitInState(unitId) ?? unit;
@@ -1124,42 +951,7 @@ class _JobDetailState extends State<JobDetail> {
                                       ).colorScheme.onSurfaceVariant,
                                     ),
                               ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Chip(
-                                    avatar: Icon(
-                                      isComplete
-                                          ? Icons.check_circle_outline
-                                          : Icons.pending_outlined,
-                                      size: 16,
-                                    ),
-                                    label: Text(
-                                      isComplete ? 'Complete' : 'In Progress',
-                                    ),
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                  const Spacer(),
-                                  TextButton.icon(
-                                    onPressed: () => _setUnitCompletion(
-                                      unitId: unitId,
-                                      isComplete: !isComplete,
-                                    ),
-                                    icon: Icon(
-                                      isComplete
-                                          ? Icons.undo_outlined
-                                          : Icons.check_outlined,
-                                      size: 18,
-                                    ),
-                                    label: Text(
-                                      isComplete
-                                          ? 'Mark Incomplete'
-                                          : 'Mark Complete',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 14),
+                              const SizedBox(height: 10),
                               Row(
                                 children: [
                                   Expanded(
@@ -1168,12 +960,9 @@ class _JobDetailState extends State<JobDetail> {
                                           _isBusy || _isOpeningRapidBefore
                                           ? null
                                           : () async {
-                                              final unitName =
-                                                  (unit['name'] ?? '')
-                                                      .toString();
                                               await _openRapidBeforeCapture(
                                                 unitId: unitId,
-                                                unitName: unitName,
+                                                unitName: name,
                                               );
                                             },
                                       child: Text(
@@ -1181,16 +970,14 @@ class _JobDetailState extends State<JobDetail> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
+                                  const SizedBox(width: 2),
                                   IconButton(
                                     onPressed: _isBusy
                                         ? null
                                         : () async {
-                                            final unitName =
-                                                (unit['name'] ?? '').toString();
                                             await _openBeforeGallery(
                                               unitId: unitId,
-                                              unitName: unitName,
+                                              unitName: name,
                                             );
                                           },
                                     tooltip: 'View Before Photos',
@@ -1201,7 +988,7 @@ class _JobDetailState extends State<JobDetail> {
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 8),
                               Row(
                                 children: [
                                   Expanded(
@@ -1209,12 +996,9 @@ class _JobDetailState extends State<JobDetail> {
                                       onPressed: _isBusy || _isOpeningRapidAfter
                                           ? null
                                           : () async {
-                                              final unitName =
-                                                  (unit['name'] ?? '')
-                                                      .toString();
                                               await _openRapidAfterCapture(
                                                 unitId: unitId,
-                                                unitName: unitName,
+                                                unitName: name,
                                               );
                                             },
                                       child: Text(
@@ -1222,16 +1006,14 @@ class _JobDetailState extends State<JobDetail> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
+                                  const SizedBox(width: 2),
                                   IconButton(
                                     onPressed: _isBusy
                                         ? null
                                         : () async {
-                                            final unitName =
-                                                (unit['name'] ?? '').toString();
                                             await _openAfterGallery(
                                               unitId: unitId,
-                                              unitName: unitName,
+                                              unitName: name,
                                             );
                                           },
                                     tooltip: 'View After Photos',
@@ -1313,7 +1095,7 @@ class _ToolsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
       child: Card(
         elevation: 2.5,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),

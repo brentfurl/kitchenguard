@@ -3,20 +3,27 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 
+import '../domain/models/job.dart';
 import 'app_paths.dart';
 import 'job_store.dart';
+
+const _uuid = Uuid();
 
 class JobScanResult {
   const JobScanResult({
     required this.jobDir,
     required this.jobJson,
-    required this.jobData,
+    required this.job,
   });
 
   final Directory jobDir;
   final File jobJson;
-  final Map<String, dynamic> jobData;
+  final Job job;
+
+  /// Backward-compatible accessor for callers not yet migrated to the typed model.
+  Map<String, dynamic> get jobData => job.toJson();
 }
 
 /// Scans job folders and loads valid `job.json` files.
@@ -49,22 +56,35 @@ class JobScanner {
         if (jobData == null) {
           continue;
         }
-        final summary = await _reconcilePhotosFromDisk(
+
+        final reconcileSummary = await _reconcilePhotosFromDisk(
           jobDir: jobDir,
           jobData: jobData,
         );
-        if (summary.recoveredCount > 0 || summary.statusChangeCount > 0) {
-          await jobStore.writeJobJson(jobJsonFile, jobData);
-          if (summary.recoveredCount > 0) {
+        final backfilledCount = _backfillMissingIds(jobData);
+
+        Job job = Job.fromJson(jobData);
+
+        if (reconcileSummary.recoveredCount > 0 ||
+            reconcileSummary.statusChangeCount > 0 ||
+            backfilledCount > 0) {
+          job = await jobStore.writeJob(jobJsonFile, job);
+          if (reconcileSummary.recoveredCount > 0) {
             developer.log(
-              'Recovered ${summary.recoveredCount} orphan photo(s) for ${jobDir.path}',
+              'Recovered ${reconcileSummary.recoveredCount} orphan photo(s) for ${jobDir.path}',
+              name: 'JobScanner',
+            );
+          }
+          if (backfilledCount > 0) {
+            developer.log(
+              'Backfilled $backfilledCount missing ID(s) for ${jobDir.path}',
               name: 'JobScanner',
             );
           }
         }
 
         results.add(
-          JobScanResult(jobDir: jobDir, jobJson: jobJsonFile, jobData: jobData),
+          JobScanResult(jobDir: jobDir, jobJson: jobJsonFile, job: job),
         );
       } catch (error) {
         developer.log(
@@ -115,6 +135,68 @@ class JobScanner {
     return decoded;
   }
 
+  /// Backfills missing [photoId] and [videoId] values using UUID v4.
+  ///
+  /// Also upgrades [schemaVersion] to 2 when IDs are generated.
+  /// Returns the total number of IDs generated.
+  int _backfillMissingIds(Map<String, dynamic> jobData) {
+    var count = 0;
+
+    final unitsRaw = jobData['units'];
+    if (unitsRaw is List) {
+      for (final unitRaw in unitsRaw) {
+        if (unitRaw is Map) {
+          count += _backfillPhotoIds(unitRaw['photosBefore']);
+          count += _backfillPhotoIds(unitRaw['photosAfter']);
+        }
+      }
+    }
+
+    count += _backfillPhotoIds(jobData['preCleanLayoutPhotos']);
+
+    final videosRaw = jobData['videos'];
+    if (videosRaw is Map) {
+      count += _backfillVideoIds(videosRaw['exit']);
+      count += _backfillVideoIds(videosRaw['other']);
+    }
+
+    if (count > 0 && ((jobData['schemaVersion'] as int?) ?? 1) < 2) {
+      jobData['schemaVersion'] = 2;
+    }
+
+    return count;
+  }
+
+  int _backfillPhotoIds(dynamic photos) {
+    if (photos is! List) return 0;
+    var count = 0;
+    for (final photo in photos) {
+      if (photo is Map) {
+        final id = (photo['photoId'] ?? '').toString().trim();
+        if (id.isEmpty) {
+          photo['photoId'] = _uuid.v4();
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  int _backfillVideoIds(dynamic videos) {
+    if (videos is! List) return 0;
+    var count = 0;
+    for (final video in videos) {
+      if (video is Map) {
+        final id = (video['videoId'] ?? '').toString().trim();
+        if (id.isEmpty) {
+          video['videoId'] = _uuid.v4();
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
   Future<_ReconcileSummary> _reconcilePhotosFromDisk({
     required Directory jobDir,
     required Map<String, dynamic> jobData,
@@ -142,7 +224,7 @@ class JobScanner {
       final unitType = (unit['type'] ?? '').toString();
       final unitName = (unit['name'] ?? '').toString();
       final unitId = (unit['unitId'] ?? '').toString();
-      final category = _categoryForUnitType(unitType);
+      final category = AppPaths.categoryForUnitType(unitType);
       if (category == null || unitName.trim().isEmpty) {
         continue;
       }
@@ -325,19 +407,6 @@ class JobScanner {
     }
     addIfNotEmpty(paths.sanitizeName(unitName));
     return candidates;
-  }
-
-  String? _categoryForUnitType(String unitType) {
-    switch (unitType.trim().toLowerCase()) {
-      case 'hood':
-        return AppPaths.hoodsCategory;
-      case 'fan':
-        return AppPaths.fansCategory;
-      case 'misc':
-        return AppPaths.miscCategory;
-      default:
-        return null;
-    }
   }
 
   bool _isImageFileName(String fileName) {

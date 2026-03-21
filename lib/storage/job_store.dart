@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../domain/models/job.dart';
 import 'atomic_write.dart';
 
 /// Reads and writes `job.json` files.
@@ -32,6 +33,15 @@ class JobStore {
     }
   }
 
+  /// Reads and parses a `job.json` file into a typed [Job].
+  ///
+  /// Returns null if the file does not exist.
+  Future<Job?> readJob(File jobJsonFile) async {
+    final data = await readJobJson(jobJsonFile);
+    if (data == null) return null;
+    return Job.fromJson(data);
+  }
+
   Future<void> writeJobJson(File jobJsonFile, Map<String, dynamic> json) async {
     final parent = jobJsonFile.parent;
     if (!await parent.exists()) {
@@ -40,5 +50,16 @@ class JobStore {
 
     final contents = jsonEncode(json);
     await atomicWriteString(jobJsonFile, contents);
+  }
+
+  /// Writes a typed [Job] to disk, stamping [Job.updatedAt] to now (UTC).
+  ///
+  /// Returns the stamped [Job] so callers can keep in sync with what was written.
+  Future<Job> writeJob(File jobJsonFile, Job job) async {
+    final stamped = job.copyWith(
+      updatedAt: DateTime.now().toUtc().toIso8601String(),
+    );
+    await writeJobJson(jobJsonFile, stamped.toJson());
+    return stamped;
   }
 }

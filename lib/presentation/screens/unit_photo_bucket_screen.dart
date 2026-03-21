@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import '../../domain/models/photo_record.dart';
+
 class UnitPhotoBucketScreen extends StatefulWidget {
   const UnitPhotoBucketScreen({
     super.key,
@@ -17,15 +19,14 @@ class UnitPhotoBucketScreen extends StatefulWidget {
 
   final String title;
   final Directory jobDir;
-  final Future<List<Map<String, dynamic>>> Function() loadPhotos;
+  final Future<List<PhotoRecord>> Function() loadPhotos;
   final Future<void> Function() onCapture;
   final Future<void> Function() onJobMutated;
   final Future<void> Function(String relativePath) onSoftDelete;
   final Future<void> Function(
     int initialIndex,
-    List<Map<String, dynamic>> photos,
-  )
-  onOpenViewer;
+    List<PhotoRecord> photos,
+  ) onOpenViewer;
 
   @override
   State<UnitPhotoBucketScreen> createState() => _UnitPhotoBucketScreenState();
@@ -33,19 +34,11 @@ class UnitPhotoBucketScreen extends StatefulWidget {
 
 class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
   bool _isLoading = true;
-  List<Map<String, dynamic>> _photos = const [];
+  List<PhotoRecord> _photos = const [];
+  int? _pressedTileIndex;
 
-  List<Map<String, dynamic>> get _visiblePhotos {
-    return _photos
-        .where((photo) {
-          final status = (photo['status'] ?? 'local').toString();
-          final missingLocal = photo['missingLocal'] == true;
-          return status != 'deleted' &&
-              status != 'missing_local' &&
-              !missingLocal;
-        })
-        .toList(growable: false);
-  }
+  List<PhotoRecord> get _visiblePhotos =>
+      _photos.where((p) => p.isActive).toList(growable: false);
 
   @override
   void initState() {
@@ -123,10 +116,28 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final currentPhotosList = _visiblePhotos;
+    final photoCount = currentPhotosList.length;
+    final countLabel = '$photoCount ${photoCount == 1 ? 'photo' : 'photos'}';
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      appBar: AppBar(
+        toolbarHeight: 72,
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.title),
+            Text(
+              countLabel,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : currentPhotosList.isEmpty
@@ -142,60 +153,92 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
               itemCount: currentPhotosList.length,
               itemBuilder: (context, index) {
                 final photo = currentPhotosList[index];
-                final status = (photo['status'] ?? 'local').toString();
-                final relativePath = (photo['relativePath'] ?? '').toString();
+                final relativePath = photo.relativePath;
                 final file = relativePath.isEmpty
                     ? null
                     : File(p.join(widget.jobDir.path, relativePath));
                 final showImage =
-                    status == 'local' &&
+                    photo.isActive &&
                     relativePath.isNotEmpty &&
                     file != null &&
                     file.existsSync();
                 final isMissing = !showImage;
 
-                return InkWell(
-                  onTap: () async {
-                    await widget.onOpenViewer(index, currentPhotosList);
-                    if (!mounted) return;
-                    await _reloadPhotos();
-                  },
-                  onLongPress: () async {
-                    if (relativePath.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Cannot remove photo: missing path.'),
-                        ),
-                      );
-                      return;
-                    }
-                    await _confirmSoftDelete(relativePath);
-                  },
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: isMissing
-                        ? Container(
-                            color: Colors.grey.shade200,
-                            child: const Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.broken_image_outlined),
-                                  SizedBox(height: 6),
-                                  Text('Missing'),
-                                ],
-                              ),
-                            ),
-                          )
-                        : AspectRatio(
-                            aspectRatio: 1,
-                            child: Image.file(file, fit: BoxFit.cover),
+                return Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTapDown: (_) {
+                      if (!mounted) return;
+                      setState(() => _pressedTileIndex = index);
+                    },
+                    onTapCancel: () {
+                      if (!mounted) return;
+                      setState(() => _pressedTileIndex = null);
+                    },
+                    onTap: () async {
+                      if (mounted) {
+                        setState(() => _pressedTileIndex = null);
+                      }
+                      await widget.onOpenViewer(index, currentPhotosList);
+                      if (!mounted) return;
+                      await _reloadPhotos();
+                    },
+                    onLongPress: () async {
+                      if (mounted) {
+                        setState(() => _pressedTileIndex = null);
+                      }
+                      if (relativePath.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Cannot remove photo: missing path.'),
                           ),
+                        );
+                        return;
+                      }
+                      await _confirmSoftDelete(relativePath);
+                    },
+                    child: AnimatedScale(
+                      scale: _pressedTileIndex == index ? 0.97 : 1,
+                      duration: const Duration(milliseconds: 90),
+                      curve: Curves.easeOut,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          isMissing
+                              ? Container(
+                                  color: Colors.grey.shade200,
+                                  child: const Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.broken_image_outlined),
+                                        SizedBox(height: 6),
+                                        Text('Missing'),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              : AspectRatio(
+                                  aspectRatio: 1,
+                                  child: Image.file(file, fit: BoxFit.cover),
+                                ),
+                          AnimatedOpacity(
+                            opacity: _pressedTileIndex == index ? 1 : 0,
+                            duration: const Duration(milliseconds: 70),
+                            child: Container(
+                              color: Colors.black.withValues(alpha: 0.14),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.large(
         onPressed: _captureAndReload,
         child: const Icon(Icons.camera_alt),
       ),

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../application/models/job_note.dart';
+import '../../domain/models/job_note.dart';
 
 class NotesScreen extends StatefulWidget {
   const NotesScreen({

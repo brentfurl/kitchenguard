@@ -9,15 +9,13 @@ class JobNote {
   final String noteId;
   final String text;
   final String createdAt;
-  final String status; // "active" | "deleted"
+  final String status; // 'active' | 'deleted'
 
   bool get isActive => status == 'active';
   bool get isDeleted => status == 'deleted';
 
   factory JobNote.fromJson(Map<String, dynamic> json) {
     final rawStatus = (json['status'] ?? 'active').toString();
-
-    // Normalize status to valid values only
     final normalizedStatus =
         rawStatus == 'deleted' ? 'deleted' : 'active';
 

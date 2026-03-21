@@ -32,34 +32,18 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
   String? _initError;
   String? _inlineStatus;
   Timer? _statusTimer;
-  Timer? _flashTimer;
-  bool _showFlash = false;
 
   @override
   void initState() {
     super.initState();
-    _lockPortrait();
     _initialize();
   }
 
   @override
   void dispose() {
     _statusTimer?.cancel();
-    _flashTimer?.cancel();
-    _restoreOrientation();
     _cameraController?.dispose();
     super.dispose();
-  }
-
-  Future<void> _lockPortrait() async {
-    await SystemChrome.setPreferredOrientations(const [
-      DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
-    ]);
-  }
-
-  Future<void> _restoreOrientation() async {
-    await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
   }
 
   Future<void> _initialize() async {
@@ -77,6 +61,7 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
         selected,
         ResolutionPreset.high,
         enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
       );
       await controller.initialize();
       if (!mounted) {
@@ -112,18 +97,9 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
       await widget.onCaptureFile(File(shot.path));
       final latestCount = await widget.loadVisibleCount();
       if (!mounted) return;
-      await HapticFeedback.lightImpact();
-      _flashTimer?.cancel();
       setState(() {
         _visibleCount = latestCount;
         _inlineStatus = 'Saved';
-        _showFlash = true;
-      });
-      _flashTimer = Timer(const Duration(milliseconds: 120), () {
-        if (!mounted) return;
-        setState(() {
-          _showFlash = false;
-        });
       });
       _statusTimer?.cancel();
       _statusTimer = Timer(const Duration(milliseconds: 900), () {
@@ -150,7 +126,7 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Rapid Capture')),
+      appBar: AppBar(),
       body: _isInitializing
           ? const Center(child: CircularProgressIndicator())
           : _initError != null
@@ -168,7 +144,7 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -192,19 +168,7 @@ class _RapidPhotoCaptureScreenState extends State<RapidPhotoCaptureScreen> {
                   child: Container(
                     color: Colors.black,
                     width: double.infinity,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        CameraPreview(_cameraController!),
-                        IgnorePointer(
-                          child: AnimatedOpacity(
-                            opacity: _showFlash ? 0.18 : 0,
-                            duration: const Duration(milliseconds: 90),
-                            child: Container(color: Colors.white),
-                          ),
-                        ),
-                      ],
-                    ),
+                    child: CameraPreview(_cameraController!),
                   ),
                 ),
                 SafeArea(

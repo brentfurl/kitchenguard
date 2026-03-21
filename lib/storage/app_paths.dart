@@ -130,6 +130,22 @@ class AppPaths {
     return p.join(unitPath, afterFolderName);
   }
 
+  /// Maps a unit type string to its filesystem category folder name.
+  ///
+  /// Returns null for unrecognized types.
+  static String? categoryForUnitType(String unitType) {
+    switch (unitType.trim().toLowerCase()) {
+      case 'hood':
+        return hoodsCategory;
+      case 'fan':
+        return fansCategory;
+      case 'misc':
+        return miscCategory;
+      default:
+        return null;
+    }
+  }
+
   String sanitizeName(String input) {
     final trimmed = input.trim();
     final withUnderscores = trimmed.replaceAll(RegExp(r'\s+'), '_');
