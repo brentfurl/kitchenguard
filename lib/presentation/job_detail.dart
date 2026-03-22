@@ -892,16 +892,16 @@ class _JobDetailState extends ConsumerState<JobDetail> {
         children: [
           _JobHeader(
             restaurantName: job.restaurantName,
-            scheduledDate: job.scheduledDate,
+            address: job.address,
+            accessType: job.accessType,
+            accessNotes: job.accessNotes,
+            hasAlarm: job.hasAlarm == true,
             isComplete: job.isComplete,
-            onSchedule: _openSchedulePicker,
-            onClearSchedule: _clearScheduledDate,
+            jobNoteCount: _controller.managerNotesCount,
+            fieldNoteCount: _controller.notesCount,
+            onJobNotesTap: _openManagerNotesScreen,
+            onFieldNotesTap: _openNotesScreen,
           ),
-          _ManagerNotesCard(
-            count: job.managerNotes.where((n) => n.isActive).length,
-            onTap: _openManagerNotesScreen,
-          ),
-          _ToolsCard(onTap: _openToolsScreen),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
             child: Column(
@@ -1088,149 +1088,145 @@ class _AddUnitRequest {
 class _JobHeader extends StatelessWidget {
   const _JobHeader({
     required this.restaurantName,
-    required this.scheduledDate,
+    this.address,
+    this.accessType,
+    this.accessNotes,
+    this.hasAlarm = false,
     required this.isComplete,
-    required this.onSchedule,
-    required this.onClearSchedule,
+    required this.jobNoteCount,
+    required this.fieldNoteCount,
+    required this.onJobNotesTap,
+    required this.onFieldNotesTap,
   });
 
   final String restaurantName;
-  final String? scheduledDate;
+  final String? address;
+  final String? accessType;
+  final String? accessNotes;
+  final bool hasAlarm;
   final bool isComplete;
-  final VoidCallback onSchedule;
-  final VoidCallback onClearSchedule;
+  final int jobNoteCount;
+  final int fieldNoteCount;
+  final VoidCallback onJobNotesTap;
+  final VoidCallback onFieldNotesTap;
 
-  String _formatScheduledDate(String date) {
-    try {
-      final dt = DateTime.parse(date);
-      const months = [
-        '',
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-      ];
-      return '${months[dt.month]} ${dt.day}, ${dt.year}';
-    } catch (_) {
-      return date;
-    }
-  }
+  static const _accessIcons = <String, IconData>{
+    'no-key': Icons.lock_open_outlined,
+    'get-key-from-shop': Icons.store_outlined,
+    'key-hidden': Icons.vpn_key_outlined,
+    'lockbox': Icons.lock_outlined,
+  };
+
+  static const _accessLabels = <String, String>{
+    'no-key': 'No key',
+    'get-key-from-shop': 'Key from shop',
+    'key-hidden': 'Key hidden',
+    'lockbox': 'Lockbox',
+  };
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            restaurantName,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  restaurantName,
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (isComplete) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.check_circle,
+                          size: 16, color: colorScheme.primary),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Complete',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (address != null && address!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    address!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                if (accessType != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        _accessIcons[accessType] ?? Icons.key_outlined,
+                        size: 16,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          [
+                            _accessLabels[accessType] ?? accessType!,
+                            if (accessNotes != null && accessNotes!.isNotEmpty)
+                              accessNotes!,
+                            if (hasAlarm) 'Has alarm',
+                          ].join(' · '),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
           ),
-          if (isComplete) ...[
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Icon(
-                  Icons.check_circle,
-                  size: 16,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  'Complete',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 10),
-          if (scheduledDate != null) ...[
-            Row(
-              children: [
-                Icon(
-                  Icons.calendar_today_outlined,
-                  size: 14,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _formatScheduledDate(scheduledDate!),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                InkWell(
-                  onTap: onSchedule,
-                  borderRadius: BorderRadius.circular(4),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    child: Text(
-                      'Change',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 2),
-                InkWell(
-                  onTap: onClearSchedule,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(3),
-                    child: Icon(
-                      Icons.close,
-                      size: 14,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ] else ...[
-            InkWell(
-              onTap: onSchedule,
-              borderRadius: BorderRadius.circular(8),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  border: Border.all(color: theme.colorScheme.outline),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.calendar_today_outlined,
-                      size: 14,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Schedule',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+          const SizedBox(width: 8),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              InkWell(
+                onTap: onJobNotesTap,
+                borderRadius: BorderRadius.circular(8),
+                child: Chip(
+                  label: Text('$jobNoteCount job ${jobNoteCount == 1 ? "note" : "notes"}'),
+                  labelStyle: theme.textTheme.labelSmall,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  side: BorderSide.none,
                 ),
               ),
-            ),
-          ],
+              InkWell(
+                onTap: onFieldNotesTap,
+                borderRadius: BorderRadius.circular(8),
+                child: Chip(
+                  label: Text('$fieldNoteCount field ${fieldNoteCount == 1 ? "note" : "notes"}'),
+                  labelStyle: theme.textTheme.labelSmall,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  side: BorderSide.none,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
