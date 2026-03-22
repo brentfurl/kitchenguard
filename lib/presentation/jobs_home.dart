@@ -1,72 +1,40 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../application/jobs_service.dart';
-import '../application/startup_service.dart';
 import '../domain/models/day_note.dart';
 import '../domain/models/manager_job_note.dart';
+import '../providers/day_notes_provider.dart';
+import '../providers/job_list_provider.dart';
+import '../providers/service_providers.dart';
 import '../storage/job_scanner.dart';
 import 'job_detail.dart';
 import 'screens/manager_notes_screen.dart';
 
-class JobsHome extends StatefulWidget {
-  const JobsHome({super.key, required this.startup, required this.jobs});
-
-  final StartupService startup;
-  final JobsService jobs;
+class JobsHome extends ConsumerStatefulWidget {
+  const JobsHome({super.key});
 
   @override
-  State<JobsHome> createState() => _JobsHomeState();
+  ConsumerState<JobsHome> createState() => _JobsHomeState();
 }
 
-class _JobsHomeState extends State<JobsHome> {
-  bool _isLoading = true;
-  List<JobScanResult> _results = const [];
-  Map<String, List<DayNote>> _activeShiftNotes = const {};
+class _JobsHomeState extends ConsumerState<JobsHome> {
   final Set<String> _expandedShiftNotes = {};
 
-  @override
-  void initState() {
-    super.initState();
-    _loadAll();
-  }
-
-  Future<void> _loadAll() async {
-    setState(() => _isLoading = true);
-    try {
-      final loadedJobs = await widget.startup.loadJobs();
-      final allNotes = await widget.jobs.loadAllDayNotes();
-      final active = <String, List<DayNote>>{};
-      for (final entry in allNotes.entries) {
-        final activeForDate = entry.value.where((n) => n.isActive).toList();
-        if (activeForDate.isNotEmpty) {
-          active[entry.key] = activeForDate;
-        }
-      }
-      if (!mounted) return;
-      setState(() {
-        _results = loadedJobs;
-        _activeShiftNotes = active;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
+  JobsService get _jobs => ref.read(jobsServiceProvider);
 
   // ---------------------------------------------------------------------------
-  // Job grouping
+  // Job grouping (pure functions of provider data)
   // ---------------------------------------------------------------------------
 
-  Map<String, List<JobScanResult>> get _scheduledByDate {
+  Map<String, List<JobScanResult>> _scheduledByDate(
+    List<JobScanResult> results,
+  ) {
     final map = <String, List<JobScanResult>>{};
-    for (final r in _results) {
+    for (final r in results) {
       final date = r.job.scheduledDate;
       if (date != null) {
         map.putIfAbsent(date, () => []).add(r);
@@ -85,12 +53,8 @@ class _JobsHomeState extends State<JobsHome> {
     return map;
   }
 
-  List<String> get _sortedScheduledDates {
-    return _scheduledByDate.keys.toList()..sort();
-  }
-
-  List<JobScanResult> get _unscheduledJobs {
-    final list = _results.where((r) => r.job.scheduledDate == null).toList();
+  List<JobScanResult> _unscheduledJobs(List<JobScanResult> results) {
+    final list = results.where((r) => r.job.scheduledDate == null).toList();
     list.sort((a, b) => b.job.createdAt.compareTo(a.job.createdAt));
     return list;
   }
@@ -196,24 +160,21 @@ class _JobsHomeState extends State<JobsHome> {
       return;
     }
 
-    setState(() => _isLoading = true);
     try {
       final scheduledDate = result.scheduledDate != null
           ? _toYyyyMmDd(result.scheduledDate!)
           : null;
-      await widget.jobs.createJob(
+      await _jobs.createJob(
         restaurantName: restaurantName,
         shiftStartLocal: DateTime.now(),
         scheduledDate: scheduledDate,
       );
-      await _loadAll();
+      ref.invalidate(jobListProvider);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error.toString())));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -329,9 +290,8 @@ class _JobsHomeState extends State<JobsHome> {
       return;
     }
 
-    setState(() => _isLoading = true);
     try {
-      await widget.jobs.updateJobDetails(
+      await _jobs.updateJobDetails(
         jobDir: result.jobDir,
         restaurantName: name,
         scheduledDate: edit.scheduledDate != null
@@ -339,14 +299,12 @@ class _JobsHomeState extends State<JobsHome> {
             : null,
         clearScheduledDate: edit.clearScheduledDate,
       );
-      await _loadAll();
+      ref.invalidate(jobListProvider);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error.toString())));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -357,11 +315,12 @@ class _JobsHomeState extends State<JobsHome> {
   Future<void> _openJobDetail(JobScanResult result) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => JobDetail(jobs: widget.jobs, job: result),
+        builder: (_) => JobDetail(jobs: _jobs, job: result),
       ),
     );
     if (!mounted) return;
-    await _loadAll();
+    ref.invalidate(jobListProvider);
+    ref.invalidate(dayNotesProvider);
   }
 
   Future<void> _openManagerNotesScreen(JobScanResult result) async {
@@ -370,7 +329,7 @@ class _JobsHomeState extends State<JobsHome> {
         builder: (_) => ManagerNotesScreen(
           loadNotes: () async {
             final file = File(p.join(result.jobDir.path, 'job.json'));
-            final job = await widget.jobs.jobStore.readJob(file);
+            final job = await _jobs.jobStore.readJob(file);
             final notes = job?.managerNotes
                     .where((n) => n.isActive)
                     .toList() ??
@@ -379,21 +338,23 @@ class _JobsHomeState extends State<JobsHome> {
             return notes;
           },
           addNote: (text) =>
-              widget.jobs.addManagerNote(jobDir: result.jobDir, text: text),
-          editNote: (noteId, newText) => widget.jobs.editManagerNote(
+              _jobs.addManagerNote(jobDir: result.jobDir, text: text),
+          editNote: (noteId, newText) => _jobs.editManagerNote(
             jobDir: result.jobDir,
             noteId: noteId,
             newText: newText,
           ),
-          softDeleteNote: (id) => widget.jobs.softDeleteManagerNote(
+          softDeleteNote: (id) => _jobs.softDeleteManagerNote(
             jobDir: result.jobDir,
             noteId: id,
           ),
-          onMutated: _loadAll,
+          onMutated: () async {
+            ref.invalidate(jobListProvider);
+          },
         ),
       ),
     );
-    if (mounted) await _loadAll();
+    if (mounted) ref.invalidate(jobListProvider);
   }
 
   // ---------------------------------------------------------------------------
@@ -433,8 +394,8 @@ class _JobsHomeState extends State<JobsHome> {
     final text = await _showAddShiftNoteDialog();
     if (text == null || text.isEmpty || !mounted) return;
     try {
-      await widget.jobs.addDayNote(date, text);
-      await _refreshShiftNotes();
+      await _jobs.addDayNote(date, text);
+      ref.invalidate(dayNotesProvider);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -467,26 +428,14 @@ class _JobsHomeState extends State<JobsHome> {
     );
     if (confirm != true || !mounted) return;
     try {
-      await widget.jobs.softDeleteDayNote(date, noteId);
-      await _refreshShiftNotes();
+      await _jobs.softDeleteDayNote(date, noteId);
+      ref.invalidate(dayNotesProvider);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
-  }
-
-  Future<void> _refreshShiftNotes() async {
-    final allNotes = await widget.jobs.loadAllDayNotes();
-    final active = <String, List<DayNote>>{};
-    for (final entry in allNotes.entries) {
-      final activeForDate = entry.value.where((n) => n.isActive).toList();
-      if (activeForDate.isNotEmpty) {
-        active[entry.key] = activeForDate;
-      }
-    }
-    if (mounted) setState(() => _activeShiftNotes = active);
   }
 
   // ---------------------------------------------------------------------------
@@ -505,9 +454,9 @@ class _JobsHomeState extends State<JobsHome> {
 
     try {
       for (var i = 0; i < reordered.length; i++) {
-        await widget.jobs.setSortOrder(reordered[i].jobDir, i);
+        await _jobs.setSortOrder(reordered[i].jobDir, i);
       }
-      await _loadAll();
+      ref.invalidate(jobListProvider);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -547,17 +496,14 @@ class _JobsHomeState extends State<JobsHome> {
     );
     if (shouldDelete != true) return;
 
-    setState(() => _isLoading = true);
     try {
-      await widget.jobs.deleteJob(jobDir: job.jobDir);
-      await _loadAll();
+      await _jobs.deleteJob(jobDir: job.jobDir);
+      ref.invalidate(jobListProvider);
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(error.toString())));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -604,38 +550,51 @@ class _JobsHomeState extends State<JobsHome> {
 
   @override
   Widget build(BuildContext context) {
+    final jobsAsync = ref.watch(jobListProvider);
+    final notesAsync = ref.watch(dayNotesProvider);
+
     Widget body;
 
-    if (_isLoading) {
+    if (jobsAsync is AsyncLoading || notesAsync is AsyncLoading) {
       body = const Center(child: CircularProgressIndicator());
-    } else if (_results.isEmpty) {
-      body = const Center(child: Text('No jobs found.'));
+    } else if (jobsAsync is AsyncError) {
+      body = Center(child: Text('Error: ${jobsAsync.error}'));
     } else {
-      final scheduledByDate = _scheduledByDate;
-      final sortedDates = _sortedScheduledDates;
-      final unscheduled = _unscheduledJobs;
+      final results = jobsAsync.valueOrNull ?? const [];
+      final activeShiftNotes =
+          notesAsync.valueOrNull ?? const <String, List<DayNote>>{};
 
-      body = ListView(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        children: [
-          for (final date in sortedDates)
-            _buildDayCard(
-              context,
-              date: date,
-              jobs: scheduledByDate[date]!,
-              shiftNotes: _activeShiftNotes[date] ?? const [],
-            ),
-          if (unscheduled.isNotEmpty)
-            _buildUnscheduledSection(context, unscheduled),
-        ],
-      );
+      if (results.isEmpty) {
+        body = const Center(child: Text('No jobs found.'));
+      } else {
+        final scheduledByDate = _scheduledByDate(results);
+        final sortedDates = scheduledByDate.keys.toList()..sort();
+        final unscheduled = _unscheduledJobs(results);
+
+        body = ListView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          children: [
+            for (final date in sortedDates)
+              _buildDayCard(
+                context,
+                date: date,
+                jobs: scheduledByDate[date]!,
+                shiftNotes: activeShiftNotes[date] ?? const [],
+              ),
+            if (unscheduled.isNotEmpty)
+              _buildUnscheduledSection(context, unscheduled),
+          ],
+        );
+      }
     }
+
+    final isLoading = jobsAsync is AsyncLoading;
 
     return Scaffold(
       appBar: AppBar(title: const Text('KitchenGuard Jobs')),
       body: body,
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isLoading ? null : _createJob,
+        onPressed: isLoading ? null : _createJob,
         icon: const Icon(Icons.add),
         label: const Text('Create Job'),
       ),
@@ -657,7 +616,6 @@ class _JobsHomeState extends State<JobsHome> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Date header
           ColoredBox(
             color: colorScheme.primaryContainer,
             child: Padding(
@@ -683,9 +641,7 @@ class _JobsHomeState extends State<JobsHome> {
               ),
             ),
           ),
-          // Shift notes section
           _buildShiftNotesSection(context, date: date, notes: shiftNotes),
-          // Job tiles
           const Divider(height: 1),
           for (var i = 0; i < jobs.length; i++)
             _buildJobTile(

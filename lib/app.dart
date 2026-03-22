@@ -1,15 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'application/jobs_service.dart';
-import 'application/startup_service.dart';
 import 'presentation/jobs_home.dart';
-import 'storage/app_paths.dart';
-import 'storage/atomic_write.dart';
-import 'storage/day_note_store.dart';
-import 'storage/image_file_store.dart';
-import 'storage/job_scanner.dart';
-import 'storage/job_store.dart';
-import 'storage/video_file_store.dart';
 
 class KitchenGuardApp extends StatelessWidget {
   const KitchenGuardApp({super.key});
@@ -57,24 +48,6 @@ class KitchenGuardApp extends StatelessWidget {
       surfaceTint: primaryGreen,
     );
 
-    final paths = AppPaths();
-    final jobStore = JobStore();
-    final imageStore = ImageFileStore(paths: paths);
-    final videoStore = VideoFileStore(
-      paths: paths,
-      atomicWrite: atomicWriteBytes,
-    );
-    final dayNoteStore = DayNoteStore(paths: paths);
-    final scanner = JobScanner(paths: paths, jobStore: jobStore);
-    final startup = StartupService(scanner: scanner);
-    final jobs = JobsService(
-      paths: paths,
-      jobStore: jobStore,
-      imageStore: imageStore,
-      videoStore: videoStore,
-      dayNoteStore: dayNoteStore,
-    );
-
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -115,7 +88,7 @@ class KitchenGuardApp extends StatelessWidget {
           labelStyle: const TextStyle(color: textPrimary),
         ),
       ),
-      home: JobsHome(startup: startup, jobs: jobs),
+      home: const JobsHome(),
     );
   }
 }
