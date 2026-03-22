@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/day_note.dart';
+import 'package:kitchenguard_photo_organizer/domain/models/day_schedule.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/job.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/job_note.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/photo_record.dart';
@@ -861,6 +862,74 @@ void main() {
       expect(rebuilt.text, note.text);
       expect(rebuilt.createdAt, note.createdAt);
       expect(rebuilt.status, note.status);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // DaySchedule
+  // ---------------------------------------------------------------------------
+  group('DaySchedule', () {
+    final fullJson = <String, dynamic>{
+      'date': '2026-03-22',
+      'shopMeetupTime': '09:15',
+      'firstRestaurantName': 'Pizza Joint',
+      'firstArrivalTime': '09:45',
+    };
+
+    test('fromJson / toJson round-trip preserves all fields', () {
+      final schedule = DaySchedule.fromJson(fullJson);
+      final back = schedule.toJson();
+      expect(back['date'], '2026-03-22');
+      expect(back['shopMeetupTime'], '09:15');
+      expect(back['firstRestaurantName'], 'Pizza Joint');
+      expect(back['firstArrivalTime'], '09:45');
+    });
+
+    test('fromJson defaults optional fields to null', () {
+      final schedule = DaySchedule.fromJson({'date': '2026-03-22'});
+      expect(schedule.date, '2026-03-22');
+      expect(schedule.shopMeetupTime, isNull);
+      expect(schedule.firstRestaurantName, isNull);
+      expect(schedule.firstArrivalTime, isNull);
+    });
+
+    test('toJson omits null optional fields', () {
+      final schedule = DaySchedule.fromJson({'date': '2026-03-22'});
+      final json = schedule.toJson();
+      expect(json.containsKey('shopMeetupTime'), isFalse);
+      expect(json.containsKey('firstRestaurantName'), isFalse);
+      expect(json.containsKey('firstArrivalTime'), isFalse);
+      expect(json['date'], '2026-03-22');
+    });
+
+    test('isEmpty is true when all optional fields are null', () {
+      final schedule = DaySchedule.fromJson({'date': '2026-03-22'});
+      expect(schedule.isEmpty, isTrue);
+    });
+
+    test('isEmpty is false when any optional field is set', () {
+      final schedule = DaySchedule.fromJson({
+        'date': '2026-03-22',
+        'firstArrivalTime': '10:00',
+      });
+      expect(schedule.isEmpty, isFalse);
+    });
+
+    test('copyWith replaces individual fields', () {
+      final schedule = DaySchedule.fromJson(fullJson);
+      final copy = schedule.copyWith(shopMeetupTime: '08:30');
+      expect(copy.shopMeetupTime, '08:30');
+      expect(copy.firstRestaurantName, 'Pizza Joint');
+      expect(schedule.shopMeetupTime, '09:15');
+    });
+
+    test('full round-trip through fromJson/toJson/fromJson', () {
+      final schedule = DaySchedule.fromJson(fullJson);
+      final rebuilt = DaySchedule.fromJson(schedule.toJson());
+      expect(rebuilt.date, schedule.date);
+      expect(rebuilt.shopMeetupTime, schedule.shopMeetupTime);
+      expect(rebuilt.firstRestaurantName, schedule.firstRestaurantName);
+      expect(rebuilt.firstArrivalTime, schedule.firstArrivalTime);
     });
   });
 

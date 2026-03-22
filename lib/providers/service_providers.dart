@@ -14,5 +14,6 @@ final jobsServiceProvider = Provider<JobsService>((ref) {
     imageStore: ref.watch(imageStoreProvider),
     videoStore: ref.watch(videoStoreProvider),
     dayNoteStore: ref.watch(dayNoteStoreProvider),
+    dayScheduleStore: ref.watch(dayScheduleStoreProvider),
   );
 });

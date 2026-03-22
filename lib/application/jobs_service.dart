@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../domain/models/day_note.dart';
+import '../domain/models/day_schedule.dart';
 import '../domain/models/job.dart';
 import '../domain/models/job_note.dart';
 import '../domain/models/manager_job_note.dart';
@@ -15,6 +16,7 @@ import '../domain/models/video_record.dart';
 import '../domain/models/videos.dart';
 import '../storage/app_paths.dart';
 import '../storage/day_note_store.dart';
+import '../storage/day_schedule_store.dart';
 import '../storage/image_file_store.dart';
 import '../storage/job_store.dart';
 import '../storage/video_file_store.dart';
@@ -28,6 +30,7 @@ class JobsService {
     required this.imageStore,
     required this.videoStore,
     required this.dayNoteStore,
+    this.dayScheduleStore,
   });
 
   final AppPaths paths;
@@ -35,6 +38,7 @@ class JobsService {
   final ImageFileStore imageStore;
   final VideoFileStore videoStore;
   final DayNoteStore dayNoteStore;
+  final DayScheduleStore? dayScheduleStore;
   final Uuid _uuid = const Uuid();
 
   Future<Directory> createJob({
@@ -1671,6 +1675,66 @@ class JobsService {
   /// Used by JobsHome to build day-grouped cards.
   Future<Map<String, List<DayNote>>> loadAllDayNotes() {
     return dayNoteStore.readAll();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Day schedules (shift timing)
+  // ---------------------------------------------------------------------------
+
+  /// Sets or updates the [DaySchedule] for [date].
+  ///
+  /// Pass null for individual time fields to leave them unchanged (on update)
+  /// or unset (on create). Use `clear*` flags to explicitly remove a value.
+  Future<DaySchedule> setDaySchedule({
+    required String date,
+    String? shopMeetupTime,
+    bool clearShopMeetupTime = false,
+    String? firstRestaurantName,
+    bool clearFirstRestaurantName = false,
+    String? firstArrivalTime,
+    bool clearFirstArrivalTime = false,
+  }) async {
+    final store = dayScheduleStore;
+    if (store == null) {
+      throw StateError('DayScheduleStore not configured');
+    }
+    final allSchedules = await store.readAll();
+    final existing = allSchedules[date];
+
+    final schedule = DaySchedule(
+      date: date,
+      shopMeetupTime: clearShopMeetupTime
+          ? null
+          : (shopMeetupTime ?? existing?.shopMeetupTime),
+      firstRestaurantName: clearFirstRestaurantName
+          ? null
+          : (firstRestaurantName ?? existing?.firstRestaurantName),
+      firstArrivalTime: clearFirstArrivalTime
+          ? null
+          : (firstArrivalTime ?? existing?.firstArrivalTime),
+    );
+
+    if (schedule.isEmpty) {
+      allSchedules.remove(date);
+    } else {
+      allSchedules[date] = schedule;
+    }
+    await store.write(allSchedules);
+    return schedule;
+  }
+
+  /// Loads the [DaySchedule] for [date], or null if none exists.
+  Future<DaySchedule?> loadDaySchedule(String date) async {
+    final store = dayScheduleStore;
+    if (store == null) return null;
+    return store.readForDate(date);
+  }
+
+  /// Returns all day schedules keyed by date.
+  Future<Map<String, DaySchedule>> loadAllDaySchedules() async {
+    final store = dayScheduleStore;
+    if (store == null) return {};
+    return store.readAll();
   }
 
   String _formatDateYyyyMmDd(DateTime date) {

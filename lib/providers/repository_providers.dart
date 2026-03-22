@@ -1,12 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/repositories/day_note_repository.dart';
+import '../data/repositories/day_schedule_repository.dart';
 import '../data/repositories/job_repository.dart';
 import '../data/repositories/local_day_note_repository.dart';
+import '../data/repositories/local_day_schedule_repository.dart';
 import '../data/repositories/local_job_repository.dart';
 import '../storage/app_paths.dart';
 import '../storage/atomic_write.dart';
 import '../storage/day_note_store.dart';
+import '../storage/day_schedule_store.dart';
 import '../storage/image_file_store.dart';
 import '../storage/job_scanner.dart';
 import '../storage/job_store.dart';
@@ -59,5 +62,17 @@ final jobRepositoryProvider = Provider<JobRepository>((ref) {
 final dayNoteRepositoryProvider = Provider<DayNoteRepository>((ref) {
   return LocalDayNoteRepository(
     dayNoteStore: ref.watch(dayNoteStoreProvider),
+  );
+});
+
+/// Shared [DayScheduleStore] instance.
+final dayScheduleStoreProvider = Provider<DayScheduleStore>((ref) {
+  return DayScheduleStore(paths: ref.watch(appPathsProvider));
+});
+
+/// The [DayScheduleRepository] exposed to the service layer.
+final dayScheduleRepositoryProvider = Provider<DayScheduleRepository>((ref) {
+  return LocalDayScheduleRepository(
+    dayScheduleStore: ref.watch(dayScheduleStoreProvider),
   );
 });
