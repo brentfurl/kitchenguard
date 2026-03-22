@@ -1,4 +1,5 @@
 import 'photo_record.dart';
+import 'unit_phase_config.dart';
 
 class Unit {
   const Unit({
@@ -29,11 +30,17 @@ class Unit {
 
   /// Returns the visible (active) photo count for a given phase and optional sub-phase.
   /// When [subPhase] is null, returns the total active count for the phase.
+  /// Legacy photos (subPhase == null) are counted under the default sub-phase
+  /// for the unit type and phase direction.
   int visibleCount({required String phase, String? subPhase}) {
     final photos = phase == 'before' ? photosBefore : photosAfter;
     if (subPhase == null) return photos.where((p) => p.isActive).length;
+    final isDefault =
+        UnitPhaseConfig.defaultSubPhaseKey(type, phase) == subPhase;
     return photos
-        .where((p) => p.isActive && p.subPhase == subPhase)
+        .where((p) =>
+            p.isActive &&
+            (p.subPhase == subPhase || (isDefault && p.subPhase == null)))
         .length;
   }
 

@@ -417,14 +417,18 @@ void main() {
       expect(u.visibleCount(phase: 'after', subPhase: 'filters-on'), 1);
     });
 
-    test('visibleCount returns 0 when no photos match subPhase', () {
+    test('legacy null-subPhase photos count under the default sub-phase', () {
       final u = Unit(
         unitId: 'u1', type: 'fan', name: 'fan 1', unitFolderName: 'fan_1',
         isComplete: false,
         photosBefore: [activePhoto('a')],
-        photosAfter: [],
+        photosAfter: [activePhoto('b')],
       );
-      expect(u.visibleCount(phase: 'before', subPhase: 'closed'), 0);
+      // Fan before default = 'closed', after default = 'open'
+      expect(u.visibleCount(phase: 'before', subPhase: 'closed'), 1);
+      expect(u.visibleCount(phase: 'before', subPhase: 'open'), 0);
+      expect(u.visibleCount(phase: 'after', subPhase: 'open'), 1);
+      expect(u.visibleCount(phase: 'after', subPhase: 'closed'), 0);
     });
 
     test('nested photos survive fromJson / toJson round-trip', () {

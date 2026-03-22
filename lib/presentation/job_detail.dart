@@ -52,6 +52,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
       jobs: widget.jobs,
       jobDir: widget.job.jobDir,
     );
+    _controller.loadJob();
   }
 
   String _bucketLabel(String bucket, int count) => '$bucket ($count)';
@@ -148,10 +149,16 @@ class _JobDetailState extends ConsumerState<JobDetail> {
       final unit = job.units.firstWhere((u) => u.unitId == unitId);
       final photos =
           phase == 'before' ? unit.photosBefore : unit.photosAfter;
+      if (subPhase == null) {
+        return photos.where((p) => p.isActive).toList(growable: false);
+      }
+      final isDefault =
+          UnitPhaseConfig.defaultSubPhaseKey(unit.type, phase) == subPhase;
       return photos
           .where((p) =>
               p.isActive &&
-              (subPhase == null || p.subPhase == subPhase))
+              (p.subPhase == subPhase ||
+                  (isDefault && p.subPhase == null)))
           .toList(growable: false);
     } on StateError {
       return const <PhotoRecord>[];

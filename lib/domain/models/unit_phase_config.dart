@@ -59,4 +59,16 @@ class UnitPhaseConfig {
     }
     return null;
   }
+
+  /// Returns the sub-phase key that should absorb legacy photos with
+  /// `subPhase == null` for a given [unitType] and [phase].
+  ///
+  /// Before: first sub-phase in before order (Filters On / Closed).
+  /// After:  first sub-phase in after order  (Filters Off / Open).
+  /// Returns null for misc (no sub-phases).
+  static String? defaultSubPhaseKey(String unitType, String phase) {
+    final order =
+        phase == 'before' ? beforeOrder(unitType) : afterOrder(unitType);
+    return order.isNotEmpty ? order.first.key : null;
+  }
 }
