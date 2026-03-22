@@ -8,6 +8,7 @@ class PhotoRecord {
     required this.missingLocal,
     required this.recovered,
     this.deletedAt,
+    this.subPhase,
   });
 
   final String photoId;
@@ -18,6 +19,7 @@ class PhotoRecord {
   final bool missingLocal;
   final bool recovered;
   final String? deletedAt;
+  final String? subPhase; // 'filters-on'/'filters-off' (hood), 'closed'/'open' (fan), null (misc)
 
   bool get isActive => status == 'local' && !missingLocal;
   bool get isDeleted => status == 'deleted';
@@ -38,6 +40,7 @@ class PhotoRecord {
       missingLocal: (json['missingLocal'] as bool?) ?? false,
       recovered: (json['recovered'] as bool?) ?? false,
       deletedAt: json['deletedAt'] as String?,
+      subPhase: json['subPhase'] as String?,
     );
   }
 
@@ -51,6 +54,7 @@ class PhotoRecord {
       'missingLocal': missingLocal,
       'recovered': recovered,
       if (deletedAt != null) 'deletedAt': deletedAt,
+      if (subPhase != null) 'subPhase': subPhase,
     };
   }
 
@@ -63,6 +67,7 @@ class PhotoRecord {
     bool? missingLocal,
     bool? recovered,
     String? deletedAt,
+    String? subPhase,
   }) {
     return PhotoRecord(
       photoId: photoId ?? this.photoId,
@@ -73,6 +78,7 @@ class PhotoRecord {
       missingLocal: missingLocal ?? this.missingLocal,
       recovered: recovered ?? this.recovered,
       deletedAt: deletedAt ?? this.deletedAt,
+      subPhase: subPhase ?? this.subPhase,
     );
   }
 }

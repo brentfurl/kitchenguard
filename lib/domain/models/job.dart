@@ -18,6 +18,7 @@ class Job {
     this.updatedAt,
     this.scheduledDate,
     this.sortOrder,
+    this.completedAt,
     this.managerNotes = const [],
   });
 
@@ -29,11 +30,14 @@ class Job {
   final int schemaVersion;
   final String? scheduledDate;
   final int? sortOrder;
+  final String? completedAt; // ISO 8601 UTC, null = not complete
   final List<Unit> units;
   final List<JobNote> notes;
   final List<ManagerJobNote> managerNotes;
   final List<PhotoRecord> preCleanLayoutPhotos;
   final Videos videos;
+
+  bool get isComplete => completedAt != null;
 
   factory Job.fromJson(Map<String, dynamic> json) {
     final unitList = (json['units'] as List<dynamic>? ?? [])
@@ -62,6 +66,7 @@ class Job {
       schemaVersion: (json['schemaVersion'] as int?) ?? 1,
       scheduledDate: json['scheduledDate'] as String?,
       sortOrder: json['sortOrder'] as int?,
+      completedAt: json['completedAt'] as String?,
       units: unitList,
       notes: noteList,
       managerNotes: managerNoteList,
@@ -79,6 +84,7 @@ class Job {
       if (updatedAt != null) 'updatedAt': updatedAt,
       if (scheduledDate != null) 'scheduledDate': scheduledDate,
       if (sortOrder != null) 'sortOrder': sortOrder,
+      if (completedAt != null) 'completedAt': completedAt,
       'schemaVersion': schemaVersion,
       'units': units.map((u) => u.toJson()).toList(),
       'notes': notes.map((n) => n.toJson()).toList(),
@@ -96,6 +102,7 @@ class Job {
     String? createdAt,
     String? updatedAt,
     String? scheduledDate,
+    String? completedAt,
     int? schemaVersion,
     int? sortOrder,
     List<Unit>? units,
@@ -112,6 +119,7 @@ class Job {
       updatedAt: updatedAt ?? this.updatedAt,
       scheduledDate: scheduledDate ?? this.scheduledDate,
       sortOrder: sortOrder ?? this.sortOrder,
+      completedAt: completedAt ?? this.completedAt,
       schemaVersion: schemaVersion ?? this.schemaVersion,
       units: units ?? this.units,
       notes: notes ?? this.notes,

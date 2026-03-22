@@ -4,6 +4,7 @@ import 'package:kitchenguard_photo_organizer/domain/models/job.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/job_note.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/photo_record.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/unit.dart';
+import 'package:kitchenguard_photo_organizer/domain/models/unit_phase_config.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/video_record.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/videos.dart';
 
@@ -97,6 +98,32 @@ void main() {
       final copy = r.copyWith(status: 'deleted');
       expect(copy.status, 'deleted');
       expect(r.status, 'local');
+    });
+
+    test('subPhase defaults to null when absent from JSON', () {
+      final r = PhotoRecord.fromJson(fullJson);
+      expect(r.subPhase, isNull);
+    });
+
+    test('subPhase round-trips when present', () {
+      final r = PhotoRecord.fromJson({
+        ...fullJson,
+        'subPhase': 'filters-on',
+      });
+      expect(r.subPhase, 'filters-on');
+      expect(r.toJson()['subPhase'], 'filters-on');
+    });
+
+    test('subPhase is absent from toJson when null', () {
+      final r = PhotoRecord.fromJson(fullJson);
+      expect(r.toJson().containsKey('subPhase'), isFalse);
+    });
+
+    test('copyWith with subPhase', () {
+      final r = PhotoRecord.fromJson(fullJson);
+      final copy = r.copyWith(subPhase: 'closed');
+      expect(copy.subPhase, 'closed');
+      expect(r.subPhase, isNull);
     });
   });
 
@@ -347,6 +374,59 @@ void main() {
       expect(u.visibleBeforeCount, 0);
     });
 
+    test('visibleCount returns total active for phase when subPhase is null', () {
+      final u = Unit(
+        unitId: 'u1', type: 'hood', name: 'hood 1', unitFolderName: 'hood_1',
+        isComplete: false,
+        photosBefore: [activePhoto('a'), activePhoto('b'), deletedPhoto('c')],
+        photosAfter: [activePhoto('x')],
+      );
+      expect(u.visibleCount(phase: 'before'), 2);
+      expect(u.visibleCount(phase: 'after'), 1);
+    });
+
+    test('visibleCount filters by subPhase when provided', () {
+      PhotoRecord taggedPhoto(String id, String subPhase) => PhotoRecord(
+            photoId: id,
+            fileName: '$id.jpg',
+            relativePath: '$id.jpg',
+            capturedAt: 'now',
+            status: 'local',
+            missingLocal: false,
+            recovered: false,
+            subPhase: subPhase,
+          );
+
+      final u = Unit(
+        unitId: 'u1', type: 'hood', name: 'hood 1', unitFolderName: 'hood_1',
+        isComplete: false,
+        photosBefore: [
+          taggedPhoto('a', 'filters-on'),
+          taggedPhoto('b', 'filters-on'),
+          taggedPhoto('c', 'filters-off'),
+          deletedPhoto('d'),
+        ],
+        photosAfter: [
+          taggedPhoto('x', 'filters-off'),
+          taggedPhoto('y', 'filters-on'),
+        ],
+      );
+      expect(u.visibleCount(phase: 'before', subPhase: 'filters-on'), 2);
+      expect(u.visibleCount(phase: 'before', subPhase: 'filters-off'), 1);
+      expect(u.visibleCount(phase: 'after', subPhase: 'filters-off'), 1);
+      expect(u.visibleCount(phase: 'after', subPhase: 'filters-on'), 1);
+    });
+
+    test('visibleCount returns 0 when no photos match subPhase', () {
+      final u = Unit(
+        unitId: 'u1', type: 'fan', name: 'fan 1', unitFolderName: 'fan_1',
+        isComplete: false,
+        photosBefore: [activePhoto('a')],
+        photosAfter: [],
+      );
+      expect(u.visibleCount(phase: 'before', subPhase: 'closed'), 0);
+    });
+
     test('nested photos survive fromJson / toJson round-trip', () {
       final json = {
         'unitId': 'u1', 'type': 'hood', 'name': 'hood 1', 'unitFolderName': 'hood_1',
@@ -522,6 +602,55 @@ void main() {
       expect(job.scheduledDate, isNull);
       expect(job.sortOrder, isNull);
     });
+
+    test('completedAt defaults to null when absent', () {
+      final job = Job.fromJson(minimalJobJson());
+      expect(job.completedAt, isNull);
+      expect(job.isComplete, isFalse);
+    });
+
+    test('completedAt round-trips when present', () {
+      final json = minimalJobJson()
+        ..['completedAt'] = '2026-03-06T20:00:00.000Z';
+      final job = Job.fromJson(json);
+      expect(job.completedAt, '2026-03-06T20:00:00.000Z');
+      expect(job.isComplete, isTrue);
+      expect(job.toJson()['completedAt'], '2026-03-06T20:00:00.000Z');
+    });
+
+    test('completedAt is absent from toJson when null', () {
+      final job = Job.fromJson(minimalJobJson());
+      expect(job.toJson().containsKey('completedAt'), isFalse);
+    });
+
+    test('isComplete is true when completedAt is set', () {
+      final job = Job.fromJson(minimalJobJson())
+          .copyWith(completedAt: '2026-03-06T22:00:00.000Z');
+      expect(job.isComplete, isTrue);
+    });
+
+    test('copyWith for completedAt', () {
+      final job = Job.fromJson(minimalJobJson());
+      final completed =
+          job.copyWith(completedAt: '2026-03-07T01:00:00.000Z');
+      expect(completed.completedAt, '2026-03-07T01:00:00.000Z');
+      expect(completed.isComplete, isTrue);
+      expect(job.completedAt, isNull);
+      expect(job.isComplete, isFalse);
+    });
+
+    test('schema version 1 data without completedAt loads gracefully', () {
+      final json = {
+        'jobId': 'j1',
+        'restaurantName': 'R',
+        'shiftStartDate': '2026-03-06',
+        'createdAt': 'now',
+      };
+      final job = Job.fromJson(json);
+      expect(job.schemaVersion, 1);
+      expect(job.completedAt, isNull);
+      expect(job.isComplete, isFalse);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -600,6 +729,92 @@ void main() {
       expect(rebuilt.text, note.text);
       expect(rebuilt.createdAt, note.createdAt);
       expect(rebuilt.status, note.status);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // UnitPhaseConfig
+  // ---------------------------------------------------------------------------
+  group('UnitPhaseConfig', () {
+    test('hood has sub-phases', () {
+      expect(UnitPhaseConfig.hasSubPhases('hood'), isTrue);
+    });
+
+    test('fan has sub-phases', () {
+      expect(UnitPhaseConfig.hasSubPhases('fan'), isTrue);
+    });
+
+    test('misc has no sub-phases', () {
+      expect(UnitPhaseConfig.hasSubPhases('misc'), isFalse);
+    });
+
+    test('unknown type has no sub-phases', () {
+      expect(UnitPhaseConfig.hasSubPhases('other'), isFalse);
+    });
+
+    test('hood sub-phases are filters-on and filters-off', () {
+      final subs = UnitPhaseConfig.subPhasesFor('hood');
+      expect(subs.length, 2);
+      expect(subs[0].key, 'filters-on');
+      expect(subs[0].label, 'Filters On');
+      expect(subs[1].key, 'filters-off');
+      expect(subs[1].label, 'Filters Off');
+    });
+
+    test('fan sub-phases are closed and open', () {
+      final subs = UnitPhaseConfig.subPhasesFor('fan');
+      expect(subs.length, 2);
+      expect(subs[0].key, 'closed');
+      expect(subs[0].label, 'Closed');
+      expect(subs[1].key, 'open');
+      expect(subs[1].label, 'Open');
+    });
+
+    test('misc returns empty sub-phases', () {
+      expect(UnitPhaseConfig.subPhasesFor('misc'), isEmpty);
+    });
+
+    test('hood beforeOrder is Filters On then Filters Off', () {
+      final order = UnitPhaseConfig.beforeOrder('hood');
+      expect(order.map((s) => s.key).toList(), ['filters-on', 'filters-off']);
+    });
+
+    test('hood afterOrder is Filters Off then Filters On', () {
+      final order = UnitPhaseConfig.afterOrder('hood');
+      expect(order.map((s) => s.key).toList(), ['filters-off', 'filters-on']);
+    });
+
+    test('fan beforeOrder is Closed then Open', () {
+      final order = UnitPhaseConfig.beforeOrder('fan');
+      expect(order.map((s) => s.key).toList(), ['closed', 'open']);
+    });
+
+    test('fan afterOrder is Open then Closed', () {
+      final order = UnitPhaseConfig.afterOrder('fan');
+      expect(order.map((s) => s.key).toList(), ['open', 'closed']);
+    });
+
+    test('misc beforeOrder and afterOrder return empty', () {
+      expect(UnitPhaseConfig.beforeOrder('misc'), isEmpty);
+      expect(UnitPhaseConfig.afterOrder('misc'), isEmpty);
+    });
+
+    test('labelFor returns correct label for hood sub-phases', () {
+      expect(UnitPhaseConfig.labelFor('hood', 'filters-on'), 'Filters On');
+      expect(UnitPhaseConfig.labelFor('hood', 'filters-off'), 'Filters Off');
+    });
+
+    test('labelFor returns correct label for fan sub-phases', () {
+      expect(UnitPhaseConfig.labelFor('fan', 'closed'), 'Closed');
+      expect(UnitPhaseConfig.labelFor('fan', 'open'), 'Open');
+    });
+
+    test('labelFor returns null for unknown key', () {
+      expect(UnitPhaseConfig.labelFor('hood', 'unknown'), isNull);
+    });
+
+    test('labelFor returns null for misc type', () {
+      expect(UnitPhaseConfig.labelFor('misc', 'filters-on'), isNull);
     });
   });
 }

@@ -27,6 +27,16 @@ class Unit {
   int get visibleAfterCount =>
       photosAfter.where((p) => p.isActive).length;
 
+  /// Returns the visible (active) photo count for a given phase and optional sub-phase.
+  /// When [subPhase] is null, returns the total active count for the phase.
+  int visibleCount({required String phase, String? subPhase}) {
+    final photos = phase == 'before' ? photosBefore : photosAfter;
+    if (subPhase == null) return photos.where((p) => p.isActive).length;
+    return photos
+        .where((p) => p.isActive && p.subPhase == subPhase)
+        .length;
+  }
+
   factory Unit.fromJson(Map<String, dynamic> json) {
     final beforeList = (json['photosBefore'] as List<dynamic>? ?? [])
         .map((e) => PhotoRecord.fromJson(e as Map<String, dynamic>))
