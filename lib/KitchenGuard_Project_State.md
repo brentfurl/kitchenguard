@@ -174,6 +174,11 @@ Key changes from schema version 1:
 - `scheduledDate` (String?, YYYY-MM-DD) — nullable, omitted from JSON when null
 - `sortOrder` (int?, 0-based within a day) — nullable, omitted from JSON when null
 
+Schema version 3 additions (Phase 3):
+
+- `completedAt` (String?, ISO 8601 UTC) on Job — nullable, omitted when null
+- `subPhase` (String?) on photo records — 'filters-on'/'filters-off' (hood), 'closed'/'open' (fan), null (misc)
+
 ---
 
 # 5. Pre-clean Layout Feature
@@ -569,6 +574,7 @@ All domain entities have typed Dart classes in `lib/domain/models/`. Models are 
 | missingLocal | bool | false | |
 | recovered | bool | false | set by JobScanner for orphan recovery |
 | deletedAt | String? | null | set on soft delete |
+| subPhase | String? | null | Phase 3: 'filters-on'/'filters-off' (hood), 'closed'/'open' (fan), null (misc) |
 
 Computed: `isActive`, `isDeleted`, `isMissing`.
 
@@ -605,14 +611,17 @@ Computed: `isActive`, `isDeleted`, `isMissing`.
 | shiftStartDate | String | required | YYYY-MM-DD |
 | scheduledDate | String? | null | YYYY-MM-DD; omitted from JSON when null |
 | sortOrder | int? | null | 0-based within a day; omitted from JSON when null |
+| completedAt | String? | null | Phase 3: ISO 8601 UTC; null = not complete |
 | createdAt | String | required | ISO 8601 UTC |
 | updatedAt | String? | null | bumped on every write |
-| schemaVersion | int | 2 | missing = version 1 |
+| schemaVersion | int | 2 | missing = version 1; Phase 3 bumps to 3 |
 | units | List\<Unit\> | [] | |
 | notes | List\<JobNote\> | [] | field notes (tech-entered, included in export) |
 | managerNotes | List\<ManagerJobNote\> | [] | manager job notes (NOT included in export) |
 | preCleanLayoutPhotos | List\<PhotoRecord\> | [] | |
 | videos | Videos | empty | |
+
+Computed (Phase 3): `isComplete` (`completedAt != null`).
 
 ### DayNote
 
@@ -718,11 +727,31 @@ All 58 tests pass.
 
 Note: `managerNotes` and `clientInfo` deferred to Phase 3. Sync model deferred to Phase 4.
 
-### Phase 3: Pre-Sync Architecture
+### Phase 3: Pre-Sync Architecture + Structured Photo Workflow
 
+See Phase 3 plan document in `.cursor/plans/` for full implementation details.
+
+**3A — Architecture:**
 - Riverpod state management (replace setState + manual reload)
 - Repository pattern between service and storage layers
-- Lightweight role model (manager vs. technician)
+- Data model updates: `subPhase` on `PhotoRecord`, `completedAt` on `Job`, schema version 3
+
+**3B — Features:**
+- Sub-phase unit cards (4 phases for hoods/fans, 2 for misc)
+- Job-level completion (Mark Complete / Reopen)
+- Smart day card sorting (incomplete first, upcoming, completed, unscheduled)
+- Lightweight role model (manager vs. technician — no permissions enforcement yet)
+
+**Key decisions:**
+- Hood sub-phases: Filters On / Filters Off
+- Fan sub-phases: Closed / Open
+- Misc: no sub-phases (Before / After only)
+- Sub-phases are metadata only — filesystem and export structure unchanged
+- Job completion solves the midnight-crossing problem for night shifts
+- Roles are fixed per device (manager phone vs. crew phone) — no toggle
+- Multi-device same-job is a key use case (up to 4 people documenting one restaurant)
+- Photo sync deferred to Phase 4; phase-status visibility is the priority coordination win
+- Batch photo move between units/phases deferred to post-Phase 3
 
 ### Phase 4: Cloud and Multi-Platform
 
@@ -731,6 +760,9 @@ Note: `managerNotes` and `clientInfo` deferred to Phase 3. Sync model deferred t
 - Authentication (Firebase Auth with role claims)
 - Flutter web for management dashboard
 - Sync engine: scheduling cloud-first, documentation device-first
+- Photo sync across devices (post-shift or live — TBD)
+- Unread note counters / alert badges
+- Manager permissions enforcement on crew devices
 
 ---
 
@@ -738,9 +770,16 @@ Note: `managerNotes` and `clientInfo` deferred to Phase 3. Sync model deferred t
 
 Jobs Home uses a day-grouped layout as of Phase 2.
 
+### Day Card Sort Order (Phase 3)
+
+1. Days with incomplete jobs (ascending by date) — active shift stays at top until all jobs complete
+2. Upcoming days with no jobs started (ascending)
+3. Completed days (descending — most recently completed first)
+4. Unscheduled section at the bottom
+
 ### Scheduled Jobs (Day Cards)
 
-Jobs with a `scheduledDate` are grouped into day cards sorted chronologically.
+Jobs with a `scheduledDate` are grouped into day cards.
 
 Each day card contains:
 - Date header (formatted: "Monday, March 20, 2026")
@@ -755,11 +794,10 @@ Jobs with `scheduledDate == null` appear at the bottom, sorted by `createdAt` de
 ### Job Tile
 
 Each job tile shows:
-- Restaurant name
-- Shift start date
+- Restaurant name (no date subtitle — scheduled date context comes from the day card header)
 - Note count chip (if > 0 active notes; tap → NotesScreen)
 - Move up / move down icon buttons (scheduled jobs only)
-- Overflow menu (Delete Job)
+- Overflow menu: Edit Job (name + scheduled date), Delete Job
 
 ---
 
@@ -896,52 +934,52 @@ Counts are shown directly on the Tools screen.
 
 # 23. Unit Card System
 
-Units are displayed as cards.
+Units are displayed as cards. Card layout varies by unit type.
 
-Layout:
+### Hood and Fan Cards (Phase 3 — 4 sub-phases)
 
 ```
-Unit Name
-Unit Type
-
-Status Chip     Mark Complete / Incomplete
-
-Before Button   After Button
+Unit Name                                    ⋮
+BEFORE                 AFTER
+Filters On  (3) 🖼     Filters Off (2) 🖼
+Filters Off (4) 🖼     Filters On  (0) 🖼
 ```
 
-Benefits:
+For fans, sub-phase labels are "Closed" / "Open".
 
-- clearer separation
-- faster scanning
-- easier tapping
+Each sub-phase row: tappable label → rapid capture, count, gallery icon.
+
+Before sub-phase order: Hood = Filters On then Filters Off; Fan = Closed then Open.
+After sub-phase order: Hood = Filters Off then Filters On; Fan = Open then Closed.
+
+### Misc Cards (2 phases, no sub-phases)
+
+```
+Unit Name                                    ⋮
+Before (2) 🖼           After (1) 🖼
+```
+
+Sub-phases are **metadata only** (`subPhase` on `PhotoRecord`). Filesystem and export unchanged.
 
 ---
 
-# 24. Before / After Button Styling
+# 24. Unit Completion State
 
-Buttons are visually distinct.
-
-```
-Before → filled
-After  → outlined
-```
-
-Counts displayed directly on buttons.
+Unit-level completion has been **removed from the UI**. The relevant workflow distinction is sub-phase completion (visible via photo counts on unit cards). Job-level completion is being added in Phase 3.
 
 ---
 
-# 25. Unit Completion State
+# 25. Job Completion (Phase 3)
 
-Units can be marked:
+Jobs can be marked complete via overflow menu. `completedAt` timestamp set on completion, cleared on reopen.
 
-```
-In Progress
-Complete
-```
+Completed jobs affect day card sorting:
+1. Days with incomplete jobs (ascending) — active shift stays at top
+2. Upcoming days (ascending)
+3. Completed days (descending — most recently completed first)
+4. Unscheduled
 
-Completion **does not lock the unit**.
-
-Photos can still be added later.
+This solves the midnight-crossing problem: the active day stays at top until all jobs are marked complete, regardless of calendar date.
 
 ---
 
@@ -1036,7 +1074,7 @@ Field readiness: **9 / 10**
 
 Core field documentation workflow is complete. Phase 1 and Phase 2 are complete.
 
-Next priority is Phase 3: state management, repository abstraction, and lightweight role model.
+Next priority is Phase 3: architecture (Riverpod + repository) then features (sub-phases, job completion, sorting, role model).
 
 Phase 2 progress:
 - `scheduledDate` + `sortOrder` on `Job`: **complete**
@@ -1044,4 +1082,8 @@ Phase 2 progress:
 - `JobsService` scheduling methods: **complete**
 - `JobsHome` day-grouped redesign with shift notes + reordering: **complete**
 - `JobDetail` scheduling UI + shift notes + job notes preview: **complete**
+- Create Job dialog: name + optional scheduled date: **complete**
+- Edit Job from overflow menu (name + scheduled date): **complete**
+- `shiftStartDate` display removed from job tiles and Job Detail header: **complete**
+- `JobsService.updateJobDetails()` for editing name + date: **complete**
 - Automated tests (model round-trips, service methods): **complete**

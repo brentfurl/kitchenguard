@@ -99,7 +99,8 @@ job
  ├ sortOrder          (int?, null = unset; 0-based within a day)
  ├ createdAt
  ├ updatedAt          (bumped on every write)
- ├ schemaVersion      (integer, current = 2)
+ ├ completedAt        (String?, ISO 8601 UTC, null = not complete)
+ ├ schemaVersion      (integer, current = 2; Phase 3 bumps to 3)
  ├ units[]
  ├ preCleanLayoutPhotos[]
  ├ notes[]            (field notes — tech-entered, included in export)
@@ -139,7 +140,13 @@ status
 missingLocal
 recovered
 deletedAt
+subPhase             (String?, null for misc; Phase 3 addition)
 ```
+
+`subPhase` values by unit type:
+- Hood: `filters-on`, `filters-off`
+- Fan: `closed`, `open`
+- Misc: null (no sub-phases)
 
 Video entries include:
 
@@ -173,15 +180,30 @@ Day Card (date header)
   └─ Job tiles (sorted by sortOrder, then createdAt)
        └─ Move up / Move down buttons (reorder within day)
        └─ Manager note count chip (tap → ManagerNotesScreen)
+       └─ Overflow menu: Edit Job, Delete Job
 
 Unscheduled Section
   └─ Job tiles (sorted by createdAt desc)
 ```
 
+Job tiles display restaurant name only (no created-at or shift-start date subtitle). The scheduled date context comes from the day card header.
+
+### Create Job Dialog
+
+The "Create Job" dialog includes:
+- Restaurant name (text field, required)
+- Scheduled date (date picker, optional — defaults to "Not scheduled")
+
+### Edit Job Dialog
+
+The overflow menu on each job tile includes "Edit Job", which opens a dialog to change:
+- Restaurant name
+- Scheduled date (can set, change, or clear)
+
 ## Job Detail Screen
 
 ```
-Header (restaurant name + scheduled date + schedule/clear controls)
+Header (restaurant name + scheduled date + schedule/change/clear controls)
 ↓
 Job Notes card (manager notes count → ManagerNotesScreen)
 ↓
@@ -189,6 +211,8 @@ Tools Card
 ↓
 Units
 ```
+
+The header no longer displays `shiftStartDate`. Only `scheduledDate` is shown (with change/clear controls).
 
 ### Tools Screen
 
@@ -207,26 +231,44 @@ Each opens its own screen.
 
 # Unit Cards
 
-Units appear as cards.
+Units appear as cards. Card layout varies by unit type.
 
-Structure:
+### Hood and Fan Cards (4 sub-phases)
 
 ```
-Unit Name
-Unit Type
-
-Status Chip
-Mark Complete / Incomplete
-
-Before Button
-After Button
+Unit Name                                    ⋮
+BEFORE                 AFTER
+Filters On  (3) 🖼     Filters Off (2) 🖼
+Filters Off (4) 🖼     Filters On  (0) 🖼
 ```
 
-Before/After buttons display counts.
+For fans, sub-phase labels are "Closed" / "Open" instead of "Filters On" / "Filters Off".
 
-Completion is a **workflow flag**, not a lock.
+Each sub-phase row has:
+- Tappable label → opens rapid capture tagged with that sub-phase
+- Photo count (visible/active only)
+- Gallery icon → opens gallery filtered to that sub-phase
 
-Users can still add photos after completion.
+Before sub-phase order:
+- Hood: Filters On, then Filters Off
+- Fan: Closed, then Open
+
+After sub-phase order:
+- Hood: Filters Off, then Filters On
+- Fan: Open, then Closed
+
+### Misc Cards (2 phases, no sub-phases)
+
+```
+Unit Name                                    ⋮
+Before (2) 🖼           After (1) 🖼
+```
+
+Same camera + gallery pattern, but no sub-phase distinction.
+
+### Sub-phase metadata
+
+Sub-phases are **metadata only** (`subPhase` field on `PhotoRecord`). Photos are still physically stored in `Before/` and `After/` folders. Export structure is unchanged.
 
 ---
 
@@ -468,12 +510,18 @@ Core capabilities complete:
 - day-grouped Jobs Home with shift notes and job note counts
 - in-day job reordering (move up / move down)
 - Job Detail: shift notes section + job notes preview + schedule picker
+- Create Job dialog with optional scheduled date
+- Edit Job (name + scheduled date) from overflow menu
 
 Note: `managerNotes` and `clientInfo` fields are deferred to Phase 3 (no role distinction yet).
 
+**Phase 3 is next.** See Phase 3 plan document in `.cursor/plans/` for full details.
+
 Next phases:
 
-1. Phase 3: State management and repository abstraction (pre-sync architecture), lightweight role model
+1. Phase 3: Pre-sync architecture + structured photo workflow
+   - 3A: Riverpod state management, repository pattern, data model updates
+   - 3B: Sub-phase unit cards, job-level completion, smart day-card sorting, lightweight role model
 2. Phase 4: Cloud database, sync, auth, and web access for management
 
 ---
@@ -615,5 +663,6 @@ Existing jobs without UUIDs on photos/videos get IDs backfilled on load via `Job
 
 - Version 1: implicit (no field present), original schema
 - Version 2: adds `updatedAt`, `schemaVersion`, `photoId` on photos, `videoId` on videos
+- Version 3 (Phase 3): adds `subPhase` on photos, `completedAt` on jobs
 
-`JobScanner` detects missing `schemaVersion` and treats it as version 1. The `Job.fromJson` factory handles migration by generating missing IDs on load.
+`JobScanner` detects missing `schemaVersion` and treats it as version 1. The `Job.fromJson` factory handles migration by generating missing IDs on load. Existing photos without `subPhase` are treated as uncategorized (null).

@@ -99,38 +99,96 @@ class _JobsHomeState extends State<JobsHome> {
   // Create job
   // ---------------------------------------------------------------------------
 
-  Future<String?> _showCreateJobDialog() {
-    final controller = TextEditingController();
-    return showDialog<String>(
+  Future<_JobDialogResult?> _showCreateJobDialog() {
+    final nameController = TextEditingController();
+    DateTime? selectedDate;
+
+    return showDialog<_JobDialogResult>(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Create Job'),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(labelText: 'Restaurant name'),
-            autofocus: true,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(controller.text),
-              child: const Text('Create'),
-            ),
-          ],
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Create Job'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Restaurant name',
+                    ),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate ?? DateTime.now(),
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2030),
+                      );
+                      if (picked != null) {
+                        setDialogState(() => selectedDate = picked);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'Scheduled date',
+                        suffixIcon: selectedDate != null
+                            ? IconButton(
+                                icon: const Icon(Icons.close, size: 18),
+                                onPressed: () {
+                                  setDialogState(() => selectedDate = null);
+                                },
+                              )
+                            : const Icon(Icons.calendar_today, size: 18),
+                      ),
+                      child: Text(
+                        selectedDate != null
+                            ? _formatDate(_toYyyyMmDd(selectedDate!))
+                            : 'Not scheduled',
+                        style: TextStyle(
+                          color: selectedDate != null
+                              ? null
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(
+                    _JobDialogResult(
+                      name: nameController.text,
+                      scheduledDate: selectedDate,
+                    ),
+                  ),
+                  child: const Text('Create'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
 
   Future<void> _createJob() async {
-    final input = await _showCreateJobDialog();
-    if (input == null || !mounted) return;
+    final result = await _showCreateJobDialog();
+    if (result == null || !mounted) return;
 
-    final restaurantName = input.trim();
+    final restaurantName = result.name.trim();
     if (restaurantName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Restaurant name required')),
@@ -140,9 +198,146 @@ class _JobsHomeState extends State<JobsHome> {
 
     setState(() => _isLoading = true);
     try {
+      final scheduledDate = result.scheduledDate != null
+          ? _toYyyyMmDd(result.scheduledDate!)
+          : null;
       await widget.jobs.createJob(
         restaurantName: restaurantName,
         shiftStartLocal: DateTime.now(),
+        scheduledDate: scheduledDate,
+      );
+      await _loadAll();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  static String _toYyyyMmDd(DateTime dt) {
+    final y = dt.year.toString().padLeft(4, '0');
+    final m = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Edit job
+  // ---------------------------------------------------------------------------
+
+  Future<_JobDialogResult?> _showEditJobDialog(JobScanResult result) {
+    final job = result.job;
+    final nameController = TextEditingController(text: job.restaurantName);
+    DateTime? selectedDate = job.scheduledDate != null
+        ? DateTime.tryParse(job.scheduledDate!)
+        : null;
+
+    return showDialog<_JobDialogResult>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Edit Job'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Restaurant name',
+                    ),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate ?? DateTime.now(),
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2030),
+                      );
+                      if (picked != null) {
+                        setDialogState(() => selectedDate = picked);
+                      }
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: InputDecorator(
+                      decoration: InputDecoration(
+                        labelText: 'Scheduled date',
+                        suffixIcon: selectedDate != null
+                            ? IconButton(
+                                icon: const Icon(Icons.close, size: 18),
+                                onPressed: () {
+                                  setDialogState(() => selectedDate = null);
+                                },
+                              )
+                            : const Icon(Icons.calendar_today, size: 18),
+                      ),
+                      child: Text(
+                        selectedDate != null
+                            ? _formatDate(_toYyyyMmDd(selectedDate!))
+                            : 'Not scheduled',
+                        style: TextStyle(
+                          color: selectedDate != null
+                              ? null
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(
+                    _JobDialogResult(
+                      name: nameController.text,
+                      scheduledDate: selectedDate,
+                      clearScheduledDate: selectedDate == null,
+                    ),
+                  ),
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _editJob(JobScanResult result) async {
+    final edit = await _showEditJobDialog(result);
+    if (edit == null || !mounted) return;
+
+    final name = edit.name.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Restaurant name required')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      await widget.jobs.updateJobDetails(
+        jobDir: result.jobDir,
+        restaurantName: name,
+        scheduledDate: edit.scheduledDate != null
+            ? _toYyyyMmDd(edit.scheduledDate!)
+            : null,
+        clearScheduledDate: edit.clearScheduledDate,
       );
       await _loadAll();
     } catch (error) {
@@ -657,19 +852,7 @@ class _JobsHomeState extends State<JobsHome> {
         child: Row(
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(restaurant, style: textTheme.bodyLarge),
-                  const SizedBox(height: 2),
-                  Text(
-                    job.shiftStartDate,
-                    style: textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
+              child: Text(restaurant, style: textTheme.bodyLarge),
             ),
             if (activeNoteCount > 0)
               Padding(
@@ -706,11 +889,17 @@ class _JobsHomeState extends State<JobsHome> {
             ],
             PopupMenuButton<String>(
               onSelected: (value) async {
-                if (value == 'delete') {
+                if (value == 'edit') {
+                  await _editJob(result);
+                } else if (value == 'delete') {
                   await _confirmDeleteJob(result);
                 }
               },
               itemBuilder: (context) => const [
+                PopupMenuItem<String>(
+                  value: 'edit',
+                  child: Text('Edit Job'),
+                ),
                 PopupMenuItem<String>(
                   value: 'delete',
                   child: Text('Delete Job'),
@@ -768,4 +957,16 @@ class _JobsHomeState extends State<JobsHome> {
       ),
     );
   }
+}
+
+class _JobDialogResult {
+  const _JobDialogResult({
+    required this.name,
+    this.scheduledDate,
+    this.clearScheduledDate = false,
+  });
+
+  final String name;
+  final DateTime? scheduledDate;
+  final bool clearScheduledDate;
 }

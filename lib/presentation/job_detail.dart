@@ -890,7 +890,6 @@ class _JobDetailState extends State<JobDetail> {
         children: [
           _JobHeader(
             restaurantName: _job.restaurantName,
-            shiftStartDate: _job.shiftStartDate,
             scheduledDate: _job.scheduledDate,
             onSchedule: _openSchedulePicker,
             onClearSchedule: _clearScheduledDate,
@@ -1105,14 +1104,12 @@ class _AddUnitRequest {
 class _JobHeader extends StatelessWidget {
   const _JobHeader({
     required this.restaurantName,
-    required this.shiftStartDate,
     required this.scheduledDate,
     required this.onSchedule,
     required this.onClearSchedule,
   });
 
   final String restaurantName;
-  final String shiftStartDate;
   final String? scheduledDate;
   final VoidCallback onSchedule;
   final VoidCallback onClearSchedule;
@@ -1143,13 +1140,6 @@ class _JobHeader extends StatelessWidget {
             restaurantName,
             style: theme.textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            shiftStartDate,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 10),

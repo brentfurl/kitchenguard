@@ -40,6 +40,7 @@ class JobsService {
   Future<Directory> createJob({
     required String restaurantName,
     required DateTime shiftStartLocal,
+    String? scheduledDate,
   }) async {
     final localDate = shiftStartLocal.toLocal();
     final jobPath = await paths.getJobPath(
@@ -68,7 +69,8 @@ class JobsService {
       restaurantName: restaurantName,
       shiftStartDate: _formatDateYyyyMmDd(localDate),
       createdAt: DateTime.now().toUtc().toIso8601String(),
-      schemaVersion: 2,
+      schemaVersion: 3,
+      scheduledDate: scheduledDate,
       units: const [],
       notes: const [],
       preCleanLayoutPhotos: const [],
@@ -99,6 +101,51 @@ class JobsService {
     }
 
     await Directory(jobPath).delete(recursive: true);
+  }
+
+  /// Updates the restaurant name and/or scheduled date on a job.
+  ///
+  /// [restaurantName] and [scheduledDate] are applied only when non-null.
+  /// To clear the scheduled date, pass the empty string for [scheduledDate]
+  /// (the value is converted to `null` internally).
+  Future<Job> updateJobDetails({
+    required Directory jobDir,
+    String? restaurantName,
+    String? scheduledDate,
+    bool clearScheduledDate = false,
+  }) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final newName = restaurantName?.trim();
+    if (newName != null && newName.isEmpty) {
+      throw ArgumentError.value(
+        restaurantName,
+        'restaurantName',
+        'Restaurant name cannot be empty.',
+      );
+    }
+
+    final updated = Job(
+      jobId: job.jobId,
+      restaurantName: newName ?? job.restaurantName,
+      shiftStartDate: job.shiftStartDate,
+      createdAt: job.createdAt,
+      schemaVersion: job.schemaVersion,
+      units: job.units,
+      notes: job.notes,
+      managerNotes: job.managerNotes,
+      preCleanLayoutPhotos: job.preCleanLayoutPhotos,
+      videos: job.videos,
+      scheduledDate: clearScheduledDate
+          ? null
+          : (scheduledDate ?? job.scheduledDate),
+      sortOrder: job.sortOrder,
+    );
+    return jobStore.writeJob(jobJsonFile, updated);
   }
 
   Future<void> addUnit({
