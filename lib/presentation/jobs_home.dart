@@ -787,6 +787,22 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     );
   }
 
+  Future<void> _toggleJobCompletion(JobScanResult result) async {
+    try {
+      if (result.job.isComplete) {
+        await _jobs.reopenJob(result.jobDir);
+      } else {
+        await _jobs.markJobComplete(result.jobDir);
+      }
+      ref.invalidate(jobListProvider);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
   Widget _buildJobTile(
     BuildContext context,
     JobScanResult result, {
@@ -807,8 +823,24 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
         child: Row(
           children: [
+            if (job.isComplete)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Icon(
+                  Icons.check_circle,
+                  size: 18,
+                  color: colorScheme.primary,
+                ),
+              ),
             Expanded(
-              child: Text(restaurant, style: textTheme.bodyLarge),
+              child: Text(
+                restaurant,
+                style: textTheme.bodyLarge?.copyWith(
+                  color: job.isComplete
+                      ? colorScheme.onSurfaceVariant
+                      : null,
+                ),
+              ),
             ),
             if (activeNoteCount > 0)
               Padding(
@@ -849,14 +881,22 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                   await _editJob(result);
                 } else if (value == 'delete') {
                   await _confirmDeleteJob(result);
+                } else if (value == 'complete') {
+                  await _toggleJobCompletion(result);
                 }
               },
-              itemBuilder: (context) => const [
-                PopupMenuItem<String>(
+              itemBuilder: (context) => [
+                const PopupMenuItem<String>(
                   value: 'edit',
                   child: Text('Edit Job'),
                 ),
                 PopupMenuItem<String>(
+                  value: 'complete',
+                  child: Text(
+                    job.isComplete ? 'Reopen Job' : 'Mark Complete',
+                  ),
+                ),
+                const PopupMenuItem<String>(
                   value: 'delete',
                   child: Text('Delete Job'),
                 ),

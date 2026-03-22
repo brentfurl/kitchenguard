@@ -577,6 +577,23 @@ class _JobDetailState extends ConsumerState<JobDetail> {
     _reloadJob();
   }
 
+  Future<void> _toggleJobCompletion() async {
+    try {
+      if (_job.isComplete) {
+        await _controller.reopenJob();
+      } else {
+        await _controller.markJobComplete();
+      }
+      _reloadJob();
+      ref.invalidate(jobListProvider);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
   Future<void> _exportJob() async {
     if (_isExporting) return;
     setState(() => _isExporting = true);
@@ -829,6 +846,21 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             icon: const Icon(Icons.handyman_outlined),
             tooltip: 'Tools',
           ),
+          PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value == 'complete') {
+                await _toggleJobCompletion();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem<String>(
+                value: 'complete',
+                child: Text(
+                  job.isComplete ? 'Reopen Job' : 'Mark Complete',
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -837,6 +869,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
           _JobHeader(
             restaurantName: job.restaurantName,
             scheduledDate: job.scheduledDate,
+            isComplete: job.isComplete,
             onSchedule: _openSchedulePicker,
             onClearSchedule: _clearScheduledDate,
           ),
@@ -1032,12 +1065,14 @@ class _JobHeader extends StatelessWidget {
   const _JobHeader({
     required this.restaurantName,
     required this.scheduledDate,
+    required this.isComplete,
     required this.onSchedule,
     required this.onClearSchedule,
   });
 
   final String restaurantName;
   final String? scheduledDate;
+  final bool isComplete;
   final VoidCallback onSchedule;
   final VoidCallback onClearSchedule;
 
@@ -1069,6 +1104,26 @@ class _JobHeader extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
+          if (isComplete) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  Icons.check_circle,
+                  size: 16,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Complete',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 10),
           if (scheduledDate != null) ...[
             Row(

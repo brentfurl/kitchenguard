@@ -1273,6 +1273,62 @@ class JobsService {
   }
 
   // ---------------------------------------------------------------------------
+  // Job Completion
+  // ---------------------------------------------------------------------------
+
+  /// Marks a job as complete by setting [Job.completedAt] to now (UTC).
+  Future<Job> markJobComplete(Directory jobDir) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final updated = Job(
+      jobId: job.jobId,
+      restaurantName: job.restaurantName,
+      shiftStartDate: job.shiftStartDate,
+      createdAt: job.createdAt,
+      schemaVersion: job.schemaVersion,
+      units: job.units,
+      notes: job.notes,
+      managerNotes: job.managerNotes,
+      preCleanLayoutPhotos: job.preCleanLayoutPhotos,
+      videos: job.videos,
+      scheduledDate: job.scheduledDate,
+      sortOrder: job.sortOrder,
+      completedAt: DateTime.now().toUtc().toIso8601String(),
+    );
+    return jobStore.writeJob(jobJsonFile, updated);
+  }
+
+  /// Reopens a completed job by clearing [Job.completedAt].
+  Future<Job> reopenJob(Directory jobDir) async {
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final updated = Job(
+      jobId: job.jobId,
+      restaurantName: job.restaurantName,
+      shiftStartDate: job.shiftStartDate,
+      createdAt: job.createdAt,
+      schemaVersion: job.schemaVersion,
+      units: job.units,
+      notes: job.notes,
+      managerNotes: job.managerNotes,
+      preCleanLayoutPhotos: job.preCleanLayoutPhotos,
+      videos: job.videos,
+      scheduledDate: job.scheduledDate,
+      sortOrder: job.sortOrder,
+      completedAt: null,
+    );
+    return jobStore.writeJob(jobJsonFile, updated);
+  }
+
+  // ---------------------------------------------------------------------------
   // Scheduling
   // ---------------------------------------------------------------------------
 

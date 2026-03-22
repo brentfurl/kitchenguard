@@ -268,6 +268,18 @@ class JobDetailController {
     await loadJob();
   }
 
+  Future<Job> markJobComplete() async {
+    final updated = await jobs.markJobComplete(jobDir);
+    _job = updated;
+    return updated;
+  }
+
+  Future<Job> reopenJob() async {
+    final updated = await jobs.reopenJob(jobDir);
+    _job = updated;
+    return updated;
+  }
+
   Future<List<VideoRecord>> loadVideos({required String kind}) async {
     final normalized = kind.trim().toLowerCase();
     if (normalized != 'exit' && normalized != 'other') {
