@@ -7,6 +7,7 @@ import '../application/jobs_service.dart';
 import '../domain/models/job.dart';
 import '../domain/models/photo_record.dart';
 import '../domain/models/unit.dart';
+import '../domain/models/unit_phase_config.dart';
 import '../providers/job_detail_provider.dart';
 import '../providers/job_list_provider.dart';
 import '../utils/unit_sorter.dart';
@@ -33,8 +34,6 @@ class JobDetail extends ConsumerStatefulWidget {
 
 class _JobDetailState extends ConsumerState<JobDetail> {
   bool _isExporting = false;
-  bool _isOpeningRapidBefore = false;
-  bool _isOpeningRapidAfter = false;
   late final JobDetailController _controller;
   bool _isBusy = false;
   final ImagePicker _picker = ImagePicker();
@@ -128,146 +127,68 @@ class _JobDetailState extends ConsumerState<JobDetail> {
   Future<int> _loadUnitVisiblePhotoCount({
     required String unitId,
     required String phase,
+    String? subPhase,
   }) async {
     final job = await _controller.loadJob();
     try {
       final unit = job.units.firstWhere((u) => u.unitId == unitId);
-      return phase == 'before'
-          ? unit.visibleBeforeCount
-          : unit.visibleAfterCount;
+      return unit.visibleCount(phase: phase, subPhase: subPhase);
     } on StateError {
       return 0;
-    }
-  }
-
-  Future<void> _openRapidBeforeCapture({
-    required String unitId,
-    required String unitName,
-  }) async {
-    if (_isOpeningRapidBefore) {
-      return;
-    }
-    setState(() {
-      _isOpeningRapidBefore = true;
-    });
-    try {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => RapidPhotoCaptureScreen(
-            unitName: unitName.isEmpty ? 'Unnamed unit' : unitName,
-            phaseLabel: 'Before',
-            loadVisibleCount: () =>
-                _loadUnitVisiblePhotoCount(unitId: unitId, phase: 'before'),
-            onCaptureFile: (file) => _controller.capturePhotoFromFile(
-              unitId: unitId,
-              phase: 'before',
-              sourceImageFile: file,
-            ),
-          ),
-        ),
-      );
-      if (!mounted) return;
-      _reloadJob();
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isOpeningRapidBefore = false;
-        });
-      } else {
-        _isOpeningRapidBefore = false;
-      }
     }
   }
 
   Future<List<PhotoRecord>> _loadUnitPhotos({
     required String unitId,
     required String phase,
+    String? subPhase,
   }) async {
     final job = await _controller.loadJob();
     try {
       final unit = job.units.firstWhere((u) => u.unitId == unitId);
       final photos =
           phase == 'before' ? unit.photosBefore : unit.photosAfter;
-      return photos.where((p) => p.isActive).toList(growable: false);
+      return photos
+          .where((p) =>
+              p.isActive &&
+              (subPhase == null || p.subPhase == subPhase))
+          .toList(growable: false);
     } on StateError {
       return const <PhotoRecord>[];
     }
   }
 
-  Future<void> _openBeforeGallery({
-    required String unitId,
-    required String unitName,
-  }) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => UnitPhotoBucketScreen(
-          title: '$unitName — Before',
-          jobDir: widget.job.jobDir,
-          loadPhotos: () => _loadUnitPhotos(unitId: unitId, phase: 'before'),
-          onCapture: () async {
-            await _openRapidBeforeCapture(unitId: unitId, unitName: unitName);
-          },
-          onJobMutated: () async {
-            _reloadJob();
-          },
-          onSoftDelete: (relativePath) async {
-            await _controller.softDeletePhoto(
-              unitId: unitId,
-              phase: 'before',
-              relativePath: relativePath,
-            );
-          },
-          onOpenViewer: (initialIndex, photos) async {
-            await Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => PhotoViewerScreen(
-                  jobDir: widget.job.jobDir,
-                  title: '$unitName — Before',
-                  photos: photos,
-                  initialIndex: initialIndex,
-                  onSoftDelete: (relativePath) => _controller.softDeletePhoto(
-                    unitId: unitId,
-                    phase: 'before',
-                    relativePath: relativePath,
-                  ),
-                  onJobMutated: () async {
-                    _reloadJob();
-                  },
-                  reloadPhotos: () =>
-                      _loadUnitPhotos(unitId: unitId, phase: 'before'),
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-    if (!mounted) return;
-    _reloadJob();
-  }
+  bool _isOpeningRapidCapture = false;
 
-  Future<void> _openRapidAfterCapture({
+  Future<void> _openRapidCapture({
     required String unitId,
     required String unitName,
+    required String phase,
+    required String phaseLabel,
+    String? subPhase,
+    String? subPhaseLabel,
   }) async {
-    if (_isOpeningRapidAfter) {
-      return;
-    }
-    setState(() {
-      _isOpeningRapidAfter = true;
-    });
+    if (_isOpeningRapidCapture) return;
+    setState(() => _isOpeningRapidCapture = true);
     try {
+      final displayLabel = subPhaseLabel != null
+          ? '$phaseLabel — $subPhaseLabel'
+          : phaseLabel;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => RapidPhotoCaptureScreen(
             unitName: unitName.isEmpty ? 'Unnamed unit' : unitName,
-            phaseLabel: 'After',
-            loadVisibleCount: () =>
-                _loadUnitVisiblePhotoCount(unitId: unitId, phase: 'after'),
+            phaseLabel: displayLabel,
+            loadVisibleCount: () => _loadUnitVisiblePhotoCount(
+              unitId: unitId,
+              phase: phase,
+              subPhase: subPhase,
+            ),
             onCaptureFile: (file) => _controller.capturePhotoFromFile(
               unitId: unitId,
-              phase: 'after',
+              phase: phase,
               sourceImageFile: file,
+              subPhase: subPhase,
             ),
           ),
         ),
@@ -276,27 +197,43 @@ class _JobDetailState extends ConsumerState<JobDetail> {
       _reloadJob();
     } finally {
       if (mounted) {
-        setState(() {
-          _isOpeningRapidAfter = false;
-        });
+        setState(() => _isOpeningRapidCapture = false);
       } else {
-        _isOpeningRapidAfter = false;
+        _isOpeningRapidCapture = false;
       }
     }
   }
 
-  Future<void> _openAfterGallery({
+  Future<void> _openPhaseGallery({
     required String unitId,
     required String unitName,
+    required String phase,
+    required String phaseLabel,
+    String? subPhase,
+    String? subPhaseLabel,
   }) async {
+    final galleryTitle = subPhaseLabel != null
+        ? '$unitName — $phaseLabel $subPhaseLabel'
+        : '$unitName — $phaseLabel';
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => UnitPhotoBucketScreen(
-          title: '$unitName — After',
+          title: galleryTitle,
           jobDir: widget.job.jobDir,
-          loadPhotos: () => _loadUnitPhotos(unitId: unitId, phase: 'after'),
+          loadPhotos: () => _loadUnitPhotos(
+            unitId: unitId,
+            phase: phase,
+            subPhase: subPhase,
+          ),
           onCapture: () async {
-            await _openRapidAfterCapture(unitId: unitId, unitName: unitName);
+            await _openRapidCapture(
+              unitId: unitId,
+              unitName: unitName,
+              phase: phase,
+              phaseLabel: phaseLabel,
+              subPhase: subPhase,
+              subPhaseLabel: subPhaseLabel,
+            );
           },
           onJobMutated: () async {
             _reloadJob();
@@ -304,7 +241,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
           onSoftDelete: (relativePath) async {
             await _controller.softDeletePhoto(
               unitId: unitId,
-              phase: 'after',
+              phase: phase,
               relativePath: relativePath,
             );
           },
@@ -313,19 +250,22 @@ class _JobDetailState extends ConsumerState<JobDetail> {
               MaterialPageRoute<void>(
                 builder: (_) => PhotoViewerScreen(
                   jobDir: widget.job.jobDir,
-                  title: '$unitName — After',
+                  title: galleryTitle,
                   photos: photos,
                   initialIndex: initialIndex,
                   onSoftDelete: (relativePath) => _controller.softDeletePhoto(
                     unitId: unitId,
-                    phase: 'after',
+                    phase: phase,
                     relativePath: relativePath,
                   ),
                   onJobMutated: () async {
                     _reloadJob();
                   },
-                  reloadPhotos: () =>
-                      _loadUnitPhotos(unitId: unitId, phase: 'after'),
+                  reloadPhotos: () => _loadUnitPhotos(
+                    unitId: unitId,
+                    phase: phase,
+                    subPhase: subPhase,
+                  ),
                 ),
               ),
             );
@@ -932,8 +872,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                       final unitId = unit.unitId;
                       final name = unit.name;
                       final type = unit.type;
-                      final beforeCount = unit.visibleBeforeCount;
-                      final afterCount = unit.visibleAfterCount;
+                      final hasSubPhases = UnitPhaseConfig.hasSubPhases(type);
 
                       return Card(
                         key: ValueKey(unitId),
@@ -1010,78 +949,60 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                                     ),
                               ),
                               const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: FilledButton(
-                                      onPressed:
-                                          _isBusy || _isOpeningRapidBefore
-                                          ? null
-                                          : () async {
-                                              await _openRapidBeforeCapture(
-                                                unitId: unitId,
-                                                unitName: name,
-                                              );
-                                            },
-                                      child: Text(
-                                        _bucketLabel('Before', beforeCount),
-                                      ),
-                                    ),
+                              if (hasSubPhases)
+                                _SubPhaseUnitBody(
+                                  unit: unit,
+                                  isBusy: _isBusy || _isOpeningRapidCapture,
+                                  onCapture: ({
+                                    required String phase,
+                                    required String phaseLabel,
+                                    String? subPhase,
+                                    String? subPhaseLabel,
+                                  }) =>
+                                      _openRapidCapture(
+                                    unitId: unitId,
+                                    unitName: name,
+                                    phase: phase,
+                                    phaseLabel: phaseLabel,
+                                    subPhase: subPhase,
+                                    subPhaseLabel: subPhaseLabel,
                                   ),
-                                  const SizedBox(width: 2),
-                                  IconButton(
-                                    onPressed: _isBusy
-                                        ? null
-                                        : () async {
-                                            await _openBeforeGallery(
-                                              unitId: unitId,
-                                              unitName: name,
-                                            );
-                                          },
-                                    tooltip: 'View Before Photos',
-                                    icon: const Icon(
-                                      Icons.photo_library_outlined,
-                                    ),
-                                    visualDensity: VisualDensity.compact,
+                                  onGallery: ({
+                                    required String phase,
+                                    required String phaseLabel,
+                                    String? subPhase,
+                                    String? subPhaseLabel,
+                                  }) =>
+                                      _openPhaseGallery(
+                                    unitId: unitId,
+                                    unitName: name,
+                                    phase: phase,
+                                    phaseLabel: phaseLabel,
+                                    subPhase: subPhase,
+                                    subPhaseLabel: subPhaseLabel,
                                   ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: _isBusy || _isOpeningRapidAfter
-                                          ? null
-                                          : () async {
-                                              await _openRapidAfterCapture(
-                                                unitId: unitId,
-                                                unitName: name,
-                                              );
-                                            },
-                                      child: Text(
-                                        _bucketLabel('After', afterCount),
-                                      ),
-                                    ),
+                                )
+                              else
+                                _SimpleUnitBody(
+                                  unit: unit,
+                                  isBusy: _isBusy || _isOpeningRapidCapture,
+                                  onCapture: ({required String phase}) =>
+                                      _openRapidCapture(
+                                    unitId: unitId,
+                                    unitName: name,
+                                    phase: phase,
+                                    phaseLabel:
+                                        phase == 'before' ? 'Before' : 'After',
                                   ),
-                                  const SizedBox(width: 2),
-                                  IconButton(
-                                    onPressed: _isBusy
-                                        ? null
-                                        : () async {
-                                            await _openAfterGallery(
-                                              unitId: unitId,
-                                              unitName: name,
-                                            );
-                                          },
-                                    tooltip: 'View After Photos',
-                                    icon: const Icon(
-                                      Icons.photo_library_outlined,
-                                    ),
-                                    visualDensity: VisualDensity.compact,
+                                  onGallery: ({required String phase}) =>
+                                      _openPhaseGallery(
+                                    unitId: unitId,
+                                    unitName: name,
+                                    phase: phase,
+                                    phaseLabel:
+                                        phase == 'before' ? 'Before' : 'After',
                                   ),
-                                ],
-                              ),
+                                ),
                             ],
                           ),
                         ),
@@ -1281,6 +1202,244 @@ class _ManagerNotesCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SubPhaseUnitBody extends StatelessWidget {
+  const _SubPhaseUnitBody({
+    required this.unit,
+    required this.isBusy,
+    required this.onCapture,
+    required this.onGallery,
+  });
+
+  final Unit unit;
+  final bool isBusy;
+  final void Function({
+    required String phase,
+    required String phaseLabel,
+    String? subPhase,
+    String? subPhaseLabel,
+  }) onCapture;
+  final void Function({
+    required String phase,
+    required String phaseLabel,
+    String? subPhase,
+    String? subPhaseLabel,
+  }) onGallery;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final beforeSubs = UnitPhaseConfig.beforeOrder(unit.type);
+    final afterSubs = UnitPhaseConfig.afterOrder(unit.type);
+    final rows = beforeSubs.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'BEFORE',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                'AFTER',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        for (var i = 0; i < rows; i++) ...[
+          if (i > 0) const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: _SubPhaseRow(
+                  label: beforeSubs[i].label,
+                  count: unit.visibleCount(
+                    phase: 'before',
+                    subPhase: beforeSubs[i].key,
+                  ),
+                  isBusy: isBusy,
+                  onTap: () => onCapture(
+                    phase: 'before',
+                    phaseLabel: 'Before',
+                    subPhase: beforeSubs[i].key,
+                    subPhaseLabel: beforeSubs[i].label,
+                  ),
+                  onGallery: () => onGallery(
+                    phase: 'before',
+                    phaseLabel: 'Before',
+                    subPhase: beforeSubs[i].key,
+                    subPhaseLabel: beforeSubs[i].label,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _SubPhaseRow(
+                  label: afterSubs[i].label,
+                  count: unit.visibleCount(
+                    phase: 'after',
+                    subPhase: afterSubs[i].key,
+                  ),
+                  isBusy: isBusy,
+                  onTap: () => onCapture(
+                    phase: 'after',
+                    phaseLabel: 'After',
+                    subPhase: afterSubs[i].key,
+                    subPhaseLabel: afterSubs[i].label,
+                  ),
+                  onGallery: () => onGallery(
+                    phase: 'after',
+                    phaseLabel: 'After',
+                    subPhase: afterSubs[i].key,
+                    subPhaseLabel: afterSubs[i].label,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SubPhaseRow extends StatelessWidget {
+  const _SubPhaseRow({
+    required this.label,
+    required this.count,
+    required this.isBusy,
+    required this.onTap,
+    required this.onGallery,
+  });
+
+  final String label;
+  final int count;
+  final bool isBusy;
+  final VoidCallback onTap;
+  final VoidCallback onGallery;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Expanded(
+          child: InkWell(
+            onTap: isBusy ? null : onTap,
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                '$label ($count)',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: isBusy
+                      ? theme.colorScheme.onSurfaceVariant
+                      : theme.colorScheme.primary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 28,
+          height: 28,
+          child: IconButton(
+            onPressed: isBusy ? null : onGallery,
+            icon: const Icon(Icons.photo_library_outlined, size: 16),
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            tooltip: '$label gallery',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SimpleUnitBody extends StatelessWidget {
+  const _SimpleUnitBody({
+    required this.unit,
+    required this.isBusy,
+    required this.onCapture,
+    required this.onGallery,
+  });
+
+  final Unit unit;
+  final bool isBusy;
+  final void Function({required String phase}) onCapture;
+  final void Function({required String phase}) onGallery;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton(
+                onPressed: isBusy
+                    ? null
+                    : () => onCapture(phase: 'before'),
+                child: Text(
+                  'Before (${unit.visibleBeforeCount})',
+                ),
+              ),
+            ),
+            const SizedBox(width: 2),
+            IconButton(
+              onPressed: isBusy
+                  ? null
+                  : () => onGallery(phase: 'before'),
+              tooltip: 'View Before Photos',
+              icon: const Icon(Icons.photo_library_outlined),
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: isBusy
+                    ? null
+                    : () => onCapture(phase: 'after'),
+                child: Text(
+                  'After (${unit.visibleAfterCount})',
+                ),
+              ),
+            ),
+            const SizedBox(width: 2),
+            IconButton(
+              onPressed: isBusy
+                  ? null
+                  : () => onGallery(phase: 'after'),
+              tooltip: 'View After Photos',
+              icon: const Icon(Icons.photo_library_outlined),
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

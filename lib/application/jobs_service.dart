@@ -342,6 +342,7 @@ class JobsService {
     required String unitId,
     required String phase, // "before" | "after"
     required File finalImageFile,
+    String? subPhase,
   }) async {
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
     final job = await jobStore.readJob(jobJsonFile);
@@ -369,6 +370,7 @@ class JobsService {
       status: 'local',
       missingLocal: false,
       recovered: false,
+      subPhase: subPhase,
     );
 
     final normalizedPhase = phase.trim().toLowerCase();
@@ -458,6 +460,7 @@ class JobsService {
     required String unitId,
     required String phase,
     required File sourceImageFile,
+    String? subPhase,
   }) async {
     final resolvedUnitFolderName = await _resolveUnitFolderNameForPhoto(
       jobDir: jobDir,
@@ -479,6 +482,7 @@ class JobsService {
       unitId: unitId,
       phase: phase,
       finalImageFile: finalImageFile,
+      subPhase: subPhase,
     );
   }
 

@@ -91,6 +91,7 @@ class JobDetailController {
     required String unitId,
     required String phase,
     required ImagePicker picker,
+    String? subPhase,
   }) async {
     final normalizedPhase = phase.trim().toLowerCase();
     final job = _job ?? await loadJob();
@@ -118,6 +119,7 @@ class JobDetailController {
       unitId: unit.unitId,
       phase: normalizedPhase,
       sourceImageFile: File(picked.path),
+      subPhase: subPhase,
     );
     await loadJob();
   }
@@ -126,6 +128,7 @@ class JobDetailController {
     required String unitId,
     required String phase,
     required File sourceImageFile,
+    String? subPhase,
   }) async {
     final normalizedPhase = phase.trim().toLowerCase();
     final job = _job ?? await loadJob();
@@ -145,6 +148,7 @@ class JobDetailController {
       unitId: unitId,
       phase: normalizedPhase,
       sourceImageFile: sourceImageFile,
+      subPhase: subPhase,
     );
     await loadJob();
   }
