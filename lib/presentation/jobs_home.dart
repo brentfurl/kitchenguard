@@ -7,9 +7,11 @@ import 'package:path/path.dart' as p;
 import '../application/jobs_service.dart';
 import '../domain/models/app_role.dart';
 import '../domain/models/day_note.dart';
+import '../domain/models/day_schedule.dart';
 import '../domain/models/manager_job_note.dart';
 import '../providers/app_role_provider.dart';
 import '../providers/day_notes_provider.dart';
+import '../providers/day_schedule_provider.dart';
 import '../providers/job_list_provider.dart';
 import '../providers/service_providers.dart';
 import '../storage/job_scanner.dart';
@@ -885,6 +887,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   Widget build(BuildContext context) {
     final jobsAsync = ref.watch(jobListProvider);
     final notesAsync = ref.watch(dayNotesProvider);
+    final schedulesAsync = ref.watch(dayScheduleProvider);
     final currentRole = ref.watch(appRoleProvider);
 
     if (currentRole == null && !_roleDialogShown) {
@@ -904,6 +907,8 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       final results = jobsAsync.valueOrNull ?? const [];
       final activeShiftNotes =
           notesAsync.valueOrNull ?? const <String, List<DayNote>>{};
+      final daySchedules =
+          schedulesAsync.valueOrNull ?? const <String, DaySchedule>{};
 
       if (results.isEmpty) {
         body = const Center(child: Text('No jobs found.'));
@@ -945,6 +950,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                       date: date,
                       jobs: scheduledByDate[date]!,
                       shiftNotes: activeShiftNotes[date] ?? const [],
+                      daySchedule: daySchedules[date],
                     ),
                   if (showUnscheduled)
                     _buildUnscheduledSection(context, unscheduled),
@@ -1033,6 +1039,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     required String date,
     required List<JobScanResult> jobs,
     required List<DayNote> shiftNotes,
+    DaySchedule? daySchedule,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
@@ -1059,6 +1066,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Day card header
           ColoredBox(
             color: headerColor,
             child: Padding(
@@ -1080,7 +1088,29 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                       ),
                     ),
                   ),
-                  if (isToday && !allComplete)
+                  if (shiftNotes.isNotEmpty)
+                    GestureDetector(
+                      onTap: () => _openShiftNotesScreen(date, shiftNotes),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: headerForeground.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '${shiftNotes.length} ${shiftNotes.length == 1 ? "note" : "notes"}',
+                          style: textTheme.labelSmall?.copyWith(
+                            color: headerForeground,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (isToday && !allComplete) ...[
+                    const SizedBox(width: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -1099,11 +1129,13 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                         ),
                       ),
                     ),
+                  ],
                 ],
               ),
             ),
           ),
-          _buildShiftNotesSection(context, date: date, notes: shiftNotes),
+          // Arrival times section
+          _buildArrivalTimesSection(context, date: date, schedule: daySchedule, firstJob: jobs.isNotEmpty ? jobs.first : null),
           const Divider(height: 1),
           for (var i = 0; i < jobs.length; i++)
             _buildJobTile(
@@ -1121,131 +1153,268 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     );
   }
 
-  Widget _buildShiftNotesSection(
+  Widget _buildArrivalTimesSection(
     BuildContext context, {
     required String date,
-    required List<DayNote> notes,
+    DaySchedule? schedule,
+    JobScanResult? firstJob,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final isExpanded = _expandedShiftNotes.contains(date);
+    final hasShopTime = schedule?.shopMeetupTime != null;
+    final hasArrival = schedule?.firstArrivalTime != null;
+    final hasAnyTime = hasShopTime || hasArrival;
 
-    return ColoredBox(
-      color: colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.assignment_outlined,
-                  size: 16,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 6),
-                GestureDetector(
-                  onTap: notes.isNotEmpty
-                      ? () => setState(() {
-                            if (isExpanded) {
-                              _expandedShiftNotes.remove(date);
-                            } else {
-                              _expandedShiftNotes.add(date);
-                            }
-                          })
-                      : null,
-                  child: Text(
-                    'Shift Notes',
-                    style: textTheme.labelMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-                if (notes.isNotEmpty) ...[
-                  const SizedBox(width: 6),
-                  GestureDetector(
-                    onTap: () => setState(() {
-                      if (isExpanded) {
-                        _expandedShiftNotes.remove(date);
-                      } else {
-                        _expandedShiftNotes.add(date);
-                      }
-                    }),
-                    child: Chip(
-                      label: Text('${notes.length}'),
-                      labelStyle: textTheme.labelSmall,
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      side: BorderSide.none,
-                    ),
-                  ),
-                  const SizedBox(width: 2),
-                  Icon(
-                    isExpanded
-                        ? Icons.expand_less
-                        : Icons.expand_more,
-                    size: 20,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ],
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  iconSize: 20,
-                  tooltip: 'Add shift note',
-                  onPressed: () => _addShiftNote(date),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
-            if (isExpanded && notes.isNotEmpty)
-              ...notes.map(
-                (note) => Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: GestureDetector(
-                    onLongPress: () =>
-                        _confirmDeleteShiftNote(date, note.noteId, note.text),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: colorScheme.surface,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: colorScheme.outlineVariant,
-                          width: 0.5,
-                        ),
-                      ),
-                      padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
-                      child: Row(
+    return InkWell(
+      onTap: () => _showArrivalTimeDialog(date, schedule, firstJob),
+      child: ColoredBox(
+        color: colorScheme.surfaceContainerHighest,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+          child: hasAnyTime
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (hasShopTime)
+                      Row(
                         children: [
-                          Expanded(
-                            child: Text(
-                              note.text,
-                              style: textTheme.bodyMedium,
-                            ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            iconSize: 16,
-                            visualDensity: VisualDensity.compact,
-                            tooltip: 'Remove',
-                            onPressed: () => _confirmDeleteShiftNote(
-                              date,
-                              note.noteId,
-                              note.text,
+                          Icon(Icons.store_outlined,
+                              size: 16, color: colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Shop meetup: ${schedule!.shopMeetupTime}',
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ],
                       ),
+                    if (hasArrival) ...[
+                      if (hasShopTime) const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.restaurant_outlined,
+                              size: 16, color: colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${schedule!.firstRestaurantName ?? "First restaurant"} arrival: ${schedule.firstArrivalTime}',
+                              style: textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                )
+              : Row(
+                  children: [
+                    Icon(Icons.schedule_outlined,
+                        size: 16, color: colorScheme.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Add arrival times',
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
+                    const Spacer(),
+                    Icon(Icons.add,
+                        size: 18, color: colorScheme.onSurfaceVariant),
+                  ],
                 ),
-              ),
-          ],
         ),
       ),
+    );
+  }
+
+  Future<void> _showArrivalTimeDialog(
+    String date,
+    DaySchedule? existing,
+    JobScanResult? firstJob,
+  ) async {
+    final arrivalController = TextEditingController(
+      text: existing?.firstArrivalTime ?? '',
+    );
+    final shopController = TextEditingController(
+      text: existing?.shopMeetupTime ?? '',
+    );
+    final restaurantName =
+        existing?.firstRestaurantName ??
+        firstJob?.job.restaurantName ??
+        '';
+
+    final result = await showDialog<Map<String, String?>>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Arrival Times'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: arrivalController,
+                decoration: InputDecoration(
+                  labelText: restaurantName.isNotEmpty
+                      ? '$restaurantName arrival'
+                      : 'First restaurant arrival',
+                  hintText: 'e.g. 9:45',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: shopController,
+                decoration: const InputDecoration(
+                  labelText: 'Shop meetup time',
+                  hintText: 'e.g. 9:15 (optional)',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            if (existing != null && !existing.isEmpty)
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop({
+                  'clear': 'true',
+                }),
+                child: const Text('Clear'),
+              ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop({
+                'arrival': arrivalController.text.trim(),
+                'shop': shopController.text.trim(),
+                'restaurant': restaurantName,
+              }),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+    if (result == null || !mounted) return;
+
+    try {
+      if (result.containsKey('clear')) {
+        await _jobs.setDaySchedule(
+          date: date,
+          clearShopMeetupTime: true,
+          clearFirstRestaurantName: true,
+          clearFirstArrivalTime: true,
+        );
+      } else {
+        final arrival = result['arrival'];
+        final shop = result['shop'];
+        final name = result['restaurant'];
+        await _jobs.setDaySchedule(
+          date: date,
+          firstArrivalTime: arrival != null && arrival.isNotEmpty ? arrival : null,
+          clearFirstArrivalTime: arrival != null && arrival.isEmpty,
+          shopMeetupTime: shop != null && shop.isNotEmpty ? shop : null,
+          clearShopMeetupTime: shop != null && shop.isEmpty,
+          firstRestaurantName: name != null && name.isNotEmpty ? name : null,
+          clearFirstRestaurantName: name != null && name.isEmpty,
+        );
+      }
+      ref.invalidate(dayScheduleProvider);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  void _openShiftNotesScreen(String date, List<DayNote> notes) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.5,
+              minChildSize: 0.3,
+              maxChildSize: 0.85,
+              expand: false,
+              builder: (_, scrollController) {
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Shift Notes',
+                            style: Theme.of(sheetContext).textTheme.titleMedium,
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.add),
+                            onPressed: () async {
+                              await _addShiftNote(date);
+                              if (!mounted) return;
+                              ref.invalidate(dayNotesProvider);
+                              Navigator.of(sheetContext).pop();
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: notes.isEmpty
+                          ? const Center(child: Text('No shift notes'))
+                          : ListView.builder(
+                              controller: scrollController,
+                              itemCount: notes.length,
+                              padding: const EdgeInsets.all(16),
+                              itemBuilder: (_, i) {
+                                final note = notes[i];
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: Text(note.text),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                            Icons.delete_outline,
+                                            size: 18),
+                                        onPressed: () async {
+                                          await _confirmDeleteShiftNote(
+                                            date,
+                                            note.noteId,
+                                            note.text,
+                                          );
+                                          if (!mounted) return;
+                                          Navigator.of(sheetContext).pop();
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
