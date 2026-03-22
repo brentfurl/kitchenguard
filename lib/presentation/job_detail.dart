@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -6,6 +7,8 @@ import '../application/jobs_service.dart';
 import '../domain/models/job.dart';
 import '../domain/models/photo_record.dart';
 import '../domain/models/unit.dart';
+import '../providers/job_detail_provider.dart';
+import '../providers/job_list_provider.dart';
 import '../utils/unit_sorter.dart';
 import 'controllers/job_detail_controller.dart';
 import 'screens/manager_notes_screen.dart';
@@ -18,24 +21,30 @@ import 'screens/unit_photo_bucket_screen.dart';
 import 'screens/videos_screen.dart';
 import '../storage/job_scanner.dart';
 
-class JobDetail extends StatefulWidget {
+class JobDetail extends ConsumerStatefulWidget {
   const JobDetail({super.key, required this.jobs, required this.job});
 
   final JobsService jobs;
   final JobScanResult job;
 
   @override
-  State<JobDetail> createState() => _JobDetailState();
+  ConsumerState<JobDetail> createState() => _JobDetailState();
 }
 
-class _JobDetailState extends State<JobDetail> {
+class _JobDetailState extends ConsumerState<JobDetail> {
   bool _isExporting = false;
   bool _isOpeningRapidBefore = false;
   bool _isOpeningRapidAfter = false;
   late final JobDetailController _controller;
-  late Job _job;
   bool _isBusy = false;
   final ImagePicker _picker = ImagePicker();
+
+  String get _jobDirPath => widget.job.jobDir.path;
+
+  Job get _job {
+    final asyncJob = ref.read(jobDetailProvider(_jobDirPath));
+    return asyncJob.valueOrNull ?? widget.job.job;
+  }
 
   @override
   void initState() {
@@ -44,14 +53,12 @@ class _JobDetailState extends State<JobDetail> {
       jobs: widget.jobs,
       jobDir: widget.job.jobDir,
     );
-    _job = widget.job.job;
-    Future<void>.microtask(_reloadJob);
   }
 
   String _bucketLabel(String bucket, int count) => '$bucket ($count)';
 
   Future<void> _addUnitFlow() async {
-    await _reloadJob();
+    _reloadJob();
     if (!mounted) return;
 
     final request = await _showAddUnitDialog();
@@ -69,7 +76,7 @@ class _JobDetailState extends State<JobDetail> {
         unitName: request.unitName,
         unitType: request.unitType,
       );
-      await _reloadJob();
+      _reloadJob();
     } catch (error) {
       if (!mounted) return;
       final raw = error.toString();
@@ -90,11 +97,8 @@ class _JobDetailState extends State<JobDetail> {
   }
 
   Future<void> _reloadJob() async {
-    final fresh = await _controller.loadJob();
-    if (!mounted) return;
-    setState(() {
-      _job = fresh;
-    });
+    await _controller.loadJob();
+    ref.invalidate(jobDetailProvider(_jobDirPath));
   }
 
   Future<void> _openSchedulePicker() async {
@@ -113,12 +117,12 @@ class _JobDetailState extends State<JobDetail> {
     final m = picked.month.toString().padLeft(2, '0');
     final d = picked.day.toString().padLeft(2, '0');
     await _controller.setScheduledDate('$y-$m-$d');
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<void> _clearScheduledDate() async {
     await _controller.setScheduledDate(null);
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<int> _loadUnitVisiblePhotoCount({
@@ -163,7 +167,7 @@ class _JobDetailState extends State<JobDetail> {
         ),
       );
       if (!mounted) return;
-      await _reloadJob();
+      _reloadJob();
     } finally {
       if (mounted) {
         setState(() {
@@ -204,7 +208,7 @@ class _JobDetailState extends State<JobDetail> {
             await _openRapidBeforeCapture(unitId: unitId, unitName: unitName);
           },
           onJobMutated: () async {
-            await _reloadJob();
+            _reloadJob();
           },
           onSoftDelete: (relativePath) async {
             await _controller.softDeletePhoto(
@@ -227,7 +231,7 @@ class _JobDetailState extends State<JobDetail> {
                     relativePath: relativePath,
                   ),
                   onJobMutated: () async {
-                    await _reloadJob();
+                    _reloadJob();
                   },
                   reloadPhotos: () =>
                       _loadUnitPhotos(unitId: unitId, phase: 'before'),
@@ -239,7 +243,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<void> _openRapidAfterCapture({
@@ -269,7 +273,7 @@ class _JobDetailState extends State<JobDetail> {
         ),
       );
       if (!mounted) return;
-      await _reloadJob();
+      _reloadJob();
     } finally {
       if (mounted) {
         setState(() {
@@ -295,7 +299,7 @@ class _JobDetailState extends State<JobDetail> {
             await _openRapidAfterCapture(unitId: unitId, unitName: unitName);
           },
           onJobMutated: () async {
-            await _reloadJob();
+            _reloadJob();
           },
           onSoftDelete: (relativePath) async {
             await _controller.softDeletePhoto(
@@ -318,7 +322,7 @@ class _JobDetailState extends State<JobDetail> {
                     relativePath: relativePath,
                   ),
                   onJobMutated: () async {
-                    await _reloadJob();
+                    _reloadJob();
                   },
                   reloadPhotos: () =>
                       _loadUnitPhotos(unitId: unitId, phase: 'after'),
@@ -330,7 +334,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<void> _renameUnitFlow({
@@ -368,7 +372,7 @@ class _JobDetailState extends State<JobDetail> {
     try {
       await _controller.renameUnit(unitId: unitId, newName: newName);
       if (!mounted) return;
-      await _reloadJob();
+      _reloadJob();
     } catch (error) {
       if (!mounted) return;
       final message = error.toString().replaceFirst(
@@ -430,7 +434,7 @@ class _JobDetailState extends State<JobDetail> {
     try {
       await _controller.deleteUnitIfEmpty(unitId: unitId);
       if (!mounted) return;
-      await _reloadJob();
+      _reloadJob();
     } catch (error) {
       if (!mounted) return;
       final message = error.toString().replaceFirst(
@@ -502,14 +506,14 @@ class _JobDetailState extends State<JobDetail> {
           loadVideos: () => _controller.loadVideos(kind: 'exit'),
           captureVideo: () async {
             await _controller.captureVideo(kind: 'exit', picker: _picker);
-            await _reloadJob();
+            _reloadJob();
           },
           softDelete: (relativePath) async {
             await _controller.softDeleteVideo(
               kind: 'exit',
               relativePath: relativePath,
             );
-            await _reloadJob();
+            _reloadJob();
           },
           resolveVideoFile: (relativePath) async {
             final file = _controller.videoFileFromRelativePath(relativePath);
@@ -519,7 +523,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<void> _openOtherVideosScreen() async {
@@ -531,14 +535,14 @@ class _JobDetailState extends State<JobDetail> {
           loadVideos: () => _controller.loadVideos(kind: 'other'),
           captureVideo: () async {
             await _controller.captureVideo(kind: 'other', picker: _picker);
-            await _reloadJob();
+            _reloadJob();
           },
           softDelete: (relativePath) async {
             await _controller.softDeleteVideo(
               kind: 'other',
               relativePath: relativePath,
             );
-            await _reloadJob();
+            _reloadJob();
           },
           resolveVideoFile: (relativePath) async {
             final file = _controller.videoFileFromRelativePath(relativePath);
@@ -548,7 +552,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<void> _openToolsScreen() async {
@@ -567,7 +571,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<void> _openPreCleanLayoutScreen() async {
@@ -591,7 +595,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<void> _openNotesScreen() async {
@@ -609,7 +613,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<void> _openManagerNotesScreen() async {
@@ -630,7 +634,7 @@ class _JobDetailState extends State<JobDetail> {
       ),
     );
     if (!mounted) return;
-    await _reloadJob();
+    _reloadJob();
   }
 
   Future<void> _exportJob() async {
@@ -866,7 +870,9 @@ class _JobDetailState extends State<JobDetail> {
 
   @override
   Widget build(BuildContext context) {
-    final units = UnitSorter.sort(_job.units);
+    final jobAsync = ref.watch(jobDetailProvider(_jobDirPath));
+    final job = jobAsync.valueOrNull ?? widget.job.job;
+    final units = UnitSorter.sort(job.units);
     final listBottomPadding = 120.0 + MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
@@ -889,13 +895,13 @@ class _JobDetailState extends State<JobDetail> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _JobHeader(
-            restaurantName: _job.restaurantName,
-            scheduledDate: _job.scheduledDate,
+            restaurantName: job.restaurantName,
+            scheduledDate: job.scheduledDate,
             onSchedule: _openSchedulePicker,
             onClearSchedule: _clearScheduledDate,
           ),
           _ManagerNotesCard(
-            count: _job.managerNotes.where((n) => n.isActive).length,
+            count: job.managerNotes.where((n) => n.isActive).length,
             onTap: _openManagerNotesScreen,
           ),
           _ToolsCard(onTap: _openToolsScreen),
@@ -964,7 +970,7 @@ class _JobDetailState extends State<JobDetail> {
                                           currentName: name,
                                         );
                                       } else if (value == 'delete') {
-                                        await _reloadJob();
+                                        _reloadJob();
                                         if (!mounted) return;
                                         final latestUnit =
                                             _findUnitInState(unitId) ?? unit;
