@@ -495,7 +495,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 in progress** (Steps 1-4 of 8 complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps).
 
 Core capabilities complete:
 
@@ -512,18 +512,20 @@ Core capabilities complete:
 - Job Detail: shift notes section + job notes preview + schedule picker
 - Create Job dialog with optional scheduled date
 - Edit Job (name + scheduled date) from overflow menu
+- sub-phase photo capture (4-phase hood/fan cards, 2-phase misc)
+- job completion logic (Mark Complete / Reopen, `completedAt`)
+- smart day-card sorting (incomplete first, completed last)
+- lightweight device role model (manager / technician)
 
-Phase 3 completed so far (Steps 1-4):
+Phase 3 completed steps:
 - Step 1: Data model updates — `subPhase` on `PhotoRecord`, `completedAt` on `Job`, `visibleCount` on `Unit`, `UnitPhaseConfig` utility, schema version 3
 - Step 2: Riverpod scaffolding — `flutter_riverpod` dependency, `ProviderScope` in `main.dart`, repository interfaces (`JobRepository`, `DayNoteRepository`) with local implementations, repository and service providers
 - Step 3: Core providers + JobsHome migration — `jobListProvider` and `dayNotesProvider` (AsyncNotifiers), `JobsHome` migrated from `StatefulWidget` to `ConsumerStatefulWidget`, manual `_loadAll`/`_isLoading` replaced with `ref.watch`/`ref.invalidate`
 - Step 4: JobDetail migration — `jobDetailProvider` (family AsyncNotifier), `JobDetail` migrated to `ConsumerStatefulWidget`, `_reloadJob` replaced with provider invalidation
-
-Remaining Phase 3 steps (5-8):
-- Step 5: Sub-phase capture UI (unit card redesign for 4-phase hood/fan, 2-phase misc)
-- Step 6: Job completion logic (Mark Complete / Reopen, `completedAt` timestamp)
-- Step 7: Smart day-card sorting (incomplete first, upcoming, completed, unscheduled)
-- Step 8: Lightweight role model (manager vs. technician device mode)
+- Step 5: Sub-phase capture UI — service/controller accept `subPhase`, unit cards redesigned (4 sub-phase rows for hood/fan via `UnitPhaseConfig`, simple before/after for misc), unified `_openRapidCapture`/`_openPhaseGallery` methods
+- Step 6: Job completion logic — `markJobComplete`/`reopenJob` on `JobsService`, overflow menu toggle on Jobs Home and Job Detail, completion badge in Job Detail header, check-circle icon on completed job tiles
+- Step 7: Smart day-card sorting — incomplete days first (ascending), completed days last (descending), completed day cards show muted header with check-circle icon
+- Step 8: Lightweight role model — `AppRole` enum (`manager`/`technician`), `SharedPreferences` persistence, `appRoleProvider` (StateNotifier), first-launch selection dialog, role chip + settings icon in Jobs Home AppBar
 
 Phase 4: Cloud database, sync, auth, and web access for management
 

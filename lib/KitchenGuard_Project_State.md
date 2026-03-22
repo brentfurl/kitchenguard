@@ -40,6 +40,7 @@ Riverpod Providers (state management)
     - jobListProvider      (AsyncNotifier — all scanned jobs)
     - dayNotesProvider     (AsyncNotifier — all active day notes)
     - jobDetailProvider    (family AsyncNotifier — single job by path)
+    - appRoleProvider      (StateNotifier — manager/technician device role)
     - jobsServiceProvider  (Provider — JobsService instance)
     - repository providers (Provider — repository + storage instances)
     ↓
@@ -754,24 +755,22 @@ All 58 tests pass.
 
 Note: `managerNotes` and `clientInfo` deferred to Phase 3. Sync model deferred to Phase 4.
 
-### Phase 3: Pre-Sync Architecture + Structured Photo Workflow (Steps 1-4 complete)
+### Phase 3: Pre-Sync Architecture + Structured Photo Workflow (complete)
 
 See Phase 3 plan document in `~/.cursor/plans/` for full implementation details.
 
-**Completed (Steps 1-4):**
+**All 8 steps completed:**
 
 - Step 1: Data model updates — `subPhase` on `PhotoRecord`, `completedAt` + `isComplete` on `Job`, `visibleCount(phase, subPhase)` on `Unit`, `UnitPhaseConfig` utility class, schema version bumped to 3, 26 new model tests (84 total model tests)
 - Step 2: Riverpod scaffolding — `flutter_riverpod` + `shared_preferences` dependencies, `ProviderScope` wrapping app, `JobRepository`/`DayNoteRepository` abstract interfaces, `LocalJobRepository`/`LocalDayNoteRepository` implementations, repository and service providers in `lib/providers/`
 - Step 3: Core providers + JobsHome migration — `jobListProvider` (AsyncNotifier), `dayNotesProvider` (AsyncNotifier), `JobsHome` migrated from `StatefulWidget` to `ConsumerStatefulWidget`, manual `_loadAll`/`_isLoading`/`_results` replaced with `ref.watch`/`ref.invalidate`, `app.dart` simplified (no more manual DI)
 - Step 4: JobDetail migration — `jobDetailProvider` (family AsyncNotifier parameterized by job dir path), `JobDetail` migrated to `ConsumerStatefulWidget`, `_reloadJob` uses provider invalidation, controller retained as mutation delegator
+- Step 5: Sub-phase capture UI — `JobsService.addPhotoRecord`/`persistAndRecordPhoto` accept optional `subPhase`, `JobDetailController.capturePhotoFromFile` forwards `subPhase`, unit cards redesigned: hood/fan show 4 sub-phase rows (2 before × 2 after) via `UnitPhaseConfig`, misc keeps simple 2-row before/after, duplicate before/after methods consolidated into unified `_openRapidCapture`/`_openPhaseGallery`
+- Step 6: Job completion logic — `markJobComplete`/`reopenJob` on `JobsService` (sets/clears `completedAt` timestamp), controller forwarding, "Mark Complete" / "Reopen" toggle in overflow menu on both Jobs Home and Job Detail, check-circle icon on completed job tiles, "Complete" badge in Job Detail header
+- Step 7: Smart day-card sorting — incomplete days first (ascending by date), completed days last (descending — most recently completed first), completed day cards use muted header with check-circle icon, unscheduled section remains at bottom
+- Step 8: Lightweight role model — `AppRole` enum (`manager`/`technician`) in `lib/domain/models/app_role.dart`, `SharedPreferences` persistence, `appRoleProvider` (StateNotifier) in `lib/providers/app_role_provider.dart`, first-launch dialog prompts role selection, role chip + settings icon in Jobs Home AppBar
 
 All 153 tests pass after each step.
-
-**Remaining (Steps 5-8):**
-- Step 5: Sub-phase capture UI (unit card redesign for 4-phase hood/fan, 2-phase misc)
-- Step 6: Job completion logic (Mark Complete / Reopen, `completedAt` timestamp)
-- Step 7: Smart day card sorting (incomplete first, upcoming, completed, unscheduled)
-- Step 8: Lightweight role model (manager vs. technician device mode)
 
 **Key decisions:**
 - Hood sub-phases: Filters On / Filters Off
@@ -779,7 +778,7 @@ All 153 tests pass after each step.
 - Misc: no sub-phases (Before / After only)
 - Sub-phases are metadata only — filesystem and export structure unchanged
 - Job completion solves the midnight-crossing problem for night shifts
-- Roles are fixed per device (manager phone vs. crew phone) — no toggle
+- Roles are fixed per device (manager phone vs. crew phone) — changeable via settings
 - Multi-device same-job is a key use case (up to 4 people documenting one restaurant)
 - Photo sync deferred to Phase 4; phase-status visibility is the priority coordination win
 - Batch photo move between units/phases deferred to post-Phase 3
@@ -1103,22 +1102,23 @@ Data integrity: **9 / 10**
 Workflow clarity: **9 / 10**
 Field readiness: **9 / 10**
 
-Core field documentation workflow is complete. Phase 1 and Phase 2 are complete. Phase 3 Steps 1-4 are complete (architecture half).
+Core field documentation workflow is complete. Phase 1, Phase 2, and Phase 3 are all complete.
 
-Next priority: Phase 3 Steps 5-8 (feature half — sub-phase UI, job completion, smart sorting, role model).
+Next priority: Phase 4 (cloud database, sync, auth, and web access for management).
 
-Phase 3 progress:
+Phase 3 progress — all steps complete:
 - Step 1: Data model updates (`subPhase`, `completedAt`, `UnitPhaseConfig`, schema v3): **complete**
 - Step 2: Riverpod scaffolding + repository interfaces: **complete**
 - Step 3: Core providers + JobsHome Riverpod migration: **complete**
 - Step 4: JobDetail Riverpod migration: **complete**
-- Step 5: Sub-phase capture UI: **pending**
-- Step 6: Job completion logic: **pending**
-- Step 7: Smart day-card sorting: **pending**
-- Step 8: Lightweight role model: **pending**
+- Step 5: Sub-phase capture UI: **complete**
+- Step 6: Job completion logic: **complete**
+- Step 7: Smart day-card sorting: **complete**
+- Step 8: Lightweight role model: **complete**
 
-New files added in Phase 3 (Steps 1-4):
+New files added in Phase 3:
 - `lib/domain/models/unit_phase_config.dart` — sub-phase metadata utility
+- `lib/domain/models/app_role.dart` — AppRole enum (manager/technician)
 - `lib/data/repositories/job_repository.dart` — abstract interface
 - `lib/data/repositories/local_job_repository.dart` — filesystem implementation
 - `lib/data/repositories/day_note_repository.dart` — abstract interface
@@ -1128,3 +1128,4 @@ New files added in Phase 3 (Steps 1-4):
 - `lib/providers/job_list_provider.dart` — AsyncNotifier for all scanned jobs
 - `lib/providers/day_notes_provider.dart` — AsyncNotifier for all day notes
 - `lib/providers/job_detail_provider.dart` — family AsyncNotifier for single job
+- `lib/providers/app_role_provider.dart` — StateNotifier for device role
