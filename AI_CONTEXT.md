@@ -100,6 +100,14 @@ job
  ├ createdAt
  ├ updatedAt          (bumped on every write)
  ├ completedAt        (String?, ISO 8601 UTC, null = not complete)
+ ├ address            (String?, nullable)
+ ├ city               (String?, nullable)
+ ├ accessType         (String?, no-key / get-key-from-shop / key-hidden / lockbox)
+ ├ accessNotes        (String?, lockbox code or key description)
+ ├ hasAlarm           (bool?, nullable)
+ ├ alarmCode          (String?, nullable)
+ ├ hoodCount          (int?, nullable)
+ ├ fanCount           (int?, nullable)
  ├ schemaVersion      (integer, current = 3)
  ├ units[]
  ├ preCleanLayoutPhotos[]
@@ -110,7 +118,7 @@ job
       └ other[]
 ```
 
-`scheduledDate` and `sortOrder` are nullable and backward-compatible. Jobs without them appear in the "Unscheduled" section. `toJson` omits null values for these fields.
+New fields (address, city, accessType, accessNotes, hasAlarm, alarmCode, hoodCount, fanCount) are all nullable and backward-compatible — omitted from JSON when null, defaulting to null on read. Schema version remains 3.
 
 Each unit contains:
 
@@ -172,60 +180,59 @@ UI counts always reflect **visible photos only**.
 
 ## Jobs Home Screen
 
-Day-grouped layout. Jobs with a `scheduledDate` appear in day cards sorted chronologically. Jobs without a `scheduledDate` appear in an "Unscheduled" section at the bottom.
+Day-grouped layout with filter row at top. Jobs with a `scheduledDate` appear in day cards sorted chronologically. Jobs without a `scheduledDate` appear in an "Unscheduled" section (visible when the Unscheduled filter is active).
 
 ```
-Day Card (date header)
-  └─ Shift Notes section (collapsed counter + add button; expand to view/delete)
-  └─ Job tiles (sorted by sortOrder, then createdAt)
-       └─ Move up / Move down buttons (reorder within day)
-       └─ Manager note count chip (tap → ManagerNotesScreen)
-       └─ Overflow menu: Edit Job, Delete Job
+Filter Row (Today | Upcoming | Past | Unscheduled) — default: Today + Upcoming
+
+Day Card (date header + shift notes counter chip + TODAY badge)
+  └─ Arrival Times section (shop meetup + first restaurant arrival from DaySchedule)
+  └─ Stitch-style job sub-cards (drag-reorderable via ReorderableListView)
+       └─ Bold restaurant name
+       └─ Address (smaller, below name)
+       └─ Access type icon + label, unit counts ("N hoods, N fans")
+       └─ Drag handle + overflow menu: Edit Job, Mark Complete, Delete Job
 
 Unscheduled Section
-  └─ Job tiles (sorted by createdAt desc)
+  └─ Simple job tiles (sorted by createdAt desc)
 ```
 
-Job tiles display restaurant name only (no created-at or shift-start date subtitle). The scheduled date context comes from the day card header.
+### Create / Edit Job Dialog (shared two-tier design)
 
-### Create Job Dialog
-
-The "Create Job" dialog includes:
+Top section (always visible):
 - Restaurant name (text field, required)
-- Scheduled date (date picker, optional — defaults to "Not scheduled")
+- Scheduled date (date picker, optional)
 
-### Edit Job Dialog
+Expandable sections:
+- **Address** — street address + city
+- **Access Info** — access type dropdown (no-key, get-key-from-shop, key-hidden, lockbox), conditional text field for key-hidden/lockbox, alarm toggle + alarm code
+- **Contacts** — quick-add entries saved as manager notes
+- **Units** — hood count + fan count (auto-creates units on job creation)
 
-The overflow menu on each job tile includes "Edit Job", which opens a dialog to change:
-- Restaurant name
-- Scheduled date (can set, change, or clear)
+Edit dialog pre-fills all fields; clear flags handle removal.
 
 ## Job Detail Screen
 
 ```
-Header (restaurant name + scheduled date + schedule/change/clear controls)
+Header
+  ├─ Restaurant name (headline)
+  ├─ Address (smaller, below name)
+  ├─ Access info (icon + type + notes + alarm indicator)
+  ├─ Complete badge (if applicable)
+  └─ Two note counters at right: "N job notes" | "N field notes" (always visible, tappable)
 ↓
-Job Notes card (manager notes count → ManagerNotesScreen)
+Promoted Tools row: [Pre-clean Layout (N)] [Exit Video (N)]
 ↓
-Tools Card
+Units section title
 ↓
-Units
+Unit cards (scrollable list)
 ```
 
-The header no longer displays `shiftStartDate`. Only `scheduledDate` is shown (with change/clear controls).
+AppBar tools dropdown (handyman icon → PopupMenuButton):
+- Field Notes (count)
+- Other Videos (count)
 
-### Tools Screen
-
-Contains:
-
-```
-Pre-clean Layout
-Field Notes
-Exit Videos
-Other Videos
-```
-
-Each opens its own screen.
+Schedule picker removed from Job Detail — scheduling handled from Jobs Home only.
 
 ---
 
@@ -535,7 +542,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.**
 
 Core capabilities complete:
 
@@ -547,28 +554,58 @@ Core capabilities complete:
 - export packaging
 - scheduling (`scheduledDate`, `sortOrder`) on `Job`
 - `DayNote` entity and `day_notes.json` storage
-- day-grouped Jobs Home with shift notes and job note counts
-- in-day job reordering (move up / move down)
-- Job Detail: shift notes section + job notes preview + schedule picker
-- Create Job dialog with optional scheduled date
-- Edit Job (name + scheduled date) from overflow menu
+- `DaySchedule` entity and `day_schedules.json` storage
+- day-grouped Jobs Home with filter row and arrival times
+- Stitch-style job sub-cards with drag reorder
+- two-tier Create/Edit Job dialog (name+date + expandable sections)
+- Job Detail: address, access info, dual note counters, promoted tools
 - sub-phase photo capture (4-phase hood/fan cards, 2-phase misc)
 - job completion logic (Mark Complete / Reopen, `completedAt`)
 - smart day-card sorting (incomplete first, completed last)
 - lightweight device role model (manager / technician)
 - batch photo move (multi-select gallery, move between units/sub-phases)
 
-Phase 3 completed steps:
-- Step 1: Data model updates — `subPhase` on `PhotoRecord`, `completedAt` on `Job`, `visibleCount` on `Unit`, `UnitPhaseConfig` utility, schema version 3
-- Step 2: Riverpod scaffolding — `flutter_riverpod` dependency, `ProviderScope` in `main.dart`, repository interfaces (`JobRepository`, `DayNoteRepository`) with local implementations, repository and service providers
-- Step 3: Core providers + JobsHome migration — `jobListProvider` and `dayNotesProvider` (AsyncNotifiers), `JobsHome` migrated from `StatefulWidget` to `ConsumerStatefulWidget`, manual `_loadAll`/`_isLoading` replaced with `ref.watch`/`ref.invalidate`
-- Step 4: JobDetail migration — `jobDetailProvider` (family AsyncNotifier), `JobDetail` migrated to `ConsumerStatefulWidget`, `_reloadJob` replaced with provider invalidation
-- Step 5: Sub-phase capture UI — service/controller accept `subPhase`, unit cards redesigned (4 sub-phase rows for hood/fan via `UnitPhaseConfig`, simple before/after for misc), unified `_openRapidCapture`/`_openPhaseGallery` methods
-- Step 6: Job completion logic — `markJobComplete`/`reopenJob` on `JobsService`, overflow menu toggle on Jobs Home and Job Detail, completion badge in Job Detail header, check-circle icon on completed job tiles
-- Step 7: Smart day-card sorting — incomplete days first (ascending), completed days last (descending), completed day cards show muted header with check-circle icon
-- Step 8: Lightweight role model — `AppRole` enum (`manager`/`technician`), `SharedPreferences` persistence, `appRoleProvider` (StateNotifier), first-launch selection dialog, role chip + settings icon in Jobs Home AppBar
+Pre-Phase 4 UX rework completed steps:
+- Step 1: Job model expansion — address, city, accessType, accessNotes, hasAlarm, alarmCode, hoodCount, fanCount (all nullable, backward-compatible)
+- Step 2: DaySchedule model — shopMeetupTime, firstRestaurantName, firstArrivalTime; store, repository, provider
+- Step 3: Two-tier Create/Edit Job dialog — shared dialog with expandable sections; auto-create units from counts; contacts as manager notes
+- Step 4: Jobs Home filter row — Today/Upcoming/Past/Unscheduled FilterChips; default Today+Upcoming
+- Step 5a-b: Compact shift notes counter in header + arrival times section from DaySchedule
+- Step 5c: Stitch-style job sub-cards with address, access, unit counts, drag reorder (ReorderableListView)
+- Step 6a: Job Detail header rework — address below name, access info with icon, dual always-visible note counters
+- Step 6b-c: Promoted Pre-clean Layout + Exit Video buttons; tools dropdown for Field Notes + Other Videos; ToolsCard removed
 
 Phase 4: Cloud database, sync, auth, and web access for management
+
+---
+
+# DaySchedule Storage
+
+`DaySchedule` entities are stored in `day_schedules.json` at the root of the jobs directory. One schedule per date (not a list).
+
+```
+KitchenCleaningJobs/
+    day_notes.json
+    day_schedules.json
+    Restaurant_2026_03_06/
+        job.json
+        ...
+```
+
+`day_schedules.json` format:
+
+```json
+{
+  "2026-03-22": {
+    "date": "2026-03-22",
+    "shopMeetupTime": "09:15",
+    "firstRestaurantName": "Pizza Joint",
+    "firstArrivalTime": "09:45"
+  }
+}
+```
+
+`DaySchedule` fields: `date` (YYYY-MM-DD), `shopMeetupTime` (String?, HH:mm), `firstRestaurantName` (String?), `firstArrivalTime` (String?, HH:mm). All optional fields omitted from JSON when null. Empty schedules (all nulls) are removed from the file.
 
 ---
 
@@ -610,17 +647,18 @@ Computed: `isActive`, `isDeleted`.
 Three distinct note types exist, clearly labeled in the UI:
 
 **Shift Notes** (`DayNote` entity, `day_notes.json`) — date-level, manager-entered. Logistics, crew assignments, arrival times.
-- Displayed at the day-card level on Jobs Home (collapsed counter with expand toggle + add button)
+- Displayed as a tappable counter chip in day card header on Jobs Home (opens bottom sheet to view/add/delete)
 - NOT displayed on Job Detail
 
 **Manager Job Notes** (`managerNotes[]` on `Job`, `job.json`) — job-level, manager-entered. Job-specific instructions and context.
-- Displayed as a count chip on Jobs Home job tiles (tap → ManagerNotesScreen)
-- Displayed as a card with count on Job Detail (tap → ManagerNotesScreen)
+- Displayed as "N job notes" counter chip in Job Detail header (tappable → ManagerNotesScreen)
+- Contacts are entered as manager notes from the Create/Edit Job dialog
 - Supports add, edit, and soft-delete
 - NOT included in export
 
 **Field Notes** (`notes[]` on `Job`, `job.json`) — job-level, tech-entered. Field observations during cleaning.
-- Accessible only via Tools → Field Notes
+- Displayed as "N field notes" counter chip in Job Detail header (tappable → NotesScreen)
+- Also accessible via AppBar tools dropdown → Field Notes
 - Included in export as `notes.txt`
 
 All note types use the same soft-delete pattern (`status = 'deleted'`). Labeling and placement establish the ownership convention before a full role/permissions layer exists.
@@ -675,6 +713,8 @@ VideoRecord
 Videos (helper for exit/other lists)
 JobNote (field notes — tech-entered)
 ManagerJobNote (manager job notes — manager-entered)
+DayNote (date-level shift notes)
+DaySchedule (date-level shift timing)
 ```
 
 All domain data must flow through these models. No raw `Map<String, dynamic>` access for job/unit/photo/video data outside the storage layer.
