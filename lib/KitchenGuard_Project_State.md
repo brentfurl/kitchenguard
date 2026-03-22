@@ -31,38 +31,56 @@ The app prioritizes:
 
 # 2. Architecture
 
-The app uses a layered architecture.
+The app uses a layered architecture with Riverpod state management.
 
 ```
-UI (screens)
+UI (screens — ConsumerStatefulWidget)
     ↓
-Controller (job_detail_controller.dart)
+Riverpod Providers (state management)
+    - jobListProvider      (AsyncNotifier — all scanned jobs)
+    - dayNotesProvider     (AsyncNotifier — all active day notes)
+    - jobDetailProvider    (family AsyncNotifier — single job by path)
+    - jobsServiceProvider  (Provider — JobsService instance)
+    - repository providers (Provider — repository + storage instances)
+    ↓
+Controller (job_detail_controller.dart — mutation delegator)
     ↓
 Service Layer (jobs_service.dart)
+    ↓
+Repository Layer (abstractions for Phase 4 cloud swap)
+    - JobRepository (abstract) → LocalJobRepository
+    - DayNoteRepository (abstract) → LocalDayNoteRepository
     ↓
 Storage Layer
     - job_store.dart
     - image_file_store.dart
     - video_file_store.dart
     - job_scanner.dart
+    - day_note_store.dart
 ```
 
 ### Responsibilities
 
-#### UI
+#### UI (Riverpod consumers)
 
-- Display jobs
+- Display jobs (watch providers for loading/error/data states)
 - Capture photos/videos
 - Add notes
 - Export job
 - Navigate between screens
+- Invalidate providers after mutations to trigger reload
+
+#### Providers
+
+- Manage async state (loading, error, data) via AsyncNotifier
+- Centralize data loading and caching
+- Replace manual setState + _loadAll patterns
 
 #### Controller
 
-- Coordinate UI + services
+- Delegate mutations to JobsService
 - Provide computed counts
 - Resolve file paths
-- Manage job reloads
 
 #### Services
 
@@ -71,6 +89,15 @@ Business logic:
 - Persist metadata
 - Soft deletes
 - Export generation
+
+#### Repository
+
+Abstract data access:
+
+- JobRepository: scan, load, save, delete jobs; persist media
+- DayNoteRepository: load, save day notes
+- Local implementations wrap existing storage classes
+- Phase 4 adds cloud-aware implementations behind the same interface
 
 #### Storage
 
@@ -124,7 +151,7 @@ Key points:
 
 # 4. job.json Schema
 
-Example structure (schema version 2):
+Example structure (schema version 3):
 
 ```json
 {
@@ -135,7 +162,7 @@ Example structure (schema version 2):
   "sortOrder": 0,
   "createdAt": "2026-03-06T14:00:00.000Z",
   "updatedAt": "2026-03-06T15:30:00.000Z",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "units": [
     {
       "unitId": "e5f6a7b8-...",
@@ -614,7 +641,7 @@ Computed: `isActive`, `isDeleted`, `isMissing`.
 | completedAt | String? | null | Phase 3: ISO 8601 UTC; null = not complete |
 | createdAt | String | required | ISO 8601 UTC |
 | updatedAt | String? | null | bumped on every write |
-| schemaVersion | int | 2 | missing = version 1; Phase 3 bumps to 3 |
+| schemaVersion | int | 3 | missing = version 1 |
 | units | List\<Unit\> | [] | |
 | notes | List\<JobNote\> | [] | field notes (tech-entered, included in export) |
 | managerNotes | List\<ManagerJobNote\> | [] | manager job notes (NOT included in export) |
@@ -727,20 +754,24 @@ All 58 tests pass.
 
 Note: `managerNotes` and `clientInfo` deferred to Phase 3. Sync model deferred to Phase 4.
 
-### Phase 3: Pre-Sync Architecture + Structured Photo Workflow
+### Phase 3: Pre-Sync Architecture + Structured Photo Workflow (Steps 1-4 complete)
 
-See Phase 3 plan document in `.cursor/plans/` for full implementation details.
+See Phase 3 plan document in `~/.cursor/plans/` for full implementation details.
 
-**3A — Architecture:**
-- Riverpod state management (replace setState + manual reload)
-- Repository pattern between service and storage layers
-- Data model updates: `subPhase` on `PhotoRecord`, `completedAt` on `Job`, schema version 3
+**Completed (Steps 1-4):**
 
-**3B — Features:**
-- Sub-phase unit cards (4 phases for hoods/fans, 2 for misc)
-- Job-level completion (Mark Complete / Reopen)
-- Smart day card sorting (incomplete first, upcoming, completed, unscheduled)
-- Lightweight role model (manager vs. technician — no permissions enforcement yet)
+- Step 1: Data model updates — `subPhase` on `PhotoRecord`, `completedAt` + `isComplete` on `Job`, `visibleCount(phase, subPhase)` on `Unit`, `UnitPhaseConfig` utility class, schema version bumped to 3, 26 new model tests (84 total model tests)
+- Step 2: Riverpod scaffolding — `flutter_riverpod` + `shared_preferences` dependencies, `ProviderScope` wrapping app, `JobRepository`/`DayNoteRepository` abstract interfaces, `LocalJobRepository`/`LocalDayNoteRepository` implementations, repository and service providers in `lib/providers/`
+- Step 3: Core providers + JobsHome migration — `jobListProvider` (AsyncNotifier), `dayNotesProvider` (AsyncNotifier), `JobsHome` migrated from `StatefulWidget` to `ConsumerStatefulWidget`, manual `_loadAll`/`_isLoading`/`_results` replaced with `ref.watch`/`ref.invalidate`, `app.dart` simplified (no more manual DI)
+- Step 4: JobDetail migration — `jobDetailProvider` (family AsyncNotifier parameterized by job dir path), `JobDetail` migrated to `ConsumerStatefulWidget`, `_reloadJob` uses provider invalidation, controller retained as mutation delegator
+
+All 153 tests pass after each step.
+
+**Remaining (Steps 5-8):**
+- Step 5: Sub-phase capture UI (unit card redesign for 4-phase hood/fan, 2-phase misc)
+- Step 6: Job completion logic (Mark Complete / Reopen, `completedAt` timestamp)
+- Step 7: Smart day card sorting (incomplete first, upcoming, completed, unscheduled)
+- Step 8: Lightweight role model (manager vs. technician device mode)
 
 **Key decisions:**
 - Hood sub-phases: Filters On / Filters Off
@@ -1072,18 +1103,28 @@ Data integrity: **9 / 10**
 Workflow clarity: **9 / 10**
 Field readiness: **9 / 10**
 
-Core field documentation workflow is complete. Phase 1 and Phase 2 are complete.
+Core field documentation workflow is complete. Phase 1 and Phase 2 are complete. Phase 3 Steps 1-4 are complete (architecture half).
 
-Next priority is Phase 3: architecture (Riverpod + repository) then features (sub-phases, job completion, sorting, role model).
+Next priority: Phase 3 Steps 5-8 (feature half — sub-phase UI, job completion, smart sorting, role model).
 
-Phase 2 progress:
-- `scheduledDate` + `sortOrder` on `Job`: **complete**
-- `DayNote` model + `DayNoteStore`: **complete**
-- `JobsService` scheduling methods: **complete**
-- `JobsHome` day-grouped redesign with shift notes + reordering: **complete**
-- `JobDetail` scheduling UI + shift notes + job notes preview: **complete**
-- Create Job dialog: name + optional scheduled date: **complete**
-- Edit Job from overflow menu (name + scheduled date): **complete**
-- `shiftStartDate` display removed from job tiles and Job Detail header: **complete**
-- `JobsService.updateJobDetails()` for editing name + date: **complete**
-- Automated tests (model round-trips, service methods): **complete**
+Phase 3 progress:
+- Step 1: Data model updates (`subPhase`, `completedAt`, `UnitPhaseConfig`, schema v3): **complete**
+- Step 2: Riverpod scaffolding + repository interfaces: **complete**
+- Step 3: Core providers + JobsHome Riverpod migration: **complete**
+- Step 4: JobDetail Riverpod migration: **complete**
+- Step 5: Sub-phase capture UI: **pending**
+- Step 6: Job completion logic: **pending**
+- Step 7: Smart day-card sorting: **pending**
+- Step 8: Lightweight role model: **pending**
+
+New files added in Phase 3 (Steps 1-4):
+- `lib/domain/models/unit_phase_config.dart` — sub-phase metadata utility
+- `lib/data/repositories/job_repository.dart` — abstract interface
+- `lib/data/repositories/local_job_repository.dart` — filesystem implementation
+- `lib/data/repositories/day_note_repository.dart` — abstract interface
+- `lib/data/repositories/local_day_note_repository.dart` — filesystem implementation
+- `lib/providers/repository_providers.dart` — Riverpod providers for repositories + storage
+- `lib/providers/service_providers.dart` — Riverpod provider for JobsService
+- `lib/providers/job_list_provider.dart` — AsyncNotifier for all scanned jobs
+- `lib/providers/day_notes_provider.dart` — AsyncNotifier for all day notes
+- `lib/providers/job_detail_provider.dart` — family AsyncNotifier for single job

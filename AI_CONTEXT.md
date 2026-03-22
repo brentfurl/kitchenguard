@@ -100,7 +100,7 @@ job
  ├ createdAt
  ├ updatedAt          (bumped on every write)
  ├ completedAt        (String?, ISO 8601 UTC, null = not complete)
- ├ schemaVersion      (integer, current = 2; Phase 3 bumps to 3)
+ ├ schemaVersion      (integer, current = 3)
  ├ units[]
  ├ preCleanLayoutPhotos[]
  ├ notes[]            (field notes — tech-entered, included in export)
@@ -495,7 +495,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete** — scheduling fields, DayNote entity, day-grouped JobsHome, and notes visibility on Job Detail are fully implemented.
+**Phase 2 complete.** **Phase 3 in progress** (Steps 1-4 of 8 complete).
 
 Core capabilities complete:
 
@@ -513,16 +513,19 @@ Core capabilities complete:
 - Create Job dialog with optional scheduled date
 - Edit Job (name + scheduled date) from overflow menu
 
-Note: `managerNotes` and `clientInfo` fields are deferred to Phase 3 (no role distinction yet).
+Phase 3 completed so far (Steps 1-4):
+- Step 1: Data model updates — `subPhase` on `PhotoRecord`, `completedAt` on `Job`, `visibleCount` on `Unit`, `UnitPhaseConfig` utility, schema version 3
+- Step 2: Riverpod scaffolding — `flutter_riverpod` dependency, `ProviderScope` in `main.dart`, repository interfaces (`JobRepository`, `DayNoteRepository`) with local implementations, repository and service providers
+- Step 3: Core providers + JobsHome migration — `jobListProvider` and `dayNotesProvider` (AsyncNotifiers), `JobsHome` migrated from `StatefulWidget` to `ConsumerStatefulWidget`, manual `_loadAll`/`_isLoading` replaced with `ref.watch`/`ref.invalidate`
+- Step 4: JobDetail migration — `jobDetailProvider` (family AsyncNotifier), `JobDetail` migrated to `ConsumerStatefulWidget`, `_reloadJob` replaced with provider invalidation
 
-**Phase 3 is next.** See Phase 3 plan document in `.cursor/plans/` for full details.
+Remaining Phase 3 steps (5-8):
+- Step 5: Sub-phase capture UI (unit card redesign for 4-phase hood/fan, 2-phase misc)
+- Step 6: Job completion logic (Mark Complete / Reopen, `completedAt` timestamp)
+- Step 7: Smart day-card sorting (incomplete first, upcoming, completed, unscheduled)
+- Step 8: Lightweight role model (manager vs. technician device mode)
 
-Next phases:
-
-1. Phase 3: Pre-sync architecture + structured photo workflow
-   - 3A: Riverpod state management, repository pattern, data model updates
-   - 3B: Sub-phase unit cards, job-level completion, smart day-card sorting, lightweight role model
-2. Phase 4: Cloud database, sync, auth, and web access for management
+Phase 4: Cloud database, sync, auth, and web access for management
 
 ---
 
