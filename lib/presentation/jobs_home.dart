@@ -1137,17 +1137,25 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           // Arrival times section
           _buildArrivalTimesSection(context, date: date, schedule: daySchedule, firstJob: jobs.isNotEmpty ? jobs.first : null),
           const Divider(height: 1),
-          for (var i = 0; i < jobs.length; i++)
-            _buildJobTile(
-              context,
-              jobs[i],
-              onMoveUp: i > 0
-                  ? () => _reorderJobs(date, jobs, i, i - 1)
-                  : null,
-              onMoveDown: i < jobs.length - 1
-                  ? () => _reorderJobs(date, jobs, i, i + 1)
-                  : null,
-            ),
+          ReorderableListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            buildDefaultDragHandles: false,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            itemCount: jobs.length,
+            onReorder: (oldIndex, newIndex) {
+              if (newIndex > oldIndex) newIndex--;
+              _reorderJobs(date, jobs, oldIndex, newIndex);
+            },
+            itemBuilder: (context, i) {
+              return _buildJobSubCard(
+                context,
+                key: ValueKey(jobs[i].job.jobId),
+                result: jobs[i],
+                index: i,
+              );
+            },
+          ),
         ],
       ),
     );
@@ -1434,19 +1442,165 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     }
   }
 
-  Widget _buildJobTile(
-    BuildContext context,
-    JobScanResult result, {
-    VoidCallback? onMoveUp,
-    VoidCallback? onMoveDown,
+  Widget _buildJobSubCard(
+    BuildContext context, {
+    required Key key,
+    required JobScanResult result,
+    required int index,
   }) {
     final job = result.job;
     final restaurant =
         job.restaurantName.isNotEmpty ? job.restaurantName : 'Unknown';
-    final activeNoteCount = job.managerNotes.where((n) => n.isActive).length;
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final hasReorder = onMoveUp != null || onMoveDown != null;
+
+    final hoodCount = job.hoodCount ?? job.units.where((u) => u.type == 'hood').length;
+    final fanCount = job.fanCount ?? job.units.where((u) => u.type == 'fan').length;
+    final unitSummaryParts = <String>[];
+    if (hoodCount > 0) unitSummaryParts.add('$hoodCount ${hoodCount == 1 ? "hood" : "hoods"}');
+    if (fanCount > 0) unitSummaryParts.add('$fanCount ${fanCount == 1 ? "fan" : "fans"}');
+    final unitSummary = unitSummaryParts.join(', ');
+
+    final accessLabel = job.accessType != null
+        ? _accessTypeLabels[job.accessType] ?? job.accessType!
+        : null;
+
+    return Card(
+      key: key,
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      elevation: 1,
+      child: InkWell(
+        onTap: () => _openJobDetail(result),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (job.isComplete)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, top: 2),
+                  child: Icon(
+                    Icons.check_circle,
+                    size: 18,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      restaurant,
+                      style: textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: job.isComplete
+                            ? colorScheme.onSurfaceVariant
+                            : null,
+                      ),
+                    ),
+                    if (job.address != null && job.address!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        job.address!,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    if (accessLabel != null || unitSummary.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          if (accessLabel != null)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.key_outlined,
+                                    size: 14,
+                                    color: colorScheme.onSurfaceVariant),
+                                const SizedBox(width: 4),
+                                Text(
+                                  accessLabel,
+                                  style: textTheme.labelSmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          if (unitSummary.isNotEmpty)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.grid_view_outlined,
+                                    size: 14,
+                                    color: colorScheme.onSurfaceVariant),
+                                const SizedBox(width: 4),
+                                Text(
+                                  unitSummary,
+                                  style: textTheme.labelSmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ReorderableDragStartListener(
+                    index: index,
+                    child: const Icon(Icons.drag_handle, size: 20),
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: (value) async {
+                      if (value == 'edit') {
+                        await _editJob(result);
+                      } else if (value == 'delete') {
+                        await _confirmDeleteJob(result);
+                      } else if (value == 'complete') {
+                        await _toggleJobCompletion(result);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Text('Edit Job'),
+                      ),
+                      PopupMenuItem<String>(
+                        value: 'complete',
+                        child: Text(
+                          job.isComplete ? 'Reopen Job' : 'Mark Complete',
+                        ),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'delete',
+                        child: Text('Delete Job'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJobTile(BuildContext context, JobScanResult result) {
+    final job = result.job;
+    final restaurant =
+        job.restaurantName.isNotEmpty ? job.restaurantName : 'Unknown';
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
     return InkWell(
       onTap: () => _openJobDetail(result),
@@ -1473,39 +1627,6 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                 ),
               ),
             ),
-            if (activeNoteCount > 0)
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: GestureDetector(
-                  onTap: () => _openManagerNotesScreen(result),
-                  child: Chip(
-                    label: Text(
-                      '$activeNoteCount '
-                      '${activeNoteCount == 1 ? "note" : "notes"}',
-                    ),
-                    labelStyle: textTheme.labelSmall,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    side: BorderSide.none,
-                  ),
-                ),
-              ),
-            if (hasReorder) ...[
-              IconButton(
-                icon: const Icon(Icons.keyboard_arrow_up),
-                iconSize: 20,
-                visualDensity: VisualDensity.compact,
-                tooltip: 'Move up',
-                onPressed: onMoveUp,
-              ),
-              IconButton(
-                icon: const Icon(Icons.keyboard_arrow_down),
-                iconSize: 20,
-                visualDensity: VisualDensity.compact,
-                tooltip: 'Move down',
-                onPressed: onMoveDown,
-              ),
-            ],
             PopupMenuButton<String>(
               onSelected: (value) async {
                 if (value == 'edit') {
