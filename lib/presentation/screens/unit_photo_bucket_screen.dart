@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/photo_record.dart';
+import '../../domain/models/unit.dart';
+import '../widgets/move_destination_sheet.dart';
 
 class UnitPhotoBucketScreen extends StatefulWidget {
   const UnitPhotoBucketScreen({
@@ -15,6 +17,11 @@ class UnitPhotoBucketScreen extends StatefulWidget {
     required this.onJobMutated,
     required this.onSoftDelete,
     required this.onOpenViewer,
+    this.allUnits = const [],
+    this.currentUnitId,
+    this.currentPhase,
+    this.currentSubPhase,
+    this.onMovePhotos,
   });
 
   final String title;
@@ -28,6 +35,19 @@ class UnitPhotoBucketScreen extends StatefulWidget {
     List<PhotoRecord> photos,
   ) onOpenViewer;
 
+  /// All units in the job — needed for the move destination sheet.
+  final List<Unit> allUnits;
+  final String? currentUnitId;
+  final String? currentPhase;
+  final String? currentSubPhase;
+
+  /// Called when the user confirms a batch move.
+  final Future<void> Function({
+    required List<String> photoIds,
+    required String destUnitId,
+    required String? destSubPhase,
+  })? onMovePhotos;
+
   @override
   State<UnitPhotoBucketScreen> createState() => _UnitPhotoBucketScreenState();
 }
@@ -37,8 +57,18 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
   List<PhotoRecord> _photos = const [];
   int? _pressedTileIndex;
 
+  // Multi-select state
+  bool _isSelectMode = false;
+  final Set<String> _selectedIds = {};
+
   List<PhotoRecord> get _visiblePhotos =>
       _photos.where((p) => p.isActive).toList(growable: false);
+
+  bool get _canMove =>
+      widget.onMovePhotos != null &&
+      widget.currentUnitId != null &&
+      widget.currentPhase != null &&
+      widget.allUnits.isNotEmpty;
 
   @override
   void initState() {
@@ -73,71 +103,176 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
     await _reloadPhotos();
   }
 
-  Future<void> _confirmSoftDelete(String relativePath) async {
-    final shouldDelete = await showDialog<bool>(
+  void _exitSelectMode() {
+    setState(() {
+      _isSelectMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _enterSelectMode(String photoId) {
+    setState(() {
+      _isSelectMode = true;
+      _selectedIds.clear();
+      _selectedIds.add(photoId);
+    });
+  }
+
+  void _toggleSelection(String photoId) {
+    setState(() {
+      if (_selectedIds.contains(photoId)) {
+        _selectedIds.remove(photoId);
+        if (_selectedIds.isEmpty) {
+          _isSelectMode = false;
+        }
+      } else {
+        _selectedIds.add(photoId);
+      }
+    });
+  }
+
+  Future<void> _batchSoftDelete() async {
+    final count = _selectedIds.length;
+    final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Remove photo?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Remove from job'),
-            ),
-          ],
-        );
-      },
+      builder: (ctx) => AlertDialog(
+        title: Text('Remove $count ${count == 1 ? 'photo' : 'photos'}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
     );
 
-    if (shouldDelete != true || !mounted) {
-      return;
-    }
+    if (confirm != true || !mounted) return;
 
+    final visible = _visiblePhotos;
+    final toDelete = visible
+        .where((ph) => _selectedIds.contains(ph.photoId))
+        .map((ph) => ph.relativePath)
+        .toList();
+
+    for (final rp in toDelete) {
+      await widget.onSoftDelete(rp);
+    }
+    await widget.onJobMutated();
+    if (!mounted) return;
+    _exitSelectMode();
+    await _reloadPhotos();
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Removed $count ${count == 1 ? 'photo' : 'photos'}',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _batchMove() async {
+    if (!_canMove) return;
+
+    final destination = await showMoveDestinationSheet(
+      context: context,
+      allUnits: widget.allUnits,
+      currentUnitId: widget.currentUnitId!,
+      currentPhase: widget.currentPhase!,
+      currentSubPhase: widget.currentSubPhase,
+    );
+
+    if (destination == null || !mounted) return;
+
+    final count = _selectedIds.length;
     try {
-      await widget.onSoftDelete(relativePath);
+      await widget.onMovePhotos!(
+        photoIds: _selectedIds.toList(),
+        destUnitId: destination.unitId,
+        destSubPhase: destination.subPhase,
+      );
       await widget.onJobMutated();
       if (!mounted) return;
+      _exitSelectMode();
       await _reloadPhotos();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Removed from job')));
-    } catch (error) {
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Moved $count ${count == 1 ? 'photo' : 'photos'}',
+          ),
+        ),
+      );
+    } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Move failed: $e')),
+      );
     }
+  }
+
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (_isSelectMode) {
+      final count = _selectedIds.length;
+      return AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: _exitSelectMode,
+        ),
+        title: Text('$count selected'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Remove',
+            onPressed: count > 0 ? _batchSoftDelete : null,
+          ),
+          if (_canMove)
+            IconButton(
+              icon: const Icon(Icons.drive_file_move_outline),
+              tooltip: 'Move',
+              onPressed: count > 0 ? _batchMove : null,
+            ),
+        ],
+      );
+    }
+
+    final currentPhotosList = _visiblePhotos;
+    final photoCount = currentPhotosList.length;
+    final countLabel = '$photoCount ${photoCount == 1 ? 'photo' : 'photos'}';
+
+    return AppBar(
+      toolbarHeight: 72,
+      title: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.title),
+          Text(
+            countLabel,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currentPhotosList = _visiblePhotos;
-    final photoCount = currentPhotosList.length;
-    final countLabel = '$photoCount ${photoCount == 1 ? 'photo' : 'photos'}';
 
     return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 72,
-        title: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(widget.title),
-            Text(
-              countLabel,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
+      appBar: _buildAppBar(context),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : currentPhotosList.isEmpty
@@ -163,21 +298,30 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
                     file != null &&
                     file.existsSync();
                 final isMissing = !showImage;
+                final isSelected = _selectedIds.contains(photo.photoId);
 
                 return Material(
                   color: Colors.transparent,
                   borderRadius: BorderRadius.circular(12),
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
-                    onTapDown: (_) {
-                      if (!mounted) return;
-                      setState(() => _pressedTileIndex = index);
-                    },
-                    onTapCancel: () {
-                      if (!mounted) return;
-                      setState(() => _pressedTileIndex = null);
-                    },
+                    onTapDown: _isSelectMode
+                        ? null
+                        : (_) {
+                            if (!mounted) return;
+                            setState(() => _pressedTileIndex = index);
+                          },
+                    onTapCancel: _isSelectMode
+                        ? null
+                        : () {
+                            if (!mounted) return;
+                            setState(() => _pressedTileIndex = null);
+                          },
                     onTap: () async {
+                      if (_isSelectMode) {
+                        _toggleSelection(photo.photoId);
+                        return;
+                      }
                       if (mounted) {
                         setState(() => _pressedTileIndex = null);
                       }
@@ -186,21 +330,19 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
                       await _reloadPhotos();
                     },
                     onLongPress: () async {
+                      if (_isSelectMode) {
+                        _toggleSelection(photo.photoId);
+                        return;
+                      }
                       if (mounted) {
                         setState(() => _pressedTileIndex = null);
                       }
-                      if (relativePath.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Cannot remove photo: missing path.'),
-                          ),
-                        );
-                        return;
-                      }
-                      await _confirmSoftDelete(relativePath);
+                      _enterSelectMode(photo.photoId);
                     },
                     child: AnimatedScale(
-                      scale: _pressedTileIndex == index ? 0.97 : 1,
+                      scale: _pressedTileIndex == index && !_isSelectMode
+                          ? 0.97
+                          : 1,
                       duration: const Duration(milliseconds: 90),
                       curve: Curves.easeOut,
                       child: Stack(
@@ -224,13 +366,44 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
                                   aspectRatio: 1,
                                   child: Image.file(file, fit: BoxFit.cover),
                                 ),
-                          AnimatedOpacity(
-                            opacity: _pressedTileIndex == index ? 1 : 0,
-                            duration: const Duration(milliseconds: 70),
-                            child: Container(
-                              color: Colors.black.withValues(alpha: 0.14),
+                          // Press overlay (non-select mode only)
+                          if (!_isSelectMode)
+                            AnimatedOpacity(
+                              opacity: _pressedTileIndex == index ? 1 : 0,
+                              duration: const Duration(milliseconds: 70),
+                              child: Container(
+                                color: Colors.black.withValues(alpha: 0.14),
+                              ),
                             ),
-                          ),
+                          // Selection overlay
+                          if (_isSelectMode)
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              color: isSelected
+                                  ? theme.colorScheme.primary
+                                      .withValues(alpha: 0.25)
+                                  : Colors.transparent,
+                            ),
+                          if (_isSelectMode)
+                            Positioned(
+                              top: 6,
+                              right: 6,
+                              child: Icon(
+                                isSelected
+                                    ? Icons.check_circle
+                                    : Icons.circle_outlined,
+                                size: 24,
+                                color: isSelected
+                                    ? theme.colorScheme.primary
+                                    : Colors.white.withValues(alpha: 0.8),
+                                shadows: const [
+                                  Shadow(
+                                    blurRadius: 4,
+                                    color: Colors.black38,
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -238,10 +411,12 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
                 );
               },
             ),
-      floatingActionButton: FloatingActionButton.large(
-        onPressed: _captureAndReload,
-        child: const Icon(Icons.camera_alt),
-      ),
+      floatingActionButton: _isSelectMode
+          ? null
+          : FloatingActionButton.large(
+              onPressed: _captureAndReload,
+              child: const Icon(Icons.camera_alt),
+            ),
     );
   }
 }

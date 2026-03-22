@@ -1273,6 +1273,176 @@ class JobsService {
   }
 
   // ---------------------------------------------------------------------------
+  // Move Photos
+  // ---------------------------------------------------------------------------
+
+  /// Moves photos identified by [photoIds] from one unit/sub-phase to another.
+  ///
+  /// When moving within the same unit, only the [PhotoRecord.subPhase] metadata
+  /// is updated (no file I/O). Cross-unit moves physically relocate files on
+  /// disk and update [PhotoRecord.relativePath].
+  Future<void> movePhotos({
+    required Directory jobDir,
+    required String sourceUnitId,
+    required String sourcePhase,
+    required List<String> photoIds,
+    required String destUnitId,
+    String? destSubPhase,
+  }) async {
+    if (photoIds.isEmpty) return;
+
+    final normalizedPhase = sourcePhase.trim().toLowerCase();
+    if (normalizedPhase != 'before' && normalizedPhase != 'after') {
+      throw ArgumentError.value(
+        sourcePhase,
+        'sourcePhase',
+        'Invalid phase. Use "before" or "after".',
+      );
+    }
+
+    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
+    final job = await jobStore.readJob(jobJsonFile);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final photoIdSet = photoIds.toSet();
+    final sameUnit = sourceUnitId == destUnitId;
+
+    final srcUnit = job.units.cast<Unit?>().firstWhere(
+      (u) => u!.unitId == sourceUnitId,
+      orElse: () => null,
+    );
+    if (srcUnit == null) {
+      throw StateError('Source unit not found: $sourceUnitId');
+    }
+
+    final destUnit = sameUnit
+        ? srcUnit
+        : job.units.cast<Unit?>().firstWhere(
+            (u) => u!.unitId == destUnitId,
+            orElse: () => null,
+          );
+    if (destUnit == null) {
+      throw StateError('Destination unit not found: $destUnitId');
+    }
+
+    final srcPhotos = normalizedPhase == 'before'
+        ? srcUnit.photosBefore
+        : srcUnit.photosAfter;
+
+    final movedRecords = <PhotoRecord>[];
+    final remainingPhotos = <PhotoRecord>[];
+    for (final photo in srcPhotos) {
+      if (photoIdSet.contains(photo.photoId)) {
+        movedRecords.add(photo);
+      } else {
+        remainingPhotos.add(photo);
+      }
+    }
+
+    if (movedRecords.isEmpty) return;
+
+    // Build the updated records with new subPhase (and possibly new path).
+    final updatedMoved = <PhotoRecord>[];
+    if (sameUnit) {
+      for (final rec in movedRecords) {
+        updatedMoved.add(PhotoRecord(
+          photoId: rec.photoId,
+          fileName: rec.fileName,
+          relativePath: rec.relativePath,
+          capturedAt: rec.capturedAt,
+          status: rec.status,
+          missingLocal: rec.missingLocal,
+          recovered: rec.recovered,
+          deletedAt: rec.deletedAt,
+          subPhase: destSubPhase,
+        ));
+      }
+    } else {
+      // Cross-unit: resolve dest folder and move files on disk.
+      final destFolderName = await _resolveUnitFolderNameForPhoto(
+        jobDir: jobDir,
+        unitType: destUnit.type,
+        unitName: destUnit.name,
+        unitId: destUnit.unitId,
+      );
+
+      final category = AppPaths.categoryForUnitType(destUnit.type);
+      final phaseFolder = normalizedPhase == 'before'
+          ? AppPaths.beforeFolderName
+          : AppPaths.afterFolderName;
+      final destDir = Directory(
+        p.join(jobDir.path, category!, destFolderName, phaseFolder),
+      );
+      if (!await destDir.exists()) {
+        await destDir.create(recursive: true);
+      }
+
+      for (final rec in movedRecords) {
+        final srcFile = File(p.join(jobDir.path, rec.relativePath));
+        final destFile = File(p.join(destDir.path, rec.fileName));
+
+        if (await srcFile.exists()) {
+          try {
+            await srcFile.rename(destFile.path);
+          } catch (_) {
+            await srcFile.copy(destFile.path);
+            await srcFile.delete();
+          }
+        }
+
+        final newRelativePath = p
+            .relative(destFile.path, from: jobDir.path)
+            .replaceAll('\\', '/');
+
+        updatedMoved.add(PhotoRecord(
+          photoId: rec.photoId,
+          fileName: rec.fileName,
+          relativePath: newRelativePath,
+          capturedAt: rec.capturedAt,
+          status: rec.status,
+          missingLocal: rec.missingLocal,
+          recovered: rec.recovered,
+          deletedAt: rec.deletedAt,
+          subPhase: destSubPhase,
+        ));
+      }
+    }
+
+    // Re-read job to get latest state (may have been updated by folder resolve).
+    final latestJob = (await jobStore.readJob(jobJsonFile))!;
+
+    // Rebuild unit lists.
+    final updatedUnits = latestJob.units.map((u) {
+      if (u.unitId == sourceUnitId && u.unitId == destUnitId) {
+        // Same unit: replace phase list with remaining + moved (updated subPhase).
+        final merged = [...remainingPhotos, ...updatedMoved];
+        return normalizedPhase == 'before'
+            ? u.copyWith(photosBefore: merged)
+            : u.copyWith(photosAfter: merged);
+      } else if (u.unitId == sourceUnitId) {
+        return normalizedPhase == 'before'
+            ? u.copyWith(photosBefore: remainingPhotos)
+            : u.copyWith(photosAfter: remainingPhotos);
+      } else if (u.unitId == destUnitId) {
+        final destPhotos = normalizedPhase == 'before'
+            ? [...u.photosBefore, ...updatedMoved]
+            : [...u.photosAfter, ...updatedMoved];
+        return normalizedPhase == 'before'
+            ? u.copyWith(photosBefore: destPhotos)
+            : u.copyWith(photosAfter: destPhotos);
+      }
+      return u;
+    }).toList();
+
+    await jobStore.writeJob(
+      jobJsonFile,
+      latestJob.copyWith(units: updatedUnits),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Job Completion
   // ---------------------------------------------------------------------------
 

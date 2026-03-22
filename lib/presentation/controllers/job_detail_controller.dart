@@ -167,6 +167,24 @@ class JobDetailController {
     await loadJob();
   }
 
+  Future<void> movePhotos({
+    required String sourceUnitId,
+    required String sourcePhase,
+    required List<String> photoIds,
+    required String destUnitId,
+    String? destSubPhase,
+  }) async {
+    await jobs.movePhotos(
+      jobDir: jobDir,
+      sourceUnitId: sourceUnitId,
+      sourcePhase: sourcePhase,
+      photoIds: photoIds,
+      destUnitId: destUnitId,
+      destSubPhase: destSubPhase,
+    );
+    await loadJob();
+  }
+
   Future<void> setUnitCompletion({
     required String unitId,
     required bool isComplete,

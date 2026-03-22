@@ -272,6 +272,46 @@ Sub-phases are **metadata only** (`subPhase` field on `PhotoRecord`). Photos are
 
 ---
 
+# Photo Gallery Multi-Select and Move
+
+The unit photo gallery (`UnitPhotoBucketScreen`) supports multi-select mode.
+
+### Entry
+
+Long-press any photo to enter select mode. The pressed photo is auto-selected. Subsequent taps toggle selection.
+
+### Actions in select mode
+
+AppBar transforms to show:
+- Close (X) button to exit
+- Selected count
+- Remove (delete icon) — batch soft-delete with confirmation
+- Move (drive_file_move icon) — opens move destination sheet
+
+### Move destination sheet
+
+A bottom sheet that lets the user pick a target unit (and optionally a sub-phase):
+- Units grouped by type (Hoods, Fans, Misc)
+- Current unit labeled "(current)"
+- Same phase assumed (Before stays Before)
+- Sub-phase chips appear for hood/fan units (default matches current sub-phase if possible)
+- "Move here" button disabled until a valid destination is selected
+
+### Move behavior
+
+- **Same-unit move** (sub-phase change): only updates `PhotoRecord.subPhase` metadata — no file I/O
+- **Cross-unit move**: physically relocates files on disk, updates `relativePath` and `subPhase`, saves job.json
+- Phase changes (Before to After) are not supported in this iteration
+
+### Key files
+
+- `lib/presentation/screens/unit_photo_bucket_screen.dart` — multi-select gallery
+- `lib/presentation/widgets/move_destination_sheet.dart` — destination picker
+- `lib/application/jobs_service.dart` — `movePhotos()` method
+- `lib/presentation/controllers/job_detail_controller.dart` — `movePhotos()` delegation
+
+---
+
 # Unit Editing
 
 Unit overflow menu includes:
@@ -516,6 +556,7 @@ Core capabilities complete:
 - job completion logic (Mark Complete / Reopen, `completedAt`)
 - smart day-card sorting (incomplete first, completed last)
 - lightweight device role model (manager / technician)
+- batch photo move (multi-select gallery, move between units/sub-phases)
 
 Phase 3 completed steps:
 - Step 1: Data model updates — `subPhase` on `PhotoRecord`, `completedAt` on `Job`, `visibleCount` on `Unit`, `UnitPhaseConfig` utility, schema version 3

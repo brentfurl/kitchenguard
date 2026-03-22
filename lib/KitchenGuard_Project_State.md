@@ -725,7 +725,7 @@ Typed data models, UUID v4 for all entity IDs, `updatedAt` and `schemaVersion` o
 - `lib/presentation/job_detail.dart` — fully migrated to typed `Job`/`Unit`; `_job` field replaces `_jobData`; `_getWorkflowOrderedUnits` and all duplicate sort helpers removed; replaced with `UnitSorter.sort(_job.units)`; unit card accesses typed `unit.unitId`, `unit.name`, `unit.type`, `unit.visibleBeforeCount`, `unit.visibleAfterCount`; gallery callbacks pass `List<PhotoRecord>`
 - `lib/presentation/jobs_home.dart` — migrated to typed `Job` via `result.job`; `_sortJobsNewestFirst` and `_jobSortDate` use `result.job.createdAt`/`result.job.shiftStartDate`; `'Test_Restaurant'` pre-fill removed; list items use `result.job.restaurantName`, `result.job.shiftStartDate`
 - `lib/presentation/screens/photo_viewer_screen.dart` — `photos` and `reloadPhotos` callback use `List<PhotoRecord>`; photo field accesses use typed model properties
-- `lib/presentation/screens/unit_photo_bucket_screen.dart` — `loadPhotos` and `onOpenViewer` use `List<PhotoRecord>`; `_visiblePhotos` uses `photo.isActive`
+- `lib/presentation/screens/unit_photo_bucket_screen.dart` — `loadPhotos` and `onOpenViewer` use `List<PhotoRecord>`; `_visiblePhotos` uses `photo.isActive`; multi-select mode (long-press entry, batch remove and batch move); move destination picker via `MoveDestinationSheet`
 - `lib/presentation/screens/pre_clean_layout_screen.dart` — `loadPhotos` uses `List<PhotoRecord>`
 - `lib/presentation/screens/videos_screen.dart` — `loadVideos` uses `List<VideoRecord>`; video field accesses use typed model properties
 
@@ -781,7 +781,7 @@ All 153 tests pass after each step.
 - Roles are fixed per device (manager phone vs. crew phone) — changeable via settings
 - Multi-device same-job is a key use case (up to 4 people documenting one restaurant)
 - Photo sync deferred to Phase 4; phase-status visibility is the priority coordination win
-- Batch photo move between units/phases deferred to post-Phase 3
+- Batch photo move between units/sub-phases implemented (post-Phase 3, pre-Phase 4)
 
 ### Phase 4: Cloud and Multi-Platform
 
@@ -1104,6 +1104,9 @@ Field readiness: **9 / 10**
 
 Core field documentation workflow is complete. Phase 1, Phase 2, and Phase 3 are all complete.
 
+Post-Phase 3 additions:
+- Batch photo move — multi-select gallery with move destination sheet (cross-unit file move + same-unit sub-phase update)
+
 Next priority: Phase 4 (cloud database, sync, auth, and web access for management).
 
 Phase 3 progress — all steps complete:
@@ -1129,3 +1132,4 @@ New files added in Phase 3:
 - `lib/providers/day_notes_provider.dart` — AsyncNotifier for all day notes
 - `lib/providers/job_detail_provider.dart` — family AsyncNotifier for single job
 - `lib/providers/app_role_provider.dart` — StateNotifier for device role
+- `lib/presentation/widgets/move_destination_sheet.dart` — move destination bottom sheet picker

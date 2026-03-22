@@ -277,6 +277,23 @@ class _JobDetailState extends ConsumerState<JobDetail> {
               ),
             );
           },
+          allUnits: _job.units,
+          currentUnitId: unitId,
+          currentPhase: phase,
+          currentSubPhase: subPhase,
+          onMovePhotos: ({
+            required List<String> photoIds,
+            required String destUnitId,
+            required String? destSubPhase,
+          }) async {
+            await _controller.movePhotos(
+              sourceUnitId: unitId,
+              sourcePhase: phase,
+              photoIds: photoIds,
+              destUnitId: destUnitId,
+              destSubPhase: destSubPhase,
+            );
+          },
         ),
       ),
     );
