@@ -59,6 +59,29 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     return list;
   }
 
+  /// Sorts day-card dates:
+  /// 1. Days with at least one incomplete job (ascending by date)
+  /// 2. Upcoming days with all jobs complete or no activity yet (ascending)
+  /// 3. Fully completed days (descending — most recently completed first)
+  List<String> _sortDayCards(Map<String, List<JobScanResult>> byDate) {
+    final incomplete = <String>[];
+    final complete = <String>[];
+
+    for (final entry in byDate.entries) {
+      final hasIncomplete = entry.value.any((r) => !r.job.isComplete);
+      if (hasIncomplete) {
+        incomplete.add(entry.key);
+      } else {
+        complete.add(entry.key);
+      }
+    }
+
+    incomplete.sort();
+    complete.sort((a, b) => b.compareTo(a));
+
+    return [...incomplete, ...complete];
+  }
+
   // ---------------------------------------------------------------------------
   // Create job
   // ---------------------------------------------------------------------------
@@ -568,7 +591,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         body = const Center(child: Text('No jobs found.'));
       } else {
         final scheduledByDate = _scheduledByDate(results);
-        final sortedDates = scheduledByDate.keys.toList()..sort();
+        final sortedDates = _sortDayCards(scheduledByDate);
         final unscheduled = _unscheduledJobs(results);
 
         body = ListView(
@@ -609,6 +632,8 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
+    final allComplete =
+        jobs.isNotEmpty && jobs.every((r) => r.job.isComplete);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -617,22 +642,28 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ColoredBox(
-            color: colorScheme.primaryContainer,
+            color: allComplete
+                ? colorScheme.surfaceContainerHigh
+                : colorScheme.primaryContainer,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
                   Icon(
-                    Icons.calendar_today,
+                    allComplete ? Icons.check_circle : Icons.calendar_today,
                     size: 18,
-                    color: colorScheme.onPrimaryContainer,
+                    color: allComplete
+                        ? colorScheme.onSurfaceVariant
+                        : colorScheme.onPrimaryContainer,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       _formatDate(date),
                       style: textTheme.titleMedium?.copyWith(
-                        color: colorScheme.onPrimaryContainer,
+                        color: allComplete
+                            ? colorScheme.onSurfaceVariant
+                            : colorScheme.onPrimaryContainer,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
