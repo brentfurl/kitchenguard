@@ -5,8 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../application/jobs_service.dart';
+import '../domain/models/app_role.dart';
 import '../domain/models/day_note.dart';
 import '../domain/models/manager_job_note.dart';
+import '../providers/app_role_provider.dart';
 import '../providers/day_notes_provider.dart';
 import '../providers/job_list_provider.dart';
 import '../providers/service_providers.dart';
@@ -23,8 +25,39 @@ class JobsHome extends ConsumerStatefulWidget {
 
 class _JobsHomeState extends ConsumerState<JobsHome> {
   final Set<String> _expandedShiftNotes = {};
+  bool _roleDialogShown = false;
 
   JobsService get _jobs => ref.read(jobsServiceProvider);
+
+  // ---------------------------------------------------------------------------
+  // Role selection
+  // ---------------------------------------------------------------------------
+
+  Future<void> _showRoleSelectionDialog({bool dismissable = false}) async {
+    final role = await showDialog<AppRole>(
+      context: context,
+      barrierDismissible: dismissable,
+      builder: (context) => AlertDialog(
+        title: const Text('Select Device Role'),
+        content: const Text(
+          'How will this device be used?',
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(context).pop(AppRole.technician),
+            child: const Text('Technician'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(AppRole.manager),
+            child: const Text('Manager'),
+          ),
+        ],
+      ),
+    );
+    if (role != null) {
+      ref.read(appRoleProvider.notifier).setRole(role);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Job grouping (pure functions of provider data)
@@ -575,6 +608,14 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   Widget build(BuildContext context) {
     final jobsAsync = ref.watch(jobListProvider);
     final notesAsync = ref.watch(dayNotesProvider);
+    final currentRole = ref.watch(appRoleProvider);
+
+    if (currentRole == null && !_roleDialogShown) {
+      _roleDialogShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showRoleSelectionDialog();
+      });
+    }
 
     Widget body;
 
@@ -614,7 +655,27 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     final isLoading = jobsAsync is AsyncLoading;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('KitchenGuard Jobs')),
+      appBar: AppBar(
+        title: const Text('KitchenGuard Jobs'),
+        actions: [
+          if (currentRole != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Chip(
+                label: Text(currentRole.label),
+                labelStyle: Theme.of(context).textTheme.labelSmall,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                side: BorderSide.none,
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Change role',
+            onPressed: () => _showRoleSelectionDialog(dismissable: true),
+          ),
+        ],
+      ),
       body: body,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: isLoading ? null : _createJob,
