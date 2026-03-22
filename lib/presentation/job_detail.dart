@@ -17,7 +17,6 @@ import 'screens/notes_screen.dart';
 import 'screens/pre_clean_layout_screen.dart';
 import 'screens/photo_viewer_screen.dart';
 import 'screens/rapid_photo_capture_screen.dart';
-import 'screens/tools_screen.dart';
 import 'screens/unit_photo_bucket_screen.dart';
 import 'screens/videos_screen.dart';
 import '../storage/job_scanner.dart';
@@ -519,25 +518,6 @@ class _JobDetailState extends ConsumerState<JobDetail> {
     _reloadJob();
   }
 
-  Future<void> _openToolsScreen() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ToolsScreen(
-          onPrecleanLayout: _openPreCleanLayoutScreen,
-          onNotes: _openNotesScreen,
-          onExitVideos: _openExitVideosScreen,
-          onOtherVideos: _openOtherVideosScreen,
-          preCleanLayoutCount: () => _controller.preCleanLayoutCount,
-          notesCount: () => _controller.notesCount,
-          exitVideosCount: () => _controller.videosExitCount,
-          otherVideosCount: () => _controller.videosOtherCount,
-        ),
-      ),
-    );
-    if (!mounted) return;
-    _reloadJob();
-  }
-
   Future<void> _openPreCleanLayoutScreen() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -865,10 +845,38 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             icon: const Icon(Icons.share_outlined),
             tooltip: 'Export Job',
           ),
-          IconButton(
-            onPressed: _openToolsScreen,
+          PopupMenuButton<String>(
             icon: const Icon(Icons.handyman_outlined),
             tooltip: 'Tools',
+            onSelected: (value) async {
+              if (value == 'field_notes') {
+                await _openNotesScreen();
+              } else if (value == 'other_videos') {
+                await _openOtherVideosScreen();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem<String>(
+                value: 'field_notes',
+                child: Row(
+                  children: [
+                    const Icon(Icons.note_outlined, size: 20),
+                    const SizedBox(width: 8),
+                    Text('Field Notes (${_controller.notesCount})'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'other_videos',
+                child: Row(
+                  children: [
+                    const Icon(Icons.videocam_outlined, size: 20),
+                    const SizedBox(width: 8),
+                    Text('Other Videos (${_controller.videosOtherCount})'),
+                  ],
+                ),
+              ),
+            ],
           ),
           PopupMenuButton<String>(
             onSelected: (value) async {
@@ -901,6 +909,32 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             fieldNoteCount: _controller.notesCount,
             onJobNotesTap: _openManagerNotesScreen,
             onFieldNotesTap: _openNotesScreen,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openPreCleanLayoutScreen,
+                    icon: const Icon(Icons.grid_view_outlined, size: 18),
+                    label: Text(
+                      'Pre-clean Layout (${_controller.preCleanLayoutCount})',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openExitVideosScreen,
+                    icon: const Icon(Icons.videocam_outlined, size: 18),
+                    label: Text(
+                      'Exit Video (${_controller.videosExitCount})',
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
@@ -1233,54 +1267,6 @@ class _JobHeader extends StatelessWidget {
   }
 }
 
-class _ManagerNotesCard extends StatelessWidget {
-  const _ManagerNotesCard({required this.count, required this.onTap});
-
-  final int count;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-      child: Card(
-        elevation: 1.5,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.note_alt_outlined,
-                  size: 20,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 10),
-                Text('Job Notes', style: theme.textTheme.titleMedium),
-                const SizedBox(width: 8),
-                if (count > 0)
-                  Chip(
-                    label: Text('$count'),
-                    labelStyle: theme.textTheme.labelSmall,
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                    side: BorderSide.none,
-                  ),
-                const Spacer(),
-                const Icon(Icons.chevron_right),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SubPhaseUnitBody extends StatelessWidget {
   const _SubPhaseUnitBody({
     required this.unit,
@@ -1519,51 +1505,3 @@ class _SimpleUnitBody extends StatelessWidget {
   }
 }
 
-class _ToolsCard extends StatelessWidget {
-  const _ToolsCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
-      child: Card(
-        elevation: 2.5,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('Tools', style: theme.textTheme.titleMedium),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Pre-clean layout, field notes, and videos',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Icon(Icons.chevron_right),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
