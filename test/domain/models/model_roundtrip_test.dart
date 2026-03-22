@@ -655,6 +655,134 @@ void main() {
       expect(job.completedAt, isNull);
       expect(job.isComplete, isFalse);
     });
+
+    // --- address, city, access, alarm, unit counts ---
+
+    test('new nullable fields default to null when absent', () {
+      final job = Job.fromJson(minimalJobJson());
+      expect(job.address, isNull);
+      expect(job.city, isNull);
+      expect(job.accessType, isNull);
+      expect(job.accessNotes, isNull);
+      expect(job.hasAlarm, isNull);
+      expect(job.alarmCode, isNull);
+      expect(job.hoodCount, isNull);
+      expect(job.fanCount, isNull);
+    });
+
+    test('fromJson parses address, city, access, alarm, and unit counts', () {
+      final json = minimalJobJson()
+        ..['address'] = '123 Main St'
+        ..['city'] = 'Springfield'
+        ..['accessType'] = 'lockbox'
+        ..['accessNotes'] = 'Code 4321, left side door'
+        ..['hasAlarm'] = true
+        ..['alarmCode'] = '9876'
+        ..['hoodCount'] = 3
+        ..['fanCount'] = 2;
+      final job = Job.fromJson(json);
+      expect(job.address, '123 Main St');
+      expect(job.city, 'Springfield');
+      expect(job.accessType, 'lockbox');
+      expect(job.accessNotes, 'Code 4321, left side door');
+      expect(job.hasAlarm, isTrue);
+      expect(job.alarmCode, '9876');
+      expect(job.hoodCount, 3);
+      expect(job.fanCount, 2);
+    });
+
+    test('toJson omits null address/city/access/alarm/counts', () {
+      final job = Job.fromJson(minimalJobJson());
+      final json = job.toJson();
+      expect(json.containsKey('address'), isFalse);
+      expect(json.containsKey('city'), isFalse);
+      expect(json.containsKey('accessType'), isFalse);
+      expect(json.containsKey('accessNotes'), isFalse);
+      expect(json.containsKey('hasAlarm'), isFalse);
+      expect(json.containsKey('alarmCode'), isFalse);
+      expect(json.containsKey('hoodCount'), isFalse);
+      expect(json.containsKey('fanCount'), isFalse);
+    });
+
+    test('toJson includes address/city/access/alarm/counts when set', () {
+      final json = minimalJobJson()
+        ..['address'] = '456 Oak Ave'
+        ..['city'] = 'Shelbyville'
+        ..['accessType'] = 'key-hidden'
+        ..['accessNotes'] = 'Under mat'
+        ..['hasAlarm'] = false
+        ..['alarmCode'] = '0000'
+        ..['hoodCount'] = 5
+        ..['fanCount'] = 1;
+      final job = Job.fromJson(json);
+      final back = job.toJson();
+      expect(back['address'], '456 Oak Ave');
+      expect(back['city'], 'Shelbyville');
+      expect(back['accessType'], 'key-hidden');
+      expect(back['accessNotes'], 'Under mat');
+      expect(back['hasAlarm'], isFalse);
+      expect(back['alarmCode'], '0000');
+      expect(back['hoodCount'], 5);
+      expect(back['fanCount'], 1);
+    });
+
+    test('round-trip preserves new fields through fromJson/toJson/fromJson', () {
+      final json = minimalJobJson()
+        ..['address'] = '789 Elm'
+        ..['city'] = 'Capital City'
+        ..['accessType'] = 'get-key-from-shop'
+        ..['hasAlarm'] = true
+        ..['alarmCode'] = '5555'
+        ..['hoodCount'] = 4
+        ..['fanCount'] = 3;
+      final job = Job.fromJson(json);
+      final rebuilt = Job.fromJson(job.toJson());
+      expect(rebuilt.address, '789 Elm');
+      expect(rebuilt.city, 'Capital City');
+      expect(rebuilt.accessType, 'get-key-from-shop');
+      expect(rebuilt.accessNotes, isNull);
+      expect(rebuilt.hasAlarm, isTrue);
+      expect(rebuilt.alarmCode, '5555');
+      expect(rebuilt.hoodCount, 4);
+      expect(rebuilt.fanCount, 3);
+    });
+
+    test('copyWith for new nullable fields', () {
+      final job = Job.fromJson(minimalJobJson());
+      final copy = job.copyWith(
+        address: '100 Broadway',
+        city: 'Metro',
+        accessType: 'no-key',
+        hoodCount: 2,
+        fanCount: 1,
+        hasAlarm: false,
+      );
+      expect(copy.address, '100 Broadway');
+      expect(copy.city, 'Metro');
+      expect(copy.accessType, 'no-key');
+      expect(copy.hoodCount, 2);
+      expect(copy.fanCount, 1);
+      expect(copy.hasAlarm, isFalse);
+      expect(job.address, isNull);
+      expect(job.city, isNull);
+      expect(job.accessType, isNull);
+    });
+
+    test('old schema data without new fields loads gracefully', () {
+      final json = {
+        'jobId': 'j1',
+        'restaurantName': 'R',
+        'shiftStartDate': '2026-03-06',
+        'createdAt': 'now',
+      };
+      final job = Job.fromJson(json);
+      expect(job.address, isNull);
+      expect(job.city, isNull);
+      expect(job.accessType, isNull);
+      expect(job.hasAlarm, isNull);
+      expect(job.hoodCount, isNull);
+      expect(job.fanCount, isNull);
+    });
   });
 
   // ---------------------------------------------------------------------------

@@ -41,6 +41,14 @@ class JobsService {
     required String restaurantName,
     required DateTime shiftStartLocal,
     String? scheduledDate,
+    String? address,
+    String? city,
+    String? accessType,
+    String? accessNotes,
+    bool? hasAlarm,
+    String? alarmCode,
+    int? hoodCount,
+    int? fanCount,
   }) async {
     final localDate = shiftStartLocal.toLocal();
     final jobPath = await paths.getJobPath(
@@ -71,6 +79,14 @@ class JobsService {
       createdAt: DateTime.now().toUtc().toIso8601String(),
       schemaVersion: 3,
       scheduledDate: scheduledDate,
+      address: address,
+      city: city,
+      accessType: accessType,
+      accessNotes: accessNotes,
+      hasAlarm: hasAlarm,
+      alarmCode: alarmCode,
+      hoodCount: hoodCount,
+      fanCount: fanCount,
       units: const [],
       notes: const [],
       preCleanLayoutPhotos: const [],
@@ -79,6 +95,18 @@ class JobsService {
 
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
     await jobStore.writeJob(jobJsonFile, job);
+
+    // Auto-create hood and fan units from counts
+    if (hoodCount != null && hoodCount > 0) {
+      for (var i = 1; i <= hoodCount; i++) {
+        await addUnit(jobDir: jobDir, unitName: 'hood $i', unitType: 'hood');
+      }
+    }
+    if (fanCount != null && fanCount > 0) {
+      for (var i = 1; i <= fanCount; i++) {
+        await addUnit(jobDir: jobDir, unitName: 'fan $i', unitType: 'fan');
+      }
+    }
 
     return jobDir;
   }
@@ -103,16 +131,31 @@ class JobsService {
     await Directory(jobPath).delete(recursive: true);
   }
 
-  /// Updates the restaurant name and/or scheduled date on a job.
+  /// Updates job metadata fields.
   ///
-  /// [restaurantName] and [scheduledDate] are applied only when non-null.
-  /// To clear the scheduled date, pass the empty string for [scheduledDate]
-  /// (the value is converted to `null` internally).
+  /// String fields are applied only when non-null. To clear a nullable field,
+  /// use the corresponding `clear*` flag (e.g., `clearScheduledDate`).
   Future<Job> updateJobDetails({
     required Directory jobDir,
     String? restaurantName,
     String? scheduledDate,
     bool clearScheduledDate = false,
+    String? address,
+    bool clearAddress = false,
+    String? city,
+    bool clearCity = false,
+    String? accessType,
+    bool clearAccessType = false,
+    String? accessNotes,
+    bool clearAccessNotes = false,
+    bool? hasAlarm,
+    bool clearHasAlarm = false,
+    String? alarmCode,
+    bool clearAlarmCode = false,
+    int? hoodCount,
+    bool clearHoodCount = false,
+    int? fanCount,
+    bool clearFanCount = false,
   }) async {
     final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
     final job = await jobStore.readJob(jobJsonFile);
@@ -144,6 +187,15 @@ class JobsService {
           ? null
           : (scheduledDate ?? job.scheduledDate),
       sortOrder: job.sortOrder,
+      completedAt: job.completedAt,
+      address: clearAddress ? null : (address ?? job.address),
+      city: clearCity ? null : (city ?? job.city),
+      accessType: clearAccessType ? null : (accessType ?? job.accessType),
+      accessNotes: clearAccessNotes ? null : (accessNotes ?? job.accessNotes),
+      hasAlarm: clearHasAlarm ? null : (hasAlarm ?? job.hasAlarm),
+      alarmCode: clearAlarmCode ? null : (alarmCode ?? job.alarmCode),
+      hoodCount: clearHoodCount ? null : (hoodCount ?? job.hoodCount),
+      fanCount: clearFanCount ? null : (fanCount ?? job.fanCount),
     );
     return jobStore.writeJob(jobJsonFile, updated);
   }

@@ -20,6 +20,14 @@ class Job {
     this.sortOrder,
     this.completedAt,
     this.managerNotes = const [],
+    this.address,
+    this.city,
+    this.accessType,
+    this.accessNotes,
+    this.hasAlarm,
+    this.alarmCode,
+    this.hoodCount,
+    this.fanCount,
   });
 
   final String jobId;
@@ -31,6 +39,14 @@ class Job {
   final String? scheduledDate;
   final int? sortOrder;
   final String? completedAt; // ISO 8601 UTC, null = not complete
+  final String? address;
+  final String? city;
+  final String? accessType; // no-key, get-key-from-shop, key-hidden, lockbox
+  final String? accessNotes;
+  final bool? hasAlarm;
+  final String? alarmCode;
+  final int? hoodCount;
+  final int? fanCount;
   final List<Unit> units;
   final List<JobNote> notes;
   final List<ManagerJobNote> managerNotes;
@@ -67,6 +83,14 @@ class Job {
       scheduledDate: json['scheduledDate'] as String?,
       sortOrder: json['sortOrder'] as int?,
       completedAt: json['completedAt'] as String?,
+      address: json['address'] as String?,
+      city: json['city'] as String?,
+      accessType: json['accessType'] as String?,
+      accessNotes: json['accessNotes'] as String?,
+      hasAlarm: json['hasAlarm'] as bool?,
+      alarmCode: json['alarmCode'] as String?,
+      hoodCount: json['hoodCount'] as int?,
+      fanCount: json['fanCount'] as int?,
       units: unitList,
       notes: noteList,
       managerNotes: managerNoteList,
@@ -85,6 +109,14 @@ class Job {
       if (scheduledDate != null) 'scheduledDate': scheduledDate,
       if (sortOrder != null) 'sortOrder': sortOrder,
       if (completedAt != null) 'completedAt': completedAt,
+      if (address != null) 'address': address,
+      if (city != null) 'city': city,
+      if (accessType != null) 'accessType': accessType,
+      if (accessNotes != null) 'accessNotes': accessNotes,
+      if (hasAlarm != null) 'hasAlarm': hasAlarm,
+      if (alarmCode != null) 'alarmCode': alarmCode,
+      if (hoodCount != null) 'hoodCount': hoodCount,
+      if (fanCount != null) 'fanCount': fanCount,
       'schemaVersion': schemaVersion,
       'units': units.map((u) => u.toJson()).toList(),
       'notes': notes.map((n) => n.toJson()).toList(),
@@ -103,8 +135,16 @@ class Job {
     String? updatedAt,
     String? scheduledDate,
     String? completedAt,
+    String? address,
+    String? city,
+    String? accessType,
+    String? accessNotes,
+    bool? hasAlarm,
+    String? alarmCode,
     int? schemaVersion,
     int? sortOrder,
+    int? hoodCount,
+    int? fanCount,
     List<Unit>? units,
     List<JobNote>? notes,
     List<ManagerJobNote>? managerNotes,
@@ -120,6 +160,14 @@ class Job {
       scheduledDate: scheduledDate ?? this.scheduledDate,
       sortOrder: sortOrder ?? this.sortOrder,
       completedAt: completedAt ?? this.completedAt,
+      address: address ?? this.address,
+      city: city ?? this.city,
+      accessType: accessType ?? this.accessType,
+      accessNotes: accessNotes ?? this.accessNotes,
+      hasAlarm: hasAlarm ?? this.hasAlarm,
+      alarmCode: alarmCode ?? this.alarmCode,
+      hoodCount: hoodCount ?? this.hoodCount,
+      fanCount: fanCount ?? this.fanCount,
       schemaVersion: schemaVersion ?? this.schemaVersion,
       units: units ?? this.units,
       notes: notes ?? this.notes,
