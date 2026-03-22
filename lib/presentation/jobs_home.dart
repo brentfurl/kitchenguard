@@ -23,9 +23,12 @@ class JobsHome extends ConsumerStatefulWidget {
   ConsumerState<JobsHome> createState() => _JobsHomeState();
 }
 
+enum _JobFilter { today, upcoming, past, unscheduled }
+
 class _JobsHomeState extends ConsumerState<JobsHome> {
   final Set<String> _expandedShiftNotes = {};
   bool _roleDialogShown = false;
+  final Set<_JobFilter> _activeFilters = {_JobFilter.today, _JobFilter.upcoming};
 
   JobsService get _jobs => ref.read(jobsServiceProvider);
 
@@ -908,19 +911,46 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         final scheduledByDate = _scheduledByDate(results);
         final sortedDates = _sortDayCards(scheduledByDate);
         final unscheduled = _unscheduledJobs(results);
+        final todayStr = _toYyyyMmDd(DateTime.now());
 
-        body = ListView(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+        final filteredDates = sortedDates.where((date) {
+          if (_activeFilters.contains(_JobFilter.today) && date == todayStr) {
+            return true;
+          }
+          if (_activeFilters.contains(_JobFilter.upcoming) &&
+              date.compareTo(todayStr) > 0) {
+            return true;
+          }
+          if (_activeFilters.contains(_JobFilter.past) &&
+              date.compareTo(todayStr) < 0) {
+            return true;
+          }
+          return false;
+        }).toList();
+
+        final showUnscheduled =
+            _activeFilters.contains(_JobFilter.unscheduled) &&
+                unscheduled.isNotEmpty;
+
+        body = Column(
           children: [
-            for (final date in sortedDates)
-              _buildDayCard(
-                context,
-                date: date,
-                jobs: scheduledByDate[date]!,
-                shiftNotes: activeShiftNotes[date] ?? const [],
+            _buildFilterRow(),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  for (final date in filteredDates)
+                    _buildDayCard(
+                      context,
+                      date: date,
+                      jobs: scheduledByDate[date]!,
+                      shiftNotes: activeShiftNotes[date] ?? const [],
+                    ),
+                  if (showUnscheduled)
+                    _buildUnscheduledSection(context, unscheduled),
+                ],
               ),
-            if (unscheduled.isNotEmpty)
-              _buildUnscheduledSection(context, unscheduled),
+            ),
           ],
         );
       }
@@ -957,6 +987,45 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         label: const Text('Create Job'),
       ),
     );
+  }
+
+  Widget _buildFilterRow() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Row(
+        children: [
+          for (final filter in _JobFilter.values) ...[
+            if (filter != _JobFilter.values.first) const SizedBox(width: 8),
+            FilterChip(
+              label: Text(_filterLabel(filter)),
+              selected: _activeFilters.contains(filter),
+              onSelected: (selected) {
+                setState(() {
+                  if (selected) {
+                    _activeFilters.add(filter);
+                  } else {
+                    _activeFilters.remove(filter);
+                  }
+                });
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _filterLabel(_JobFilter filter) {
+    switch (filter) {
+      case _JobFilter.today:
+        return 'Today';
+      case _JobFilter.upcoming:
+        return 'Upcoming';
+      case _JobFilter.past:
+        return 'Past';
+      case _JobFilter.unscheduled:
+        return 'Unscheduled';
+    }
   }
 
   Widget _buildDayCard(
