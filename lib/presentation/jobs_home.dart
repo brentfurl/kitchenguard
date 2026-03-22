@@ -695,6 +695,20 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     final textTheme = Theme.of(context).textTheme;
     final allComplete =
         jobs.isNotEmpty && jobs.every((r) => r.job.isComplete);
+    final isToday = date == _toYyyyMmDd(DateTime.now());
+
+    final Color headerColor;
+    final Color headerForeground;
+    if (allComplete) {
+      headerColor = colorScheme.surfaceContainerHigh;
+      headerForeground = colorScheme.onSurfaceVariant;
+    } else if (isToday) {
+      headerColor = colorScheme.primary;
+      headerForeground = colorScheme.onPrimary;
+    } else {
+      headerColor = colorScheme.primaryContainer;
+      headerForeground = colorScheme.onPrimaryContainer;
+    }
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -703,9 +717,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ColoredBox(
-            color: allComplete
-                ? colorScheme.surfaceContainerHigh
-                : colorScheme.primaryContainer,
+            color: headerColor,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
@@ -713,22 +725,37 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                   Icon(
                     allComplete ? Icons.check_circle : Icons.calendar_today,
                     size: 18,
-                    color: allComplete
-                        ? colorScheme.onSurfaceVariant
-                        : colorScheme.onPrimaryContainer,
+                    color: headerForeground,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       _formatDate(date),
                       style: textTheme.titleMedium?.copyWith(
-                        color: allComplete
-                            ? colorScheme.onSurfaceVariant
-                            : colorScheme.onPrimaryContainer,
+                        color: headerForeground,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
+                  if (isToday && !allComplete)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colorScheme.onPrimary.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        'TODAY',
+                        style: textTheme.labelSmall?.copyWith(
+                          color: headerForeground,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
