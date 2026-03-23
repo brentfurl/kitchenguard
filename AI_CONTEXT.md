@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Steps 4a-4e complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine).
 
 Core capabilities complete:
 
@@ -587,9 +587,9 @@ Phase 4 completed steps:
 - Step 4d: Multi-device coordination — `uploadedBy` attribution on photo/video uploads, `JobMerger` append-only merge by photoId/videoId (union of records, sync-status best-wins, soft-delete additive), `CloudJobRepository.pullFromCloud()` triggered on pull-to-refresh.
 - Step 4e: Download and caching — `cached_network_image` package, `CloudAwareImage` widget (local-first display with cloud URL fallback + cloud badge), `VideoPlayerScreen` network URL support, all gallery/viewer screens cloud-aware.
 
-Phase 4 remaining:
-- Step 4f: Storage security rules refinement (if needed)
-- Step 5: Sync engine (scheduling cloud-first, documentation device-first)
+- Step 5: Sync engine — cloud-only job provisioning in `pullFromCloud`, `SyncNotifier` provider (auto-pull on app open, 5-minute periodic pull, connectivity stream monitoring, auto-pull on reconnect), combined `SyncState` (pull + upload status), offline banner in Jobs Home, combined `_SyncIndicator` (cloud-done / uploading / offline / pending badge).
+
+Phase 4/5 remaining:
 - Step 6: Flutter web management dashboard
 
 ---
@@ -828,7 +828,70 @@ append-only logic. Cloud-only units are appended. Local-only units are kept.
 
 **Pull flow**: `CloudJobRepository.pullFromCloud()` fetches all cloud job documents,
 matches them to local jobs by `jobId`, merges, and saves the result to the local
-filesystem only (no re-push to Firestore). Triggered via pull-to-refresh on Jobs Home.
+filesystem only (no re-push to Firestore). Cloud-only jobs (no local folder) are
+provisioned locally with a folder named `{sanitized_name}_{jobId_prefix}`. Triggered
+automatically on app open, every 5 minutes when online, on reconnect, and via
+pull-to-refresh.
+
+---
+
+# Sync Engine (Step 5)
+
+The sync engine coordinates bidirectional data flow between devices.
+
+## Data Flow Directions
+
+```
+Scheduling data (jobs, day notes, day schedules):
+  Cloud (Firestore) → Device (local filesystem)
+  Manager pushes scheduling data; devices pull periodically.
+
+Documentation data (photos, videos, field notes):
+  Device (local filesystem) → Cloud (Firebase Storage + Firestore)
+  Technicians capture locally; uploads sync when connectivity allows.
+```
+
+## Pull Triggers
+
+| Trigger | Mechanism |
+|---------|-----------|
+| App open | `SyncNotifier._initialPull()` on init |
+| Periodic | `Timer.periodic` every 5 minutes |
+| Reconnect | `Connectivity.onConnectivityChanged` listener |
+| Manual | Pull-to-refresh on Jobs Home |
+
+## Cloud-Only Job Provisioning
+
+When `pullFromCloud()` encounters a Firestore job with no local folder:
+1. Creates folder at `{root}/{sanitized_name}_{jobId_prefix}`
+2. Saves `job.json` via local repository (no re-push)
+3. Media files are cloud-only — viewable via `CloudAwareImage` (Step 4e)
+
+## Combined Sync State
+
+`SyncState` merges pull and upload status:
+- `isOnline` — connectivity stream from `connectivity_plus`
+- `isPulling` — Firestore pull in progress
+- `isUploading` — upload queue processing
+- `uploadPending` — count of queued media uploads
+- `lastPullTime` — timestamp of last successful pull
+- `isSynced` — all clear (no pull, no upload, no pending)
+
+## Sync UI
+
+- **AppBar indicator**: cloud-done (synced) / spinner (active) / badge (pending) / cloud-off (offline)
+- **Offline banner**: `MaterialBanner` below AppBar when device is offline
+- **Manual sync**: tap indicator to trigger pull + upload
+
+## Key Sync Files
+
+```
+lib/providers/sync_provider.dart                   — SyncNotifier + SyncState + syncProvider
+lib/providers/upload_progress_provider.dart         — upload queue progress (merged into SyncState)
+lib/data/repositories/cloud_job_repository.dart     — pullFromCloud + cloud-only provisioning
+lib/domain/merge/job_merger.dart                    — merge logic (scheduling LWW + docs append-only)
+lib/services/background_upload_service.dart         — workmanager background upload processing
+```
 
 ## Storage Security Rules
 

@@ -76,6 +76,7 @@ final jobRepositoryProvider = Provider<JobRepository>((ref) {
     return CloudJobRepository(
       local: localRepo,
       firestore: FirebaseFirestore.instance,
+      paths: ref.watch(appPathsProvider),
     );
   }
 

@@ -2,9 +2,11 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:path/path.dart' as p;
 
 import '../../domain/merge/job_merger.dart';
 import '../../domain/models/job.dart';
+import '../../storage/app_paths.dart';
 import '../../storage/job_scanner.dart';
 import 'job_repository.dart';
 
@@ -22,10 +24,13 @@ class CloudJobRepository implements JobRepository {
   CloudJobRepository({
     required JobRepository local,
     required FirebaseFirestore firestore,
+    required AppPaths paths,
   })  : _local = local,
+        _paths = paths,
         _jobs = firestore.collection('jobs');
 
   final JobRepository _local;
+  final AppPaths _paths;
   final CollectionReference<Map<String, dynamic>> _jobs;
 
   // ---------------------------------------------------------------------------
@@ -127,15 +132,17 @@ class CloudJobRepository implements JobRepository {
   // Cloud pull + merge
   // ---------------------------------------------------------------------------
 
-  /// Fetches all jobs from Firestore and merges each one with its local
-  /// counterpart using append-only union for documentation data and
-  /// last-write-wins for scheduling fields.
+  /// Fetches all jobs from Firestore and reconciles with local data.
   ///
-  /// Cloud-only jobs (no local folder) are skipped — they'll be handled
-  /// by a future download/provisioning step.
+  /// **Existing local jobs** are merged using append-only union for
+  /// documentation data and last-write-wins for scheduling fields.
   ///
-  /// Merged results are saved to the local filesystem only (no re-push
-  /// to Firestore to avoid redundant writes).
+  /// **Cloud-only jobs** (no local folder) are provisioned locally so
+  /// they appear in the job list. Media files stay cloud-only and are
+  /// viewable via [CloudAwareImage] / network video playback (Step 4e).
+  ///
+  /// Merged/provisioned results are saved to the local filesystem only
+  /// (no re-push to Firestore to avoid redundant writes).
   @override
   Future<int> pullFromCloud() async {
     try {
@@ -151,13 +158,16 @@ class CloudJobRepository implements JobRepository {
       var mergedCount = 0;
       for (final cloudJob in cloudJobs) {
         final localResult = localMap[cloudJob.jobId];
-        if (localResult == null) continue;
 
-        final merged = JobMerger.merge(
-          local: localResult.job,
-          cloud: cloudJob,
-        );
-        await _local.saveJob(localResult.jobDir, merged);
+        if (localResult != null) {
+          final merged = JobMerger.merge(
+            local: localResult.job,
+            cloud: cloudJob,
+          );
+          await _local.saveJob(localResult.jobDir, merged);
+        } else {
+          await _provisionCloudOnlyJob(cloudJob);
+        }
         mergedCount++;
       }
 
@@ -170,6 +180,38 @@ class CloudJobRepository implements JobRepository {
         stackTrace: st,
       );
       return 0;
+    }
+  }
+
+  /// Creates a local folder for a job that exists only in Firestore.
+  ///
+  /// Uses `{root}/{sanitized_name}_{jobId_suffix}` for the folder path
+  /// to guarantee uniqueness. The job is saved via [_local] only (no
+  /// re-push to Firestore).
+  Future<void> _provisionCloudOnlyJob(Job cloudJob) async {
+    try {
+      final rootPath = await _paths.getRootPath();
+      final safeName = _paths.sanitizeName(cloudJob.restaurantName);
+      final idSuffix = cloudJob.jobId.length >= 8
+          ? cloudJob.jobId.substring(0, 8)
+          : cloudJob.jobId;
+      final folderName = '${safeName}_$idSuffix';
+      final jobPath = p.join(rootPath, folderName);
+
+      if (await Directory(jobPath).exists()) return;
+
+      await _local.createJobFolder(jobPath: jobPath, job: cloudJob);
+      developer.log(
+        'Provisioned cloud-only job: ${cloudJob.restaurantName} → $folderName',
+        name: 'CloudJobRepository',
+      );
+    } catch (e, st) {
+      developer.log(
+        'Failed to provision cloud-only job ${cloudJob.jobId}: $e',
+        name: 'CloudJobRepository',
+        error: e,
+        stackTrace: st,
+      );
     }
   }
 

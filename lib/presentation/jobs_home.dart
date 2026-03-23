@@ -15,6 +15,7 @@ import '../providers/day_schedule_provider.dart';
 import '../providers/job_detail_provider.dart';
 import '../providers/job_list_provider.dart';
 import '../providers/service_providers.dart';
+import '../providers/sync_provider.dart';
 import '../providers/upload_progress_provider.dart';
 import '../storage/job_scanner.dart';
 import 'job_detail.dart';
@@ -1007,8 +1008,10 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
             _buildFilterRow(),
             Expanded(
               child: RefreshIndicator(
-                onRefresh: () =>
-                    ref.read(jobListProvider.notifier).pullAndReload(),
+                onRefresh: () async {
+                  await ref.read(syncProvider.notifier).pullNow();
+                  ref.read(uploadProgressProvider.notifier).triggerUpload();
+                },
                 child: ListView(
                   padding: const EdgeInsets.only(top: 8, bottom: 80),
                   children: [
@@ -1033,22 +1036,19 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 
     final isLoading = jobsAsync is AsyncLoading;
 
-    final uploadProgress = ref.watch(uploadProgressProvider);
+    final syncState = ref.watch(syncProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('KitchenGuard Jobs'),
         actions: [
-          if (uploadProgress.isProcessing)
-            const _SyncIndicator(isProcessing: true, pendingCount: 0)
-          else if (uploadProgress.hasPending)
-            _SyncIndicator(
-              isProcessing: false,
-              pendingCount: uploadProgress.pendingCount,
-              onTap: () => ref
-                  .read(uploadProgressProvider.notifier)
-                  .triggerUpload(),
-            ),
+          _SyncIndicator(
+            syncState: syncState,
+            onTap: () {
+              ref.read(syncProvider.notifier).pullNow();
+              ref.read(uploadProgressProvider.notifier).triggerUpload();
+            },
+          ),
           if (currentRole != null)
             Padding(
               padding: const EdgeInsets.only(right: 4),
@@ -1067,7 +1067,20 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           ),
         ],
       ),
-      body: body,
+      body: Column(
+        children: [
+          if (!syncState.isOnline)
+            MaterialBanner(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              leading: const Icon(Icons.cloud_off, size: 20),
+              content: const Text('You are offline. Changes will sync when reconnected.'),
+              actions: const [SizedBox.shrink()],
+              backgroundColor: Theme.of(context).colorScheme.errorContainer,
+              forceActionsBelow: true,
+            ),
+          Expanded(child: body),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: isLoading ? null : _createJob,
         icon: const Icon(Icons.add),
@@ -1891,42 +1904,75 @@ const _accessTypeLabels = <String, String>{
   'lockbox': 'Lockbox',
 };
 
-/// Compact sync status indicator for the AppBar.
+/// Combined sync status indicator for the AppBar.
 ///
-/// Shows a spinning cloud icon while uploading, or a cloud-upload icon
-/// with a pending-count badge when items are queued. Tapping triggers
-/// a manual sync attempt.
+/// Shows activity (pulling/uploading), pending upload count, or a
+/// fully-synced check. Tapping triggers a manual sync attempt.
 class _SyncIndicator extends StatelessWidget {
   const _SyncIndicator({
-    required this.isProcessing,
-    required this.pendingCount,
+    required this.syncState,
     this.onTap,
   });
 
-  final bool isProcessing;
-  final int pendingCount;
+  final SyncState syncState;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    if (isProcessing) {
+    if (!syncState.isOnline) {
       return const Padding(
         padding: EdgeInsets.symmetric(horizontal: 12),
+        child: Icon(Icons.cloud_off, size: 20),
+      );
+    }
+
+    if (syncState.hasActivity) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         child: SizedBox(
           width: 20,
           height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Theme.of(context).colorScheme.primary,
+          ),
         ),
       );
     }
 
+    if (syncState.uploadPending > 0) {
+      return IconButton(
+        icon: Badge(
+          label: Text('${syncState.uploadPending}'),
+          child: const Icon(Icons.cloud_upload_outlined),
+        ),
+        tooltip:
+            '${syncState.uploadPending} pending upload${syncState.uploadPending == 1 ? '' : 's'}',
+        onPressed: onTap,
+      );
+    }
+
+    if (syncState.isSynced) {
+      return IconButton(
+        icon: const Icon(Icons.cloud_done_outlined),
+        tooltip: _lastSyncLabel(),
+        onPressed: onTap,
+      );
+    }
+
     return IconButton(
-      icon: Badge(
-        label: Text('$pendingCount'),
-        child: const Icon(Icons.cloud_upload_outlined),
-      ),
-      tooltip: '$pendingCount pending upload${pendingCount == 1 ? '' : 's'}',
+      icon: const Icon(Icons.sync),
+      tooltip: 'Sync now',
       onPressed: onTap,
     );
+  }
+
+  String _lastSyncLabel() {
+    final t = syncState.lastPullTime;
+    if (t == null) return 'Synced';
+    final diff = DateTime.now().difference(t);
+    if (diff.inMinutes < 1) return 'Synced just now';
+    if (diff.inMinutes < 60) return 'Synced ${diff.inMinutes}m ago';
+    return 'Synced ${diff.inHours}h ago';
   }
 }

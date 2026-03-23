@@ -135,6 +135,7 @@ void uploadQueueCallbackDispatcher() {
       final jobRepo = CloudJobRepository(
         local: localRepo,
         firestore: FirebaseFirestore.instance,
+        paths: paths,
       );
       final controller = UploadController(
         storageService: storageService,
