@@ -14,31 +14,25 @@ import '../domain/models/photo_record.dart';
 import '../domain/models/unit.dart';
 import '../domain/models/video_record.dart';
 import '../domain/models/videos.dart';
+import '../data/repositories/day_note_repository.dart';
+import '../data/repositories/day_schedule_repository.dart';
+import '../data/repositories/job_repository.dart';
 import '../storage/app_paths.dart';
-import '../storage/day_note_store.dart';
-import '../storage/day_schedule_store.dart';
-import '../storage/image_file_store.dart';
-import '../storage/job_store.dart';
-import '../storage/video_file_store.dart';
 import '../utils/unit_sorter.dart';
 
 /// Creates and updates job folders backed by `job.json`.
 class JobsService {
   JobsService({
     required this.paths,
-    required this.jobStore,
-    required this.imageStore,
-    required this.videoStore,
-    required this.dayNoteStore,
-    this.dayScheduleStore,
+    required this.jobRepository,
+    required this.dayNoteRepository,
+    this.dayScheduleRepository,
   });
 
   final AppPaths paths;
-  final JobStore jobStore;
-  final ImageFileStore imageStore;
-  final VideoFileStore videoStore;
-  final DayNoteStore dayNoteStore;
-  final DayScheduleStore? dayScheduleStore;
+  final JobRepository jobRepository;
+  final DayNoteRepository dayNoteRepository;
+  final DayScheduleRepository? dayScheduleRepository;
   final Uuid _uuid = const Uuid();
 
   Future<Directory> createJob({
@@ -59,22 +53,10 @@ class JobsService {
       restaurantName: restaurantName,
       shiftStartDate: localDate,
     );
-    final jobDir = Directory(jobPath);
 
-    if (await jobDir.exists()) {
-      throw StateError('Job folder already exists: ${jobDir.path}');
+    if (await Directory(jobPath).exists()) {
+      throw StateError('Job folder already exists: $jobPath');
     }
-
-    await jobDir.create(recursive: true);
-    await Directory(
-      p.join(jobDir.path, AppPaths.hoodsCategory),
-    ).create(recursive: true);
-    await Directory(
-      p.join(jobDir.path, AppPaths.fansCategory),
-    ).create(recursive: true);
-    await Directory(
-      p.join(jobDir.path, AppPaths.miscCategory),
-    ).create(recursive: true);
 
     final job = Job(
       jobId: _uuid.v4(),
@@ -97,8 +79,10 @@ class JobsService {
       videos: const Videos.empty(),
     );
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    await jobStore.writeJob(jobJsonFile, job);
+    final jobDir = await jobRepository.createJobFolder(
+      jobPath: jobPath,
+      job: job,
+    );
 
     // Auto-create hood and fan units from counts
     if (hoodCount != null && hoodCount > 0) {
@@ -116,23 +100,7 @@ class JobsService {
   }
 
   Future<void> deleteJob({required Directory jobDir}) async {
-    if (!await jobDir.exists()) {
-      return;
-    }
-
-    final rootPath = p.normalize(await paths.getRootPath());
-    final jobPath = p.normalize(jobDir.path);
-    final isUnderRoot = p.isWithin(rootPath, jobPath) || jobPath == rootPath;
-    if (!isUnderRoot) {
-      throw StateError('Refusing to delete path outside jobs root: $jobPath');
-    }
-
-    final jobJsonFile = File(p.join(jobPath, 'job.json'));
-    if (!await jobJsonFile.exists()) {
-      throw StateError('Refusing to delete non-job directory: $jobPath');
-    }
-
-    await Directory(jobPath).delete(recursive: true);
+    await jobRepository.deleteJob(jobDir);
   }
 
   /// Updates job metadata fields.
@@ -161,8 +129,7 @@ class JobsService {
     int? fanCount,
     bool clearFanCount = false,
   }) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -201,7 +168,7 @@ class JobsService {
       hoodCount: clearHoodCount ? null : (hoodCount ?? job.hoodCount),
       fanCount: clearFanCount ? null : (fanCount ?? job.fanCount),
     );
-    return jobStore.writeJob(jobJsonFile, updated);
+    return jobRepository.saveJob(jobDir, updated);
   }
 
   Future<void> addUnit({
@@ -228,8 +195,7 @@ class JobsService {
       );
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('job.json missing: ${jobDir.path}');
     }
@@ -279,8 +245,8 @@ class JobsService {
       photosAfter: const [],
     );
 
-    await jobStore.writeJob(
-      jobJsonFile,
+    await jobRepository.saveJob(
+      jobDir,
       job.copyWith(units: [...job.units, newUnit]),
     );
   }
@@ -299,8 +265,7 @@ class JobsService {
       );
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -325,15 +290,14 @@ class JobsService {
         .map((u) => u.unitId == unitId ? u.copyWith(name: displayName) : u)
         .toList();
 
-    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
+    await jobRepository.saveJob(jobDir, job.copyWith(units: updatedUnits));
   }
 
   Future<void> deleteUnitIfEmpty({
     required Directory jobDir,
     required String unitId,
   }) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -353,7 +317,7 @@ class JobsService {
     }
 
     final updatedUnits = job.units.where((u) => u.unitId != unitId).toList();
-    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
+    await jobRepository.saveJob(jobDir, job.copyWith(units: updatedUnits));
   }
 
   Future<void> setUnitCompletion({
@@ -361,8 +325,7 @@ class JobsService {
     required String unitId,
     required bool isComplete,
   }) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -390,7 +353,7 @@ class JobsService {
         .map((u) => u.unitId == unitId ? updatedUnit : u)
         .toList();
 
-    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
+    await jobRepository.saveJob(jobDir, job.copyWith(units: updatedUnits));
   }
 
   Future<void> addPhotoRecord({
@@ -400,8 +363,7 @@ class JobsService {
     required File finalImageFile,
     String? subPhase,
   }) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -451,7 +413,7 @@ class JobsService {
         .map((u) => u.unitId == unitId ? updatedUnit : u)
         .toList();
 
-    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
+    await jobRepository.saveJob(jobDir, job.copyWith(units: updatedUnits));
   }
 
   Future<void> softDeletePhoto({
@@ -469,8 +431,7 @@ class JobsService {
       );
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -506,7 +467,7 @@ class JobsService {
         .map((u) => u.unitId == unitId ? updatedUnit : u)
         .toList();
 
-    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
+    await jobRepository.saveJob(jobDir, job.copyWith(units: updatedUnits));
   }
 
   Future<void> persistAndRecordPhoto({
@@ -525,7 +486,7 @@ class JobsService {
       unitId: unitId,
     );
 
-    final finalImageFile = await imageStore.persistPhoto(
+    final finalImageFile = await jobRepository.persistPhoto(
       jobDir: jobDir,
       unitType: unitType,
       unitFolderName: resolvedUnitFolderName,
@@ -556,8 +517,7 @@ class JobsService {
       );
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -585,7 +545,7 @@ class JobsService {
       fileBaseName = 'Video${nextIndex}_$timestamp';
     }
 
-    final finalVideoFile = await videoStore.persistVideo(
+    final finalVideoFile = await jobRepository.persistVideo(
       jobDir: jobDir,
       kind: normalizedKind,
       fileBaseName: fileBaseName,
@@ -614,7 +574,7 @@ class JobsService {
       );
     }
 
-    await jobStore.writeJob(jobJsonFile, job.copyWith(videos: updatedVideos));
+    await jobRepository.saveJob(jobDir, job.copyWith(videos: updatedVideos));
   }
 
   Future<void> softDeleteVideo({
@@ -631,8 +591,7 @@ class JobsService {
       );
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -659,7 +618,7 @@ class JobsService {
       updatedVideos = job.videos.copyWith(other: updatedBucket);
     }
 
-    await jobStore.writeJob(jobJsonFile, job.copyWith(videos: updatedVideos));
+    await jobRepository.saveJob(jobDir, job.copyWith(videos: updatedVideos));
   }
 
   Future<JobNote> addJobNote({
@@ -671,8 +630,7 @@ class JobsService {
       throw ArgumentError.value(text, 'text', 'Note text cannot be empty.');
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -684,8 +642,8 @@ class JobsService {
       status: 'active',
     );
 
-    await jobStore.writeJob(
-      jobJsonFile,
+    await jobRepository.saveJob(
+      jobDir,
       job.copyWith(notes: [...job.notes, note]),
     );
     return note;
@@ -695,8 +653,7 @@ class JobsService {
     required Directory jobDir,
     required String noteId,
   }) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -709,7 +666,7 @@ class JobsService {
     final updatedNotes = [...job.notes];
     updatedNotes[idx] = job.notes[idx].copyWith(status: 'deleted');
 
-    await jobStore.writeJob(jobJsonFile, job.copyWith(notes: updatedNotes));
+    await jobRepository.saveJob(jobDir, job.copyWith(notes: updatedNotes));
   }
 
   // ---------------------------------------------------------------------------
@@ -725,8 +682,7 @@ class JobsService {
       throw ArgumentError.value(text, 'text', 'Note text cannot be empty.');
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -738,8 +694,8 @@ class JobsService {
       status: 'active',
     );
 
-    await jobStore.writeJob(
-      jobJsonFile,
+    await jobRepository.saveJob(
+      jobDir,
       job.copyWith(managerNotes: [...job.managerNotes, note]),
     );
     return note;
@@ -749,8 +705,7 @@ class JobsService {
     required Directory jobDir,
     required String noteId,
   }) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -763,8 +718,8 @@ class JobsService {
     final updatedNotes = [...job.managerNotes];
     updatedNotes[idx] = job.managerNotes[idx].copyWith(status: 'deleted');
 
-    await jobStore.writeJob(
-      jobJsonFile,
+    await jobRepository.saveJob(
+      jobDir,
       job.copyWith(managerNotes: updatedNotes),
     );
   }
@@ -783,8 +738,7 @@ class JobsService {
       );
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -797,8 +751,8 @@ class JobsService {
     final updatedNotes = [...job.managerNotes];
     updatedNotes[idx] = job.managerNotes[idx].copyWith(text: trimmed);
 
-    await jobStore.writeJob(
-      jobJsonFile,
+    await jobRepository.saveJob(
+      jobDir,
       job.copyWith(managerNotes: updatedNotes),
     );
   }
@@ -832,8 +786,7 @@ class JobsService {
     }
     await tempFile.rename(finalFile.path);
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -851,8 +804,8 @@ class JobsService {
       recovered: false,
     );
 
-    await jobStore.writeJob(
-      jobJsonFile,
+    await jobRepository.saveJob(
+      jobDir,
       job.copyWith(
         preCleanLayoutPhotos: [...job.preCleanLayoutPhotos, photoRecord],
       ),
@@ -863,8 +816,7 @@ class JobsService {
     required Directory jobDir,
     required String relativePath,
   }) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -883,8 +835,8 @@ class JobsService {
       deletedAt: now,
     );
 
-    await jobStore.writeJob(
-      jobJsonFile,
+    await jobRepository.saveJob(
+      jobDir,
       job.copyWith(preCleanLayoutPhotos: updatedPhotos),
     );
   }
@@ -1051,13 +1003,8 @@ class JobsService {
   }
 
   Future<Job?> _buildSortedExportJob(Directory jobDir) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    if (!await jobJsonFile.exists()) {
-      return null;
-    }
-
     try {
-      final job = await jobStore.readJob(jobJsonFile);
+      final job = await jobRepository.loadJob(jobDir);
       if (job == null) return null;
       final sortedUnits = UnitSorter.sort(job.units);
       return job.copyWith(units: sortedUnits);
@@ -1185,14 +1132,9 @@ class JobsService {
   }
 
   Future<String?> _buildExportNotesText(Directory jobDir) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    if (!await jobJsonFile.exists()) {
-      return null;
-    }
-
     final Job job;
     try {
-      final loaded = await jobStore.readJob(jobJsonFile);
+      final loaded = await jobRepository.loadJob(jobDir);
       if (loaded == null) return null;
       job = loaded;
     } on FormatException {
@@ -1250,8 +1192,7 @@ class JobsService {
       );
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -1323,7 +1264,7 @@ class JobsService {
         .map((u) => u.unitId == unitId ? updatedUnit : u)
         .toList();
 
-    await jobStore.writeJob(jobJsonFile, job.copyWith(units: updatedUnits));
+    await jobRepository.saveJob(jobDir, job.copyWith(units: updatedUnits));
 
     return resolvedFolderName;
   }
@@ -1356,8 +1297,7 @@ class JobsService {
       );
     }
 
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -1467,7 +1407,7 @@ class JobsService {
     }
 
     // Re-read job to get latest state (may have been updated by folder resolve).
-    final latestJob = (await jobStore.readJob(jobJsonFile))!;
+    final latestJob = (await jobRepository.loadJob(jobDir))!;
 
     // Rebuild unit lists.
     final updatedUnits = latestJob.units.map((u) {
@@ -1492,8 +1432,8 @@ class JobsService {
       return u;
     }).toList();
 
-    await jobStore.writeJob(
-      jobJsonFile,
+    await jobRepository.saveJob(
+      jobDir,
       latestJob.copyWith(units: updatedUnits),
     );
   }
@@ -1504,8 +1444,7 @@ class JobsService {
 
   /// Marks a job as complete by setting [Job.completedAt] to now (UTC).
   Future<Job> markJobComplete(Directory jobDir) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -1525,13 +1464,12 @@ class JobsService {
       sortOrder: job.sortOrder,
       completedAt: DateTime.now().toUtc().toIso8601String(),
     );
-    return jobStore.writeJob(jobJsonFile, updated);
+    return jobRepository.saveJob(jobDir, updated);
   }
 
   /// Reopens a completed job by clearing [Job.completedAt].
   Future<Job> reopenJob(Directory jobDir) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -1551,7 +1489,7 @@ class JobsService {
       sortOrder: job.sortOrder,
       completedAt: null,
     );
-    return jobStore.writeJob(jobJsonFile, updated);
+    return jobRepository.saveJob(jobDir, updated);
   }
 
   // ---------------------------------------------------------------------------
@@ -1566,8 +1504,7 @@ class JobsService {
     Directory jobDir,
     String? scheduledDate,
   ) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -1588,15 +1525,14 @@ class JobsService {
       scheduledDate: scheduledDate,
       sortOrder: job.sortOrder,
     );
-    return jobStore.writeJob(jobJsonFile, updated);
+    return jobRepository.saveJob(jobDir, updated);
   }
 
   /// Sets (or clears) the sort order on a job within a day card.
   ///
   /// Returns the updated [Job] with [Job.updatedAt] stamped to now.
   Future<Job> setSortOrder(Directory jobDir, int? sortOrder) async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobStore.readJob(jobJsonFile);
+    final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
     }
@@ -1615,7 +1551,7 @@ class JobsService {
       scheduledDate: job.scheduledDate,
       sortOrder: sortOrder,
     );
-    return jobStore.writeJob(jobJsonFile, updated);
+    return jobRepository.saveJob(jobDir, updated);
   }
 
   // ---------------------------------------------------------------------------
@@ -1631,7 +1567,7 @@ class JobsService {
       throw ArgumentError.value(text, 'text', 'Note text cannot be empty.');
     }
 
-    final all = await dayNoteStore.readAll();
+    final all = await dayNoteRepository.loadAll();
     final existing = all[date] ?? [];
 
     final note = DayNote(
@@ -1642,7 +1578,7 @@ class JobsService {
       status: 'active',
     );
 
-    await dayNoteStore.write({...all, date: [...existing, note]});
+    await dayNoteRepository.saveAll({...all, date: [...existing, note]});
     return note;
   }
 
@@ -1650,7 +1586,7 @@ class JobsService {
   ///
   /// Throws [StateError] if the note is not found.
   Future<void> softDeleteDayNote(String date, String noteId) async {
-    final all = await dayNoteStore.readAll();
+    final all = await dayNoteRepository.loadAll();
     final notes = all[date] ?? [];
 
     final idx = notes.indexWhere((n) => n.noteId == noteId);
@@ -1661,12 +1597,12 @@ class JobsService {
     final updatedNotes = [...notes];
     updatedNotes[idx] = notes[idx].copyWith(status: 'deleted');
 
-    await dayNoteStore.write({...all, date: updatedNotes});
+    await dayNoteRepository.saveAll({...all, date: updatedNotes});
   }
 
   /// Returns only active [DayNote]s for [date].
   Future<List<DayNote>> loadDayNotes(String date) async {
-    final notes = await dayNoteStore.readForDate(date);
+    final notes = await dayNoteRepository.loadForDate(date);
     return notes.where((n) => n.isActive).toList();
   }
 
@@ -1674,7 +1610,7 @@ class JobsService {
   ///
   /// Used by JobsHome to build day-grouped cards.
   Future<Map<String, List<DayNote>>> loadAllDayNotes() {
-    return dayNoteStore.readAll();
+    return dayNoteRepository.loadAll();
   }
 
   // ---------------------------------------------------------------------------
@@ -1694,11 +1630,11 @@ class JobsService {
     String? firstArrivalTime,
     bool clearFirstArrivalTime = false,
   }) async {
-    final store = dayScheduleStore;
-    if (store == null) {
-      throw StateError('DayScheduleStore not configured');
+    final repo = dayScheduleRepository;
+    if (repo == null) {
+      throw StateError('DayScheduleRepository not configured');
     }
-    final allSchedules = await store.readAll();
+    final allSchedules = await repo.loadAll();
     final existing = allSchedules[date];
 
     final schedule = DaySchedule(
@@ -1719,22 +1655,22 @@ class JobsService {
     } else {
       allSchedules[date] = schedule;
     }
-    await store.write(allSchedules);
+    await repo.saveAll(allSchedules);
     return schedule;
   }
 
   /// Loads the [DaySchedule] for [date], or null if none exists.
   Future<DaySchedule?> loadDaySchedule(String date) async {
-    final store = dayScheduleStore;
-    if (store == null) return null;
-    return store.readForDate(date);
+    final repo = dayScheduleRepository;
+    if (repo == null) return null;
+    return repo.loadForDate(date);
   }
 
   /// Returns all day schedules keyed by date.
   Future<Map<String, DaySchedule>> loadAllDaySchedules() async {
-    final store = dayScheduleStore;
-    if (store == null) return {};
-    return store.readAll();
+    final repo = dayScheduleRepository;
+    if (repo == null) return {};
+    return repo.loadAll();
   }
 
   String _formatDateYyyyMmDd(DateTime date) {

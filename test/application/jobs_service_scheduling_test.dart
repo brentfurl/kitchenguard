@@ -2,12 +2,15 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kitchenguard_photo_organizer/application/jobs_service.dart';
+import 'package:kitchenguard_photo_organizer/data/repositories/local_day_note_repository.dart';
+import 'package:kitchenguard_photo_organizer/data/repositories/local_job_repository.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/job.dart';
 import 'package:kitchenguard_photo_organizer/domain/models/videos.dart';
 import 'package:kitchenguard_photo_organizer/storage/app_paths.dart';
 import 'package:kitchenguard_photo_organizer/storage/atomic_write.dart';
 import 'package:kitchenguard_photo_organizer/storage/day_note_store.dart';
 import 'package:kitchenguard_photo_organizer/storage/image_file_store.dart';
+import 'package:kitchenguard_photo_organizer/storage/job_scanner.dart';
 import 'package:kitchenguard_photo_organizer/storage/job_store.dart';
 import 'package:kitchenguard_photo_organizer/storage/video_file_store.dart';
 import 'package:path/path.dart' as p;
@@ -34,12 +37,23 @@ void main() {
       dayNoteStore = DayNoteStore.fromFile(dayNotesFile);
 
       final paths = AppPaths();
+      final imageStore = ImageFileStore(paths: paths);
+      final videoStore =
+          VideoFileStore(paths: paths, atomicWrite: atomicWriteBytes);
+      final jobScanner = JobScanner(paths: paths, jobStore: jobStore);
+
       service = JobsService(
         paths: paths,
-        jobStore: jobStore,
-        imageStore: ImageFileStore(paths: paths),
-        videoStore: VideoFileStore(paths: paths, atomicWrite: atomicWriteBytes),
-        dayNoteStore: dayNoteStore,
+        jobRepository: LocalJobRepository(
+          paths: paths,
+          jobStore: jobStore,
+          jobScanner: jobScanner,
+          imageStore: imageStore,
+          videoStore: videoStore,
+        ),
+        dayNoteRepository: LocalDayNoteRepository(
+          dayNoteStore: dayNoteStore,
+        ),
       );
 
       final job = Job(

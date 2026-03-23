@@ -738,8 +738,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       MaterialPageRoute<void>(
         builder: (_) => ManagerNotesScreen(
           loadNotes: () async {
-            final file = File(p.join(result.jobDir.path, 'job.json'));
-            final job = await _jobs.jobStore.readJob(file);
+            final job = await _jobs.jobRepository.loadJob(result.jobDir);
             final notes = job?.managerNotes
                     .where((n) => n.isActive)
                     .toList() ??

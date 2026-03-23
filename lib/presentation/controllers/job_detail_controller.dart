@@ -78,8 +78,7 @@ class JobDetailController {
   }
 
   Future<Job> loadJob() async {
-    final jobJsonFile = File(p.join(jobDir.path, 'job.json'));
-    final job = await jobs.jobStore.readJob(jobJsonFile);
+    final job = await jobs.jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('job.json missing: ${jobDir.path}');
     }
