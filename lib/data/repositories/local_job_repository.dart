@@ -112,4 +112,7 @@ class LocalJobRepository implements JobRepository {
       sourceVideoFile: sourceVideoFile,
     );
   }
+
+  @override
+  Future<int> pullFromCloud() async => 0;
 }

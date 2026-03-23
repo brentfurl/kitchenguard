@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../domain/merge/job_merger.dart';
 import '../../domain/models/job.dart';
 import '../../storage/job_scanner.dart';
 import 'job_repository.dart';
@@ -120,6 +121,56 @@ class CloudJobRepository implements JobRepository {
     final doc = await _jobs.doc(jobId).get();
     if (!doc.exists || doc.data() == null) return null;
     return Job.fromJson(doc.data()!);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cloud pull + merge
+  // ---------------------------------------------------------------------------
+
+  /// Fetches all jobs from Firestore and merges each one with its local
+  /// counterpart using append-only union for documentation data and
+  /// last-write-wins for scheduling fields.
+  ///
+  /// Cloud-only jobs (no local folder) are skipped — they'll be handled
+  /// by a future download/provisioning step.
+  ///
+  /// Merged results are saved to the local filesystem only (no re-push
+  /// to Firestore to avoid redundant writes).
+  @override
+  Future<int> pullFromCloud() async {
+    try {
+      final cloudJobs = await fetchCloudJobs();
+      if (cloudJobs.isEmpty) return 0;
+
+      final localResults = await _local.loadAllJobs();
+      final localMap = <String, JobScanResult>{};
+      for (final result in localResults) {
+        localMap[result.job.jobId] = result;
+      }
+
+      var mergedCount = 0;
+      for (final cloudJob in cloudJobs) {
+        final localResult = localMap[cloudJob.jobId];
+        if (localResult == null) continue;
+
+        final merged = JobMerger.merge(
+          local: localResult.job,
+          cloud: cloudJob,
+        );
+        await _local.saveJob(localResult.jobDir, merged);
+        mergedCount++;
+      }
+
+      return mergedCount;
+    } catch (e, st) {
+      developer.log(
+        'pullFromCloud failed: $e',
+        name: 'CloudJobRepository',
+        error: e,
+        stackTrace: st,
+      );
+      return 0;
+    }
   }
 
   // ---------------------------------------------------------------------------

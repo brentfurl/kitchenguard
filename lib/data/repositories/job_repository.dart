@@ -52,4 +52,10 @@ abstract class JobRepository {
     required String fileBaseName,
     required File sourceVideoFile,
   });
+
+  /// Fetches remote jobs and merges with local data.
+  ///
+  /// Returns the number of jobs that were merged.
+  /// No-op (returns 0) for local-only repositories.
+  Future<int> pullFromCloud() async => 0;
 }

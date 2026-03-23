@@ -22,6 +22,14 @@ class JobListNotifier extends AsyncNotifier<List<JobScanResult>> {
       () => ref.read(jobRepositoryProvider).loadAllJobs(),
     );
   }
+
+  /// Pulls remote jobs (merge with local), then reloads the list.
+  ///
+  /// Used by pull-to-refresh. No-op if the repository is local-only.
+  Future<void> pullAndReload() async {
+    await ref.read(jobRepositoryProvider).pullFromCloud();
+    await reload();
+  }
 }
 
 final jobListProvider =

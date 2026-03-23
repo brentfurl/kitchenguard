@@ -1006,20 +1006,24 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           children: [
             _buildFilterRow(),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.only(top: 8, bottom: 80),
-                children: [
-                  for (final date in filteredDates)
-                    _buildDayCard(
-                      context,
-                      date: date,
-                      jobs: scheduledByDate[date]!,
-                      shiftNotes: activeShiftNotes[date] ?? const [],
-                      daySchedule: daySchedules[date],
-                    ),
-                  if (showUnscheduled)
-                    _buildUnscheduledSection(context, unscheduled),
-                ],
+              child: RefreshIndicator(
+                onRefresh: () =>
+                    ref.read(jobListProvider.notifier).pullAndReload(),
+                child: ListView(
+                  padding: const EdgeInsets.only(top: 8, bottom: 80),
+                  children: [
+                    for (final date in filteredDates)
+                      _buildDayCard(
+                        context,
+                        date: date,
+                        jobs: scheduledByDate[date]!,
+                        shiftNotes: activeShiftNotes[date] ?? const [],
+                        daySchedule: daySchedules[date],
+                      ),
+                    if (showUnscheduled)
+                      _buildUnscheduledSection(context, unscheduled),
+                  ],
+                ),
               ),
             ),
           ],

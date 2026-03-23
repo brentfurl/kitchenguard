@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Steps 4a-4c complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Steps 4a-4d complete).
 
 Core capabilities complete:
 
@@ -785,7 +785,31 @@ lib/providers/service_providers.dart             — storageServiceProvider, upl
 lib/providers/upload_progress_provider.dart      — UploadProgressNotifier + uploadProgressProvider (UI state)
 lib/domain/models/photo_record.dart              — syncStatus, cloudUrl, uploadedBy fields
 lib/domain/models/video_record.dart              — syncStatus, cloudUrl, uploadedBy fields
+lib/domain/merge/job_merger.dart                 — pure-function merge logic for local + cloud jobs
 ```
+
+## Multi-Device Merge (Step 4d)
+
+When multiple devices document the same job, their `job.json` files may diverge.
+`JobMerger.merge(local:, cloud:)` reconciles these into a single `Job`:
+
+**Scheduling fields** (restaurantName, scheduledDate, sortOrder, completedAt,
+address, city, accessType, etc.) — **last-write-wins** via `updatedAt` timestamp.
+
+**Documentation data** (photos, videos, notes) — **append-only union by ID**:
+- `photoId` / `videoId` / `noteId` are UUID v4, collision-safe across devices.
+- If the same ID exists in both versions:
+  - Sync metadata: prefer the better `syncStatus` (synced > uploading > error > pending > null).
+  - Soft-deletion is additive: if either side is deleted, the merge result is deleted.
+  - Local filesystem fields (`relativePath`, `fileName`, `subPhase`, etc.) always come from local.
+- Records only on one side are appended (local order first, then cloud-only items).
+
+**Units** matched by `unitId`; photos within matched units are merged with the same
+append-only logic. Cloud-only units are appended. Local-only units are kept.
+
+**Pull flow**: `CloudJobRepository.pullFromCloud()` fetches all cloud job documents,
+matches them to local jobs by `jobId`, merges, and saves the result to the local
+filesystem only (no re-push to Firestore). Triggered via pull-to-refresh on Jobs Home.
 
 ## Storage Security Rules
 
