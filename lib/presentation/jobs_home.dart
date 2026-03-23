@@ -28,7 +28,6 @@ class JobsHome extends ConsumerStatefulWidget {
 enum _JobFilter { today, upcoming, past, unscheduled }
 
 class _JobsHomeState extends ConsumerState<JobsHome> {
-  final Set<String> _expandedShiftNotes = {};
   bool _roleDialogShown = false;
   final Set<_JobFilter> _activeFilters = {_JobFilter.today, _JobFilter.upcoming};
 
@@ -141,6 +140,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     String? initialAlarmCode,
     int? initialHoodCount,
     int? initialFanCount,
+    List<String>? existingContacts,
     bool isEdit = false,
   }) {
     final nameController = TextEditingController(text: initialName ?? '');
@@ -161,7 +161,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     DateTime? selectedDate = initialDate;
     String? accessType = initialAccessType;
     bool hasAlarm = initialHasAlarm ?? false;
-    final contactNotes = <String>[];
+    final contactNotes = <String>[...?existingContacts];
 
     return showDialog<_JobDialogResult>(
       context: context,
@@ -263,6 +263,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                             controller: addressController,
                             decoration: const InputDecoration(
                               labelText: 'Street address',
+                              floatingLabelBehavior: FloatingLabelBehavior.always,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -270,6 +271,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                             controller: cityController,
                             decoration: const InputDecoration(
                               labelText: 'City',
+                              floatingLabelBehavior: FloatingLabelBehavior.always,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -292,9 +294,10 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                         initiallyExpanded: hasAccessData,
                         children: [
                           DropdownButtonFormField<String>(
-                            value: accessType,
+                            initialValue: accessType,
                             decoration: const InputDecoration(
                               labelText: 'Access type',
+                              floatingLabelBehavior: FloatingLabelBehavior.always,
                             ),
                             items: [
                               const DropdownMenuItem(
@@ -318,6 +321,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                               controller: accessNotesController,
                               decoration: InputDecoration(
                                 labelText: accessNotesLabel,
+                                floatingLabelBehavior: FloatingLabelBehavior.always,
                               ),
                             ),
                           ],
@@ -331,12 +335,13 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                             },
                           ),
                           if (hasAlarm) ...[
-                            TextField(
-                              controller: alarmCodeController,
-                              decoration: const InputDecoration(
-                                labelText: 'Alarm code',
+                              TextField(
+                                controller: alarmCodeController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Alarm code',
+                                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                                ),
                               ),
-                            ),
                             const SizedBox(height: 8),
                           ],
                         ],
@@ -356,28 +361,61 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                           ],
                         ),
                         children: [
-                          ...contactNotes.map(
-                            (note) => Padding(
+                          for (var ci = 0; ci < contactNotes.length; ci++)
+                            Padding(
                               padding:
                                   const EdgeInsets.only(bottom: 4),
                               child: Row(
                                 children: [
                                   Expanded(
-                                    child: Text(note,
-                                        style: theme.textTheme.bodyMedium),
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        final editCtrl = TextEditingController(
+                                            text: contactNotes[ci]);
+                                        showDialog<String>(
+                                          context: dialogContext,
+                                          builder: (ctx) => AlertDialog(
+                                            title: const Text('Edit Contact'),
+                                            content: TextField(
+                                              controller: editCtrl,
+                                              autofocus: true,
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () =>
+                                                    Navigator.of(ctx).pop(),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              FilledButton(
+                                                onPressed: () =>
+                                                    Navigator.of(ctx)
+                                                        .pop(editCtrl.text.trim()),
+                                                child: const Text('Save'),
+                                              ),
+                                            ],
+                                          ),
+                                        ).then((edited) {
+                                          if (edited != null && edited.isNotEmpty) {
+                                            setDialogState(
+                                                () => contactNotes[ci] = edited);
+                                          }
+                                        });
+                                      },
+                                      child: Text(contactNotes[ci],
+                                          style: theme.textTheme.bodyMedium),
+                                    ),
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.close, size: 16),
                                     visualDensity: VisualDensity.compact,
                                     onPressed: () {
                                       setDialogState(
-                                          () => contactNotes.remove(note));
+                                          () => contactNotes.removeAt(ci));
                                     },
                                   ),
                                 ],
                               ),
                             ),
-                          ),
                           Row(
                             children: [
                               Expanded(
@@ -429,6 +467,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                                   controller: hoodCountController,
                                   decoration: const InputDecoration(
                                     labelText: 'Hoods',
+                                    floatingLabelBehavior: FloatingLabelBehavior.always,
                                   ),
                                   keyboardType: TextInputType.number,
                                 ),
@@ -439,6 +478,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                                   controller: fanCountController,
                                   decoration: const InputDecoration(
                                     labelText: 'Fans',
+                                    floatingLabelBehavior: FloatingLabelBehavior.always,
                                   ),
                                   keyboardType: TextInputType.number,
                                 ),
@@ -572,6 +612,10 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 
   Future<_JobDialogResult?> _showEditJobDialog(JobScanResult result) {
     final job = result.job;
+    final existingContacts = job.managerNotes
+        .where((n) => n.isActive)
+        .map((n) => n.text)
+        .toList();
     return _showJobDialog(
       title: 'Edit Job',
       confirmLabel: 'Save',
@@ -587,6 +631,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       initialAlarmCode: job.alarmCode,
       initialHoodCount: job.hoodCount,
       initialFanCount: job.fanCount,
+      existingContacts: existingContacts,
       isEdit: true,
     );
   }
@@ -629,9 +674,37 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         clearFanCount: edit.clearFanCount,
       );
 
-      // Save any new contact entries as manager notes
-      for (final contact in edit.contactNotes) {
-        await _jobs.addManagerNote(jobDir: result.jobDir, text: contact);
+      // Reconcile manager notes: soft-delete removed, edit changed, add new
+      final job = result.job;
+      final activeNotes = job.managerNotes.where((n) => n.isActive).toList();
+      final newContactTexts = edit.contactNotes;
+
+      // Soft-delete notes that were removed from the list
+      for (var i = 0; i < activeNotes.length; i++) {
+        if (i >= newContactTexts.length ||
+            activeNotes[i].text != newContactTexts[i]) {
+          // If index is out of range or text changed, delete old
+          if (i >= newContactTexts.length) {
+            await _jobs.softDeleteManagerNote(
+                jobDir: result.jobDir, noteId: activeNotes[i].noteId);
+          }
+        }
+      }
+
+      // Edit notes that changed text
+      for (var i = 0; i < activeNotes.length && i < newContactTexts.length; i++) {
+        if (activeNotes[i].text != newContactTexts[i]) {
+          await _jobs.editManagerNote(
+            jobDir: result.jobDir,
+            noteId: activeNotes[i].noteId,
+            newText: newContactTexts[i],
+          );
+        }
+      }
+
+      // Add notes that are new (beyond the original count)
+      for (var i = activeNotes.length; i < newContactTexts.length; i++) {
+        await _jobs.addManagerNote(jobDir: result.jobDir, text: newContactTexts[i]);
       }
 
       ref.invalidate(jobListProvider);
@@ -942,7 +1015,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
             _buildFilterRow(),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.only(top: 8, bottom: 80),
                 children: [
                   for (final date in filteredDates)
                     _buildDayCard(
@@ -996,7 +1069,8 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   }
 
   Widget _buildFilterRow() {
-    return Padding(
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       child: Row(
         children: [
@@ -1088,36 +1162,14 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                       ),
                     ),
                   ),
-                  if (shiftNotes.isNotEmpty)
-                    GestureDetector(
-                      onTap: () => _openShiftNotesScreen(date, shiftNotes),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: headerForeground.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${shiftNotes.length} ${shiftNotes.length == 1 ? "note" : "notes"}',
-                          style: textTheme.labelSmall?.copyWith(
-                            color: headerForeground,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (isToday && !allComplete) ...[
-                    const SizedBox(width: 6),
+                  if (isToday && !allComplete)
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: colorScheme.onPrimary.withOpacity(0.2),
+                        color: colorScheme.onPrimary.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Text(
@@ -1129,13 +1181,12 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                         ),
                       ),
                     ),
-                  ],
                 ],
               ),
             ),
           ),
           // Arrival times section
-          _buildArrivalTimesSection(context, date: date, schedule: daySchedule, firstJob: jobs.isNotEmpty ? jobs.first : null),
+          _buildArrivalTimesSection(context, date: date, shiftNotes: shiftNotes, schedule: daySchedule, firstJob: jobs.isNotEmpty ? jobs.first : null),
           const Divider(height: 1),
           ReorderableListView.builder(
             shrinkWrap: true,
@@ -1164,6 +1215,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   Widget _buildArrivalTimesSection(
     BuildContext context, {
     required String date,
+    required List<DayNote> shiftNotes,
     DaySchedule? schedule,
     JobScanResult? firstJob,
   }) {
@@ -1173,66 +1225,103 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     final hasArrival = schedule?.firstArrivalTime != null;
     final hasAnyTime = hasShopTime || hasArrival;
 
-    return InkWell(
-      onTap: () => _showArrivalTimeDialog(date, schedule, firstJob),
-      child: ColoredBox(
-        color: colorScheme.surfaceContainerHighest,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-          child: hasAnyTime
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (hasShopTime)
-                      Row(
+    return ColoredBox(
+      color: colorScheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: InkWell(
+                onTap: () => _showArrivalTimeDialog(date, schedule, firstJob),
+                child: hasAnyTime
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.store_outlined,
+                          if (hasShopTime)
+                            Row(
+                              children: [
+                                Icon(Icons.store_outlined,
+                                    size: 16, color: colorScheme.onSurfaceVariant),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Shop meetup: ${schedule!.shopMeetupTime}',
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          if (hasArrival) ...[
+                            if (hasShopTime) const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(Icons.restaurant_outlined,
+                                    size: 16, color: colorScheme.onSurfaceVariant),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    '${schedule!.firstRestaurantName ?? "First restaurant"} arrival: ${schedule.firstArrivalTime}',
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      )
+                    : Row(
+                        children: [
+                          Icon(Icons.schedule_outlined,
                               size: 16, color: colorScheme.onSurfaceVariant),
                           const SizedBox(width: 6),
                           Text(
-                            'Shop meetup: ${schedule!.shopMeetupTime}',
+                            'Add arrival times',
                             style: textTheme.bodySmall?.copyWith(
                               color: colorScheme.onSurfaceVariant,
                             ),
                           ),
                         ],
                       ),
-                    if (hasArrival) ...[
-                      if (hasShopTime) const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(Icons.restaurant_outlined,
-                              size: 16, color: colorScheme.onSurfaceVariant),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              '${schedule!.firstRestaurantName ?? "First restaurant"} arrival: ${schedule.firstArrivalTime}',
-                              style: textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
+              ),
+            ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                InkWell(
+                  onTap: shiftNotes.isNotEmpty
+                      ? () => _openShiftNotesScreen(date, shiftNotes)
+                      : () => _addShiftNote(date),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.assignment_outlined,
+                            size: 16, color: colorScheme.onSurfaceVariant),
+                        if (shiftNotes.isNotEmpty) ...[
+                          const SizedBox(width: 2),
+                          Text(
+                            '${shiftNotes.length}',
+                            style: textTheme.labelSmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
                             ),
                           ),
+                        ] else ...[
+                          const SizedBox(width: 2),
+                          Icon(Icons.add, size: 14, color: colorScheme.onSurfaceVariant),
                         ],
-                      ),
-                    ],
-                  ],
-                )
-              : Row(
-                  children: [
-                    Icon(Icons.schedule_outlined,
-                        size: 16, color: colorScheme.onSurfaceVariant),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Add arrival times',
-                      style: textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
+                      ],
                     ),
-                    const Spacer(),
-                    Icon(Icons.add,
-                        size: 18, color: colorScheme.onSurfaceVariant),
-                  ],
+                  ),
                 ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -1465,6 +1554,22 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         ? _accessTypeLabels[job.accessType] ?? job.accessType!
         : null;
 
+    // Build access detail string with notes and alarm code
+    final accessDetailParts = <String>[];
+    if (accessLabel != null) {
+      final accessWithNotes = (job.accessNotes != null && job.accessNotes!.isNotEmpty)
+          ? '$accessLabel, "${job.accessNotes}"'
+          : accessLabel;
+      accessDetailParts.add(accessWithNotes);
+    }
+    if (job.hasAlarm == true) {
+      final alarmText = (job.alarmCode != null && job.alarmCode!.isNotEmpty)
+          ? 'Alarm, ${job.alarmCode}'
+          : 'Alarm';
+      accessDetailParts.add(alarmText);
+    }
+    final accessDetail = accessDetailParts.join(' · ');
+
     return Card(
       key: key,
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1502,34 +1607,20 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                     if (job.address != null && job.address!.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(
-                        job.address!,
+                        job.city != null && job.city!.isNotEmpty
+                            ? '${job.address!}, ${job.city!}'
+                            : job.address!,
                         style: textTheme.bodySmall?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ],
-                    if (accessLabel != null || unitSummary.isNotEmpty) ...[
+                    if (unitSummary.isNotEmpty || accessDetail.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Wrap(
                         spacing: 8,
                         runSpacing: 4,
                         children: [
-                          if (accessLabel != null)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.key_outlined,
-                                    size: 14,
-                                    color: colorScheme.onSurfaceVariant),
-                                const SizedBox(width: 4),
-                                Text(
-                                  accessLabel,
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
                           if (unitSummary.isNotEmpty)
                             Row(
                               mainAxisSize: MainAxisSize.min,
@@ -1542,6 +1633,24 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                                   unitSummary,
                                   style: textTheme.labelSmall?.copyWith(
                                     color: colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          if (accessDetail.isNotEmpty)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.key_outlined,
+                                    size: 14,
+                                    color: colorScheme.onSurfaceVariant),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    accessDetail,
+                                    style: textTheme.labelSmall?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -1559,6 +1668,27 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                     index: index,
                     child: const Icon(Icons.drag_handle, size: 20),
                   ),
+                  if (job.managerNotes.where((n) => n.isActive).isNotEmpty)
+                    GestureDetector(
+                      onTap: () => _openManagerNotesScreen(result),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.note_alt_outlined,
+                                size: 14, color: colorScheme.onSurfaceVariant),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${job.managerNotes.where((n) => n.isActive).length}',
+                              style: textTheme.labelSmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   PopupMenuButton<String>(
                     onSelected: (value) async {
                       if (value == 'edit') {

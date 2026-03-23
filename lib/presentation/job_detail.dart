@@ -54,8 +54,6 @@ class _JobDetailState extends ConsumerState<JobDetail> {
     _controller.loadJob();
   }
 
-  String _bucketLabel(String bucket, int count) => '$bucket ($count)';
-
   Future<void> _addUnitFlow() async {
     _reloadJob();
     if (!mounted) return;
@@ -98,30 +96,6 @@ class _JobDetailState extends ConsumerState<JobDetail> {
   Future<void> _reloadJob() async {
     await _controller.loadJob();
     ref.invalidate(jobDetailProvider(_jobDirPath));
-  }
-
-  Future<void> _openSchedulePicker() async {
-    final current = _job.scheduledDate;
-    final initial = current != null
-        ? DateTime.tryParse(current) ?? DateTime.now()
-        : DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (picked == null || !mounted) return;
-    final y = picked.year.toString().padLeft(4, '0');
-    final m = picked.month.toString().padLeft(2, '0');
-    final d = picked.day.toString().padLeft(2, '0');
-    await _controller.setScheduledDate('$y-$m-$d');
-    _reloadJob();
-  }
-
-  Future<void> _clearScheduledDate() async {
-    await _controller.setScheduledDate(null);
-    _reloadJob();
   }
 
   Future<int> _loadUnitVisiblePhotoCount({
@@ -836,6 +810,12 @@ class _JobDetailState extends ConsumerState<JobDetail> {
     final units = UnitSorter.sort(job.units);
     final listBottomPadding = 120.0 + MediaQuery.of(context).padding.bottom;
 
+    final managerNoteCount = job.managerNotes.where((n) => n.isActive).length;
+    final fieldNoteCount = job.notes.where((n) => n.status == 'active').length;
+    final preCleanCount = job.preCleanLayoutPhotos.where((p) => p.isActive).length;
+    final exitVideoCount = job.videos.exit.where((v) => v.isActive).length;
+    final otherVideoCount = job.videos.other.where((v) => v.isActive).length;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(''),
@@ -862,7 +842,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                   children: [
                     const Icon(Icons.note_outlined, size: 20),
                     const SizedBox(width: 8),
-                    Text('Field Notes (${_controller.notesCount})'),
+                    Text('Field Notes ($fieldNoteCount)'),
                   ],
                 ),
               ),
@@ -872,7 +852,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                   children: [
                     const Icon(Icons.videocam_outlined, size: 20),
                     const SizedBox(width: 8),
-                    Text('Other Videos (${_controller.videosOtherCount})'),
+                    Text('Other Videos ($otherVideoCount)'),
                   ],
                 ),
               ),
@@ -901,12 +881,14 @@ class _JobDetailState extends ConsumerState<JobDetail> {
           _JobHeader(
             restaurantName: job.restaurantName,
             address: job.address,
+            city: job.city,
             accessType: job.accessType,
             accessNotes: job.accessNotes,
             hasAlarm: job.hasAlarm == true,
+            alarmCode: job.alarmCode,
             isComplete: job.isComplete,
-            jobNoteCount: _controller.managerNotesCount,
-            fieldNoteCount: _controller.notesCount,
+            jobNoteCount: managerNoteCount,
+            fieldNoteCount: fieldNoteCount,
             onJobNotesTap: _openManagerNotesScreen,
             onFieldNotesTap: _openNotesScreen,
           ),
@@ -919,7 +901,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                     onPressed: _openPreCleanLayoutScreen,
                     icon: const Icon(Icons.grid_view_outlined, size: 18),
                     label: Text(
-                      'Pre-clean Layout (${_controller.preCleanLayoutCount})',
+                      'Pre-clean Layout ($preCleanCount)',
                     ),
                   ),
                 ),
@@ -929,7 +911,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                     onPressed: _openExitVideosScreen,
                     icon: const Icon(Icons.videocam_outlined, size: 18),
                     label: Text(
-                      'Exit Video (${_controller.videosExitCount})',
+                      'Exit Video ($exitVideoCount)',
                     ),
                   ),
                 ),
@@ -1123,9 +1105,11 @@ class _JobHeader extends StatelessWidget {
   const _JobHeader({
     required this.restaurantName,
     this.address,
+    this.city,
     this.accessType,
     this.accessNotes,
     this.hasAlarm = false,
+    this.alarmCode,
     required this.isComplete,
     required this.jobNoteCount,
     required this.fieldNoteCount,
@@ -1135,9 +1119,11 @@ class _JobHeader extends StatelessWidget {
 
   final String restaurantName;
   final String? address;
+  final String? city;
   final String? accessType;
   final String? accessNotes;
   final bool hasAlarm;
+  final String? alarmCode;
   final bool isComplete;
   final int jobNoteCount;
   final int fieldNoteCount;
@@ -1198,7 +1184,9 @@ class _JobHeader extends StatelessWidget {
                 if (address != null && address!.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
-                    address!,
+                    city != null && city!.isNotEmpty
+                        ? '$address, $city'
+                        : address!,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
