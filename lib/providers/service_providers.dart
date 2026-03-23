@@ -3,8 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../application/jobs_service.dart';
 import '../services/storage_service.dart';
 import '../services/upload_controller.dart';
+import '../services/upload_queue.dart';
 import 'auth_provider.dart';
 import 'repository_providers.dart';
+
+/// Persistent upload queue — always available regardless of auth state.
+///
+/// Media is enqueued after capture. Processing requires an authenticated
+/// [UploadController] (see [uploadControllerProvider]).
+final uploadQueueProvider = Provider<UploadQueue>((ref) {
+  return UploadQueue(paths: ref.watch(appPathsProvider));
+});
 
 /// The [JobsService] exposed to presentation layers.
 ///
@@ -16,6 +25,7 @@ final jobsServiceProvider = Provider<JobsService>((ref) {
     jobRepository: ref.watch(jobRepositoryProvider),
     dayNoteRepository: ref.watch(dayNoteRepositoryProvider),
     dayScheduleRepository: ref.watch(dayScheduleRepositoryProvider),
+    uploadQueue: ref.watch(uploadQueueProvider),
   );
 });
 

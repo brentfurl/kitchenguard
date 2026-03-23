@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Step 4a complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Steps 4a-4b complete).
 
 Core capabilities complete:
 
@@ -582,9 +582,9 @@ Phase 4 completed steps:
 - Step 2: Firebase Auth + roles — `firebase_auth` and `cloud_functions` packages, `AuthService` wrapper, `authStateProvider` / `authServiceProvider`, auth gate in `app.dart` (AuthScreen → role picker → JobsHome), `AppRoleNotifier` reads from Firebase ID token custom claims with SharedPreferences fallback, `setUserRole` Cloud Function for custom claims.
 - Step 3: Firestore for scheduling data — `cloud_firestore` package, `clientId` field on `Job` model, `CloudJobRepository` (wraps local + mirrors to Firestore), `CloudDayNoteRepository` and `CloudDayScheduleRepository` (pure Firestore), `firestore.rules` security rules, hybrid provider wiring (authenticated → cloud repos, unauthenticated → local repos).
 - Step 4a: Firebase Storage structure + basic upload — `firebase_storage` and `connectivity_plus` packages, `syncStatus`/`cloudUrl`/`uploadedBy` fields on `PhotoRecord` and `VideoRecord`, `StorageService` (Firebase Storage wrapper with upload/delete/getUrl), `UploadController` (coordinates single-file upload + sync status persistence), `storage.rules` (auth-gated, 10MB photo / 100MB video limits), `storageServiceProvider` and `uploadControllerProvider` wiring.
+- Step 4b: Upload queue + offline persistence — `UploadQueueEntry` model, `UploadQueue` service (persistent JSON queue at `KitchenCleaningJobs/upload_queue.json`), auto-enqueue after photo/video capture in `JobsService`, queue processor (`processNext`/`processAll` via `UploadController`), `uploadQueueProvider` wiring, fixed `movePhotos` sync field preservation for same-unit moves.
 
 Phase 4 remaining:
-- Step 4b: Upload queue + offline persistence (persistent queue, auto-enqueue after capture)
 - Step 4c: Background upload service (workmanager, retry with backoff, connectivity check, progress UI)
 - Step 4d: Multi-device coordination (uploadedBy attribution, append-only merge)
 - Step 4e: Download and caching (manager/web viewing, cached_network_image)
@@ -735,13 +735,41 @@ On success: syncStatus = 'synced', cloudUrl = downloadUrl, uploadedBy = uid → 
 On failure: syncStatus = 'error' → save job (retry later via upload queue)
 ```
 
+## Upload Queue
+
+A persistent queue tracks which media files need uploading. Stored as `upload_queue.json` at the jobs root (`KitchenCleaningJobs/`). Survives app restarts.
+
+```
+Media captured → PhotoRecord/VideoRecord created → saveJob
+    ↓
+UploadQueue.enqueue (jobId, jobDirPath, mediaId, mediaType)
+    ↓
+Queue persisted to upload_queue.json
+    ↓
+UploadQueue.processNext(controller) — dequeue + UploadController.uploadPhoto/Video
+    ↓
+On success: entry marked 'completed'
+On failure: entry marked 'failed', retryCount incremented (max 10)
+```
+
+Queue entries track: `id`, `jobId`, `jobDirPath`, `mediaId`, `mediaType`, `status` (pending/uploading/completed/failed), `retryCount`, `createdAt`, `lastAttempt`.
+
+Auto-enqueue hooks in `JobsService`:
+- `addPhotoRecord` (unit before/after photos)
+- `persistAndRecordPreCleanLayoutPhoto`
+- `persistAndRecordVideo`
+
+On load, stale 'uploading' entries (app killed mid-upload) are reset to 'pending'. Duplicate detection prevents re-enqueuing the same media.
+
 ## Key Storage Files
 
 ```
 storage.rules                                    — Firebase Storage security rules
 lib/services/storage_service.dart                — Firebase Storage wrapper (upload, delete, getUrl)
 lib/services/upload_controller.dart              — coordinates single-file upload + sync status updates
-lib/providers/service_providers.dart             — storageServiceProvider, uploadControllerProvider
+lib/services/upload_queue.dart                   — persistent upload queue + processor
+lib/domain/models/upload_queue_entry.dart        — queue entry model
+lib/providers/service_providers.dart             — storageServiceProvider, uploadControllerProvider, uploadQueueProvider
 lib/domain/models/photo_record.dart              — syncStatus, cloudUrl, uploadedBy fields
 lib/domain/models/video_record.dart              — syncStatus, cloudUrl, uploadedBy fields
 ```

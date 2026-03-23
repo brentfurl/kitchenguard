@@ -17,6 +17,7 @@ import '../domain/models/videos.dart';
 import '../data/repositories/day_note_repository.dart';
 import '../data/repositories/day_schedule_repository.dart';
 import '../data/repositories/job_repository.dart';
+import '../services/upload_queue.dart';
 import '../storage/app_paths.dart';
 import '../utils/unit_sorter.dart';
 
@@ -27,12 +28,14 @@ class JobsService {
     required this.jobRepository,
     required this.dayNoteRepository,
     this.dayScheduleRepository,
+    this.uploadQueue,
   });
 
   final AppPaths paths;
   final JobRepository jobRepository;
   final DayNoteRepository dayNoteRepository;
   final DayScheduleRepository? dayScheduleRepository;
+  final UploadQueue? uploadQueue;
   final Uuid _uuid = const Uuid();
 
   Future<Directory> createJob({
@@ -414,6 +417,13 @@ class JobsService {
         .toList();
 
     await jobRepository.saveJob(jobDir, job.copyWith(units: updatedUnits));
+
+    await uploadQueue?.enqueue(
+      jobId: job.jobId,
+      jobDirPath: jobDir.path,
+      mediaId: photoRecord.photoId,
+      mediaType: 'photo',
+    );
   }
 
   Future<void> softDeletePhoto({
@@ -575,6 +585,13 @@ class JobsService {
     }
 
     await jobRepository.saveJob(jobDir, job.copyWith(videos: updatedVideos));
+
+    await uploadQueue?.enqueue(
+      jobId: job.jobId,
+      jobDirPath: jobDir.path,
+      mediaId: videoRecord.videoId,
+      mediaType: 'video',
+    );
   }
 
   Future<void> softDeleteVideo({
@@ -809,6 +826,13 @@ class JobsService {
       job.copyWith(
         preCleanLayoutPhotos: [...job.preCleanLayoutPhotos, photoRecord],
       ),
+    );
+
+    await uploadQueue?.enqueue(
+      jobId: job.jobId,
+      jobDirPath: jobDir.path,
+      mediaId: photoRecord.photoId,
+      mediaType: 'photo',
     );
   }
 
@@ -1343,17 +1367,7 @@ class JobsService {
     final updatedMoved = <PhotoRecord>[];
     if (sameUnit) {
       for (final rec in movedRecords) {
-        updatedMoved.add(PhotoRecord(
-          photoId: rec.photoId,
-          fileName: rec.fileName,
-          relativePath: rec.relativePath,
-          capturedAt: rec.capturedAt,
-          status: rec.status,
-          missingLocal: rec.missingLocal,
-          recovered: rec.recovered,
-          deletedAt: rec.deletedAt,
-          subPhase: destSubPhase,
-        ));
+        updatedMoved.add(rec.copyWith(subPhase: destSubPhase));
       }
     } else {
       // Cross-unit: resolve dest folder and move files on disk.
