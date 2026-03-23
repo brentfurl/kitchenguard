@@ -8,7 +8,7 @@ import 'auth_provider.dart';
 /// Holds the current user role. `null` means not yet determined.
 ///
 /// Primary source: Firebase ID token custom claims.
-/// Fallback: SharedPreferences cache (offline support).
+/// Fallback: per-user SharedPreferences cache (offline support).
 final appRoleProvider =
     StateNotifierProvider<AppRoleNotifier, AppRole?>((ref) {
   final authService = ref.watch(authServiceProvider);
@@ -18,22 +18,18 @@ final appRoleProvider =
 class AppRoleNotifier extends StateNotifier<AppRole?> {
   AppRoleNotifier({required AuthService authService})
       : _authService = authService,
-        super(null) {
-    _loadCachedRole();
-  }
+        super(null);
 
   final AuthService _authService;
 
-  /// Load the locally cached role for instant startup (especially offline).
-  Future<void> _loadCachedRole() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(AppRole.prefsKey);
-    if (state == null) {
-      state = AppRole.fromStorageString(stored);
-    }
-  }
+  String? get _currentUid => _authService.currentUser?.uid;
 
-  /// Read the role from Firebase ID token claims and update the local cache.
+  /// Per-user prefs key so different Firebase accounts on the same device
+  /// each get their own cached role.
+  String _userPrefsKey(String uid) => '${AppRole.prefsKey}_$uid';
+
+  /// Read the role from Firebase ID token claims, falling back to the
+  /// per-user SharedPreferences cache.
   ///
   /// Call after sign-in or token refresh. Returns the resolved role.
   Future<AppRole?> refreshFromClaims() async {
@@ -42,11 +38,16 @@ class AppRoleNotifier extends StateNotifier<AppRole?> {
       if (role != null) {
         await _cacheRole(role);
         state = role;
+        return role;
       }
-      return role;
     } catch (_) {
-      return state;
+      // Claims unavailable (offline, etc.) — fall through to cache.
     }
+
+    // No claims — try per-user cache (offline fallback).
+    final cached = await _loadCachedRole();
+    state = cached;
+    return cached;
   }
 
   /// Assign a role via Cloud Function custom claims, refresh the token,
@@ -58,20 +59,33 @@ class AppRoleNotifier extends StateNotifier<AppRole?> {
   }
 
   /// Set the role locally only (no Cloud Function call).
-  /// Used for offline fallback or during initial cache load.
+  /// Used when the Cloud Function is not yet deployed.
   Future<void> setRoleLocal(AppRole role) async {
     await _cacheRole(role);
     state = role;
   }
 
   Future<void> clearRole() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(AppRole.prefsKey);
+    final uid = _currentUid;
+    if (uid != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_userPrefsKey(uid));
+    }
     state = null;
   }
 
-  Future<void> _cacheRole(AppRole role) async {
+  Future<AppRole?> _loadCachedRole() async {
+    final uid = _currentUid;
+    if (uid == null) return null;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppRole.prefsKey, role.toStorageString());
+    final stored = prefs.getString(_userPrefsKey(uid));
+    return AppRole.fromStorageString(stored);
+  }
+
+  Future<void> _cacheRole(AppRole role) async {
+    final uid = _currentUid;
+    if (uid == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_userPrefsKey(uid), role.toStorageString());
   }
 }
