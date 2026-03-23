@@ -34,20 +34,28 @@ The app prioritizes:
 The app uses a layered architecture with Riverpod state management.
 
 ```
+Auth Gate (app.dart — routes by auth + role state)
+    ├─ Not authenticated → AuthScreen
+    ├─ Authenticated, no role → Role picker
+    └─ Authenticated, has role ↓
 UI (screens — ConsumerStatefulWidget)
     ↓
 Riverpod Providers (state management)
+    - authStateProvider    (StreamProvider — Firebase Auth state)
+    - authServiceProvider  (Provider — AuthService instance)
     - jobListProvider      (AsyncNotifier — all scanned jobs)
     - dayNotesProvider     (AsyncNotifier — all active day notes)
     - dayScheduleProvider  (AsyncNotifier — all day schedules)
     - jobDetailProvider    (family AsyncNotifier — single job by path)
-    - appRoleProvider      (StateNotifier — manager/technician device role)
+    - appRoleProvider      (StateNotifier — role from claims + local cache)
     - jobsServiceProvider  (Provider — JobsService instance)
     - repository providers (Provider — repository + storage instances)
     ↓
 Controller (job_detail_controller.dart — mutation delegator)
     ↓
-Service Layer (jobs_service.dart — takes repository interfaces, not raw stores)
+Service Layer
+    - jobs_service.dart    (takes repository interfaces, not raw stores)
+    - auth_service.dart    (wraps FirebaseAuth + Cloud Functions)
     ↓
 Repository Layer (abstract interfaces — Phase 4 adds cloud implementations)
     - JobRepository (abstract) → LocalJobRepository
@@ -845,10 +853,25 @@ New files:
 
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). Presentation-layer leaks through to `jobStore` also fixed. All data access now flows through abstract interfaces.
 - Step 1: Firebase project setup — Firebase project `kitchenguard-8e288` configured for Android/iOS/Web. `firebase_core` added. `Firebase.initializeApp()` in `main.dart`. Generated: `lib/firebase_options.dart`, `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`.
+- Step 2: Firebase Auth + roles — `firebase_auth` and `cloud_functions` packages added. `AuthService` wraps `FirebaseAuth` (email/password sign-in, registration, sign-out, auth state stream, role from claims). Auth gate in `app.dart` routes: not authenticated → AuthScreen, authenticated no role → role picker, authenticated with role → JobsHome. `AppRoleNotifier` updated to read role from Firebase ID token custom claims (primary) with SharedPreferences fallback (offline). `setUserRole` Cloud Function (`functions/index.js`) assigns roles via custom claims (self-assign bootstrap, manager can assign anyone). First-launch role dialog removed from `jobs_home.dart`; replaced by auth gate role picker. Sign-out button in JobsHome AppBar.
+
+New files:
+- `lib/services/auth_service.dart` — FirebaseAuth + Cloud Functions wrapper
+- `lib/providers/auth_provider.dart` — authStateProvider, authServiceProvider
+- `lib/presentation/screens/auth_screen.dart` — login/register screen
+- `functions/index.js` — setUserRole Cloud Function
+- `functions/package.json` — Node.js dependencies for Cloud Functions
+- `functions/.gitignore` — excludes node_modules
+
+Modified files:
+- `lib/app.dart` — auth gate added (routes by auth state + role)
+- `lib/providers/app_role_provider.dart` — reads from Firebase claims, caches locally
+- `lib/presentation/jobs_home.dart` — removed first-launch role dialog, added sign-out button
+- `firebase.json` — added functions config
+- `pubspec.yaml` — added firebase_auth, cloud_functions
 
 **Remaining:**
 
-- Step 2: Firebase Auth + roles (email/password, custom claims Cloud Function, auth gate screen)
 - Step 3: Firestore for scheduling data (schema, cloud repositories, `clientId` on Job model)
 - Step 4: Firebase Storage + upload infrastructure (photo sync status, upload queue, background uploads)
 - Step 5: Sync engine (scheduling cloud-first, documentation device-first)
@@ -860,6 +883,8 @@ New files:
 - Jobs stored as flat Firestore collection with optional `clientId` reference (not nested under clients)
 - Scheduling: cloud-first (last-write-wins by `updatedAt`)
 - Documentation: device-first (append-only photo sync, background upload)
+- Role is user-level (Firebase custom claims), not device-level
+- Auth uses email/password (Google sign-in can be added later)
 
 ---
 
@@ -1180,7 +1205,7 @@ Pre-Phase 4 UX rework (complete):
 - Job Detail header rework (address, access, dual note counters)
 - Promoted tools + AppBar dropdown replacing ToolsCard/ToolsScreen
 
-Phase 4 in progress (Steps 0-1 complete). Next: Step 2 (Firebase Auth + roles).
+Phase 4 in progress (Steps 0-2 complete). Next: Step 3 (Firestore for scheduling data).
 
 All 167 tests pass.
 
@@ -1188,6 +1213,11 @@ New files added in Phase 4:
 - `lib/firebase_options.dart` — FlutterFire generated config (Android/iOS/Web)
 - `android/app/google-services.json` — Android Firebase config
 - `ios/Runner/GoogleService-Info.plist` — iOS Firebase config
-- `firebase.json` — Firebase project config
+- `firebase.json` — Firebase project config (includes functions)
+- `lib/services/auth_service.dart` — FirebaseAuth + Cloud Functions wrapper
+- `lib/providers/auth_provider.dart` — auth state and service providers
+- `lib/presentation/screens/auth_screen.dart` — login/register UI
+- `functions/index.js` — setUserRole Cloud Function
+- `functions/package.json` — Cloud Functions dependencies
 
-Key Phase 4 dependency: `firebase_core: ^3.12.1`
+Key Phase 4 dependencies: `firebase_core: ^3.12.1`, `firebase_auth: ^5.7.0`, `cloud_functions: ^5.6.2`

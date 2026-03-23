@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'domain/models/app_role.dart';
 import 'presentation/jobs_home.dart';
+import 'presentation/screens/auth_screen.dart';
+import 'providers/app_role_provider.dart';
+import 'providers/auth_provider.dart';
 
 class KitchenGuardApp extends StatelessWidget {
   const KitchenGuardApp({super.key});
@@ -88,7 +93,229 @@ class KitchenGuardApp extends StatelessWidget {
           labelStyle: const TextStyle(color: textPrimary),
         ),
       ),
-      home: const JobsHome(),
+      home: const _AuthGate(),
+    );
+  }
+}
+
+/// Root gate that routes to the appropriate screen based on auth and role state.
+///
+/// - Not authenticated → [AuthScreen]
+/// - Authenticated, no role → role picker
+/// - Authenticated, has role → [JobsHome]
+class _AuthGate extends ConsumerStatefulWidget {
+  const _AuthGate();
+
+  @override
+  ConsumerState<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends ConsumerState<_AuthGate> {
+  bool _claimsChecked = false;
+  bool _checkingClaims = false;
+
+  Future<void> _checkClaims() async {
+    if (_checkingClaims) return;
+    _checkingClaims = true;
+    try {
+      await ref.read(appRoleProvider.notifier).refreshFromClaims();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _claimsChecked = true;
+          _checkingClaims = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _onRoleSelected(AppRole role) async {
+    setState(() => _checkingClaims = true);
+    try {
+      await ref.read(appRoleProvider.notifier).setRole(role);
+    } catch (_) {
+      // Cloud Function may fail if not deployed yet; fall back to local-only.
+      await ref.read(appRoleProvider.notifier).setRoleLocal(role);
+    } finally {
+      if (mounted) setState(() => _checkingClaims = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final authAsync = ref.watch(authStateProvider);
+
+    return authAsync.when(
+      loading: () => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
+      error: (e, _) => Scaffold(
+        body: Center(child: Text('Auth error: $e')),
+      ),
+      data: (user) {
+        if (user == null) {
+          _claimsChecked = false;
+          return const AuthScreen();
+        }
+
+        if (!_claimsChecked) {
+          _checkClaims();
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final role = ref.watch(appRoleProvider);
+
+        if (role == null) {
+          return _RolePickerScreen(
+            isLoading: _checkingClaims,
+            onRoleSelected: _onRoleSelected,
+          );
+        }
+
+        return const JobsHome();
+      },
+    );
+  }
+}
+
+/// Shown after sign-in when no role custom claim exists.
+class _RolePickerScreen extends StatelessWidget {
+  const _RolePickerScreen({
+    required this.isLoading,
+    required this.onRoleSelected,
+  });
+
+  final bool isLoading;
+  final ValueChanged<AppRole> onRoleSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 400),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.person_outline,
+                    size: 64,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Select Your Role',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'How will you be using KitchenGuard?',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 32),
+                  if (isLoading)
+                    const CircularProgressIndicator()
+                  else ...[
+                    _RoleCard(
+                      icon: Icons.engineering_outlined,
+                      title: 'Technician',
+                      description:
+                          'Capture photos, videos, and field notes during cleaning jobs.',
+                      onTap: () => onRoleSelected(AppRole.technician),
+                    ),
+                    const SizedBox(height: 12),
+                    _RoleCard(
+                      icon: Icons.manage_accounts_outlined,
+                      title: 'Manager',
+                      description:
+                          'Create and schedule jobs, manage crew, review documentation.',
+                      onTap: () => onRoleSelected(AppRole.manager),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoleCard extends StatelessWidget {
+  const _RoleCard({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: colorScheme.outline),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(icon, size: 36, color: colorScheme.primary),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      description,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

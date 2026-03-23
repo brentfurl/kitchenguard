@@ -5,11 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../application/jobs_service.dart';
-import '../domain/models/app_role.dart';
 import '../domain/models/day_note.dart';
 import '../domain/models/day_schedule.dart';
 import '../domain/models/manager_job_note.dart';
 import '../providers/app_role_provider.dart';
+import '../providers/auth_provider.dart';
 import '../providers/day_notes_provider.dart';
 import '../providers/day_schedule_provider.dart';
 import '../providers/job_detail_provider.dart';
@@ -29,38 +29,31 @@ class JobsHome extends ConsumerStatefulWidget {
 enum _JobFilter { today, upcoming, past, unscheduled }
 
 class _JobsHomeState extends ConsumerState<JobsHome> {
-  bool _roleDialogShown = false;
   final Set<_JobFilter> _activeFilters = {_JobFilter.today, _JobFilter.upcoming};
 
   JobsService get _jobs => ref.read(jobsServiceProvider);
 
-  // ---------------------------------------------------------------------------
-  // Role selection
-  // ---------------------------------------------------------------------------
-
-  Future<void> _showRoleSelectionDialog({bool dismissable = false}) async {
-    final role = await showDialog<AppRole>(
+  Future<void> _signOut() async {
+    final confirmed = await showDialog<bool>(
       context: context,
-      barrierDismissible: dismissable,
       builder: (context) => AlertDialog(
-        title: const Text('Select Device Role'),
-        content: const Text(
-          'How will this device be used?',
-        ),
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
         actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).pop(AppRole.technician),
-            child: const Text('Technician'),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(AppRole.manager),
-            child: const Text('Manager'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Sign Out'),
           ),
         ],
       ),
     );
-    if (role != null) {
-      ref.read(appRoleProvider.notifier).setRole(role);
+    if (confirmed == true && mounted) {
+      await ref.read(authServiceProvider).signOut();
+      ref.read(appRoleProvider.notifier).clearRole();
     }
   }
 
@@ -968,13 +961,6 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     final schedulesAsync = ref.watch(dayScheduleProvider);
     final currentRole = ref.watch(appRoleProvider);
 
-    if (currentRole == null && !_roleDialogShown) {
-      _roleDialogShown = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _showRoleSelectionDialog();
-      });
-    }
-
     Widget body;
 
     if (jobsAsync is AsyncLoading || notesAsync is AsyncLoading) {
@@ -1058,9 +1044,9 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
               ),
             ),
           IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Change role',
-            onPressed: () => _showRoleSelectionDialog(dismissable: true),
+            icon: const Icon(Icons.logout),
+            tooltip: 'Sign out',
+            onPressed: _signOut,
           ),
         ],
       ),

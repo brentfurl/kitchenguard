@@ -543,7 +543,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-1 complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-2 complete).
 
 Core capabilities complete:
 
@@ -563,19 +563,67 @@ Core capabilities complete:
 - sub-phase photo capture (4-phase hood/fan cards, 2-phase misc)
 - job completion logic (Mark Complete / Reopen, `completedAt`)
 - smart day-card sorting (incomplete first, completed last)
-- lightweight device role model (manager / technician)
+- Firebase Auth (email/password) with auth gate and role picker
+- user-level roles via Firebase custom claims (manager / technician)
 - batch photo move (multi-select gallery, move between units/sub-phases)
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
 - Step 1: Firebase project setup — Firebase project `kitchenguard-8e288` created, FlutterFire CLI configured for Android/iOS/Web, `firebase_core` added, `Firebase.initializeApp()` in `main.dart`.
+- Step 2: Firebase Auth + roles — `firebase_auth` and `cloud_functions` packages, `AuthService` wrapper, `authStateProvider` / `authServiceProvider`, auth gate in `app.dart` (AuthScreen → role picker → JobsHome), `AppRoleNotifier` reads from Firebase ID token custom claims with SharedPreferences fallback, `setUserRole` Cloud Function for custom claims.
 
 Phase 4 remaining:
-- Step 2: Firebase Auth + roles (email/password, custom claims Cloud Function, auth gate screen)
 - Step 3: Firestore for scheduling data (schema design, cloud repositories, `clientId` on Job)
 - Step 4: Firebase Storage + upload infrastructure (photo sync status, upload queue, background uploads)
 - Step 5: Sync engine (scheduling cloud-first, documentation device-first)
 - Step 6: Flutter web management dashboard
+
+---
+
+# Authentication Architecture
+
+Firebase Auth with email/password, using custom claims for role management.
+
+## Auth Flow
+
+```
+App boot → Firebase.initializeApp()
+    ↓
+Auth gate (app.dart)
+    ├─ Not authenticated → AuthScreen (login / register)
+    ├─ Authenticated, no role claim → Role picker screen
+    └─ Authenticated, has role → JobsHome
+```
+
+## Role Management
+
+Roles are **user-level** (Firebase custom claims), not device-level.
+
+Custom claims format: `{ "role": "manager" }` or `{ "role": "technician" }`.
+
+`AppRoleNotifier` reads role from two sources:
+1. **Primary:** Firebase ID token custom claims (`refreshFromClaims()`)
+2. **Fallback:** SharedPreferences cache (offline support)
+
+Role assignment via `setUserRole` Cloud Function (`functions/index.js`):
+- New user (no existing role) can self-assign any role (bootstrap)
+- Manager can assign any role to any user
+- Technician with existing role cannot self-change (must ask manager)
+
+## Key Auth Files
+
+```
+lib/services/auth_service.dart         — FirebaseAuth wrapper
+lib/providers/auth_provider.dart       — authStateProvider, authServiceProvider
+lib/providers/app_role_provider.dart   — AppRoleNotifier (claims + local cache)
+lib/presentation/screens/auth_screen.dart — login/register UI
+lib/app.dart                           — auth gate (routes by auth + role state)
+functions/index.js                     — setUserRole Cloud Function
+```
+
+## Sign-Out
+
+Sign-out button in JobsHome AppBar. Clears local role cache and signs out of Firebase Auth.
 
 ---
 
