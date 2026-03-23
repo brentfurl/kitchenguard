@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard).
 
 Core capabilities complete:
 
@@ -575,6 +575,7 @@ Core capabilities complete:
 - batch photo move (multi-select gallery, move between units/sub-phases)
 - Firestore scheduling data (cloud repositories, hybrid wiring, security rules)
 - Firebase Storage upload infrastructure (sync status fields, StorageService, UploadController)
+- Flutter web management dashboard (schedule management, photo review, user management)
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
@@ -589,8 +590,9 @@ Phase 4 completed steps:
 
 - Step 5: Sync engine — cloud-only job provisioning in `pullFromCloud`, `SyncNotifier` provider (auto-pull on app open, 5-minute periodic pull, connectivity stream monitoring, auto-pull on reconnect), combined `SyncState` (pull + upload status), offline banner in Jobs Home, combined `_SyncIndicator` (cloud-done / uploading / offline / pending badge).
 
-Phase 4/5 remaining:
-- Step 6: Flutter web management dashboard
+- Step 6: Flutter web management dashboard — conditional import entry point (`app_entry.dart` + `main_mobile.dart`/`main_web.dart`), web-specific providers and Firestore-only `WebJobRepository`, sidebar-driven `WebDashboard` with schedule management, photo review (Firebase Storage URLs via `CachedNetworkImage`), and user management screens. Firebase Hosting configured in `firebase.json`. `setUserRole` Cloud Function updated to mirror roles to Firestore `users` collection.
+
+All Phase 4/5/6 steps complete.
 
 ---
 
@@ -898,6 +900,84 @@ lib/services/background_upload_service.dart         — workmanager background u
 - Any authenticated user can read from `jobs/{jobId}/...`
 - Any authenticated user can write to `jobs/{jobId}/...` (photos: 10MB limit, videos: 100MB limit)
 - Everything else is denied
+
+---
+
+# Flutter Web Management Dashboard (Step 6)
+
+The web dashboard is a separate Flutter web app served from the same codebase using conditional imports. It provides schedule management, photo review, and user management for managers — no local filesystem access.
+
+## Platform Separation
+
+`main.dart` uses two conditional imports to cleanly separate mobile and web code paths:
+
+```
+lib/app_entry.dart              — conditional export: app.dart (mobile) vs web/web_app.dart (web)
+lib/main_mobile.dart            — Workmanager init (native only)
+lib/main_web.dart               — no-op (web has no background tasks)
+```
+
+The mobile code path (`app.dart` → `JobsHome` → filesystem repos) is never compiled on web. The web code path (`web/web_app.dart` → `WebDashboard` → Firestore-only repos) is never compiled on native. This avoids `dart:io` compilation errors on web.
+
+## Web Architecture
+
+```
+Web App
+  ├─ Auth gate (shared AuthScreen + role picker)
+  ├─ Manager-only access check (technicians see "Access Restricted")
+  └─ WebDashboard (sidebar navigation)
+       ├─ Schedule — jobs grouped by date, create/edit/delete, day notes/schedules
+       ├─ Users — user list from Firestore `users` collection, role assignment
+       └─ Job Detail (drill-in from schedule)
+            ├─ Job metadata (address, access info, notes)
+            ├─ Photo review (grid, Firebase Storage URLs via CachedNetworkImage)
+            └─ Video list (upload status, cloud URLs)
+```
+
+## Web Providers
+
+Web-specific providers in `lib/web/web_providers.dart` use Firestore directly (no filesystem):
+
+- `webJobRepositoryProvider` → `WebJobRepository` (Firestore-only CRUD, real-time streams)
+- `webJobListProvider` → `StreamProvider<List<Job>>` (real-time job list)
+- `webDayNoteRepositoryProvider` → `CloudDayNoteRepository` (reused from mobile)
+- `webDayScheduleRepositoryProvider` → `CloudDayScheduleRepository` (reused from mobile)
+- `webUsersProvider` → real-time stream from Firestore `users` collection
+- `webAuthServiceProvider` → `AuthService` (shared with mobile)
+
+Auth providers (`authStateProvider`, `appRoleProvider`) are shared between mobile and web since they only depend on Firebase Auth (no `dart:io`).
+
+## Key Web Files
+
+```
+lib/app_entry.dart                               — conditional export (mobile vs web)
+lib/main_mobile.dart                             — mobile platform init (Workmanager)
+lib/main_web.dart                                — web platform init (no-op)
+lib/web/web_app.dart                             — web MaterialApp + auth gate (manager-only)
+lib/web/web_dashboard.dart                       — sidebar navigation shell
+lib/web/web_providers.dart                       — web-specific Riverpod providers
+lib/web/web_job_repository.dart                  — Firestore-only job CRUD + real-time streams
+lib/web/screens/web_schedule_screen.dart         — schedule management (job CRUD, day cards)
+lib/web/screens/web_job_detail_screen.dart       — photo review + job detail
+lib/web/screens/web_users_screen.dart            — user management + role assignment
+```
+
+## Deployment
+
+Firebase Hosting configured in `firebase.json` (public: `build/web`). Deploy with:
+
+```
+flutter build web
+firebase deploy --only hosting
+```
+
+## User Management
+
+The Firestore `users` collection stores user profiles (email, displayName, role, lastLoginAt). Entries are created/updated:
+1. On web sign-in (`_WebAuthGate._ensureUserDoc()`)
+2. On role assignment (`setUserRole` Cloud Function mirrors role to Firestore)
+
+Managers can view all users and change roles from the web dashboard.
 
 ---
 

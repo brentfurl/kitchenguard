@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
+const { getFirestore } = require("firebase-admin/firestore");
 
 initializeApp();
 
@@ -52,6 +53,23 @@ exports.setUserRole = onCall(async (request) => {
   }
 
   await getAuth().setCustomUserClaims(uid, { role });
+
+  // Mirror role to Firestore users collection for web dashboard visibility.
+  try {
+    const userRecord = await getAuth().getUser(uid);
+    await getFirestore().collection("users").doc(uid).set(
+      {
+        email: userRecord.email || null,
+        displayName: userRecord.displayName || userRecord.email?.split("@")[0] || null,
+        role,
+        roleUpdatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (e) {
+    // Non-critical — user doc update is best-effort.
+    console.warn("Failed to update user doc in Firestore:", e.message);
+  }
 
   return { success: true, uid, role };
 });

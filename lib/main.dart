@@ -1,12 +1,11 @@
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:workmanager/workmanager.dart';
 
-import 'app.dart';
+import 'app_entry.dart';
 import 'firebase_options.dart';
-import 'services/background_upload_service.dart';
+import 'main_mobile.dart' if (dart.library.js_interop) 'main_web.dart'
+    as platform;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,16 +13,7 @@ Future<void> main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  if (!kIsWeb) {
-    await Workmanager().initialize(uploadQueueCallbackDispatcher);
-    await Workmanager().registerPeriodicTask(
-      'upload-queue-periodic',
-      uploadQueueTaskName,
-      frequency: const Duration(minutes: 15),
-      constraints: Constraints(networkType: NetworkType.connected),
-      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
-    );
-  }
+  await platform.initPlatform();
 
   runApp(const ProviderScope(child: KitchenGuardApp()));
 }
