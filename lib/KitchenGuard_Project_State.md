@@ -47,9 +47,9 @@ Riverpod Providers (state management)
     ↓
 Controller (job_detail_controller.dart — mutation delegator)
     ↓
-Service Layer (jobs_service.dart)
+Service Layer (jobs_service.dart — takes repository interfaces, not raw stores)
     ↓
-Repository Layer (abstractions for Phase 4 cloud swap)
+Repository Layer (abstract interfaces — Phase 4 adds cloud implementations)
     - JobRepository (abstract) → LocalJobRepository
     - DayNoteRepository (abstract) → LocalDayNoteRepository
     - DayScheduleRepository (abstract) → LocalDayScheduleRepository
@@ -839,16 +839,27 @@ New files:
 - `lib/data/repositories/local_day_schedule_repository.dart`
 - `lib/providers/day_schedule_provider.dart`
 
-### Phase 4: Cloud and Multi-Platform
+### Phase 4: Cloud and Multi-Platform (in progress)
 
-- Cloud database (Firestore)
-- Object storage for media (Firebase Storage)
-- Authentication (Firebase Auth with role claims)
-- Flutter web for management dashboard
-- Sync engine: scheduling cloud-first, documentation device-first
-- Photo sync across devices (post-shift or live — TBD)
-- Unread note counters / alert badges
-- Manager permissions enforcement on crew devices
+**Completed:**
+
+- Step 0: Repository plumbing — `JobsService` migrated from raw stores to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). Presentation-layer leaks through to `jobStore` also fixed. All data access now flows through abstract interfaces.
+- Step 1: Firebase project setup — Firebase project `kitchenguard-8e288` configured for Android/iOS/Web. `firebase_core` added. `Firebase.initializeApp()` in `main.dart`. Generated: `lib/firebase_options.dart`, `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`.
+
+**Remaining:**
+
+- Step 2: Firebase Auth + roles (email/password, custom claims Cloud Function, auth gate screen)
+- Step 3: Firestore for scheduling data (schema, cloud repositories, `clientId` on Job model)
+- Step 4: Firebase Storage + upload infrastructure (photo sync status, upload queue, background uploads)
+- Step 5: Sync engine (scheduling cloud-first, documentation device-first)
+- Step 6: Flutter web management dashboard
+
+**Key architecture decisions:**
+
+- `clientId` (nullable) will be added to Job model in Step 3 — reserved for future Client entity
+- Jobs stored as flat Firestore collection with optional `clientId` reference (not nested under clients)
+- Scheduling: cloud-first (last-write-wins by `updatedAt`)
+- Documentation: device-first (append-only photo sync, background upload)
 
 ---
 
@@ -1169,13 +1180,14 @@ Pre-Phase 4 UX rework (complete):
 - Job Detail header rework (address, access, dual note counters)
 - Promoted tools + AppBar dropdown replacing ToolsCard/ToolsScreen
 
-Next priority: Phase 4 (cloud database, sync, auth, and web access for management).
+Phase 4 in progress (Steps 0-1 complete). Next: Step 2 (Firebase Auth + roles).
 
 All 167 tests pass.
 
-New files added in Pre-Phase 4:
-- `lib/domain/models/day_schedule.dart` — DaySchedule model
-- `lib/storage/day_schedule_store.dart` — day_schedules.json store
-- `lib/data/repositories/day_schedule_repository.dart` — abstract interface
-- `lib/data/repositories/local_day_schedule_repository.dart` — filesystem implementation
-- `lib/providers/day_schedule_provider.dart` — AsyncNotifier for all day schedules
+New files added in Phase 4:
+- `lib/firebase_options.dart` — FlutterFire generated config (Android/iOS/Web)
+- `android/app/google-services.json` — Android Firebase config
+- `ios/Runner/GoogleService-Info.plist` — iOS Firebase config
+- `firebase.json` — Firebase project config
+
+Key Phase 4 dependency: `firebase_core: ^3.12.1`

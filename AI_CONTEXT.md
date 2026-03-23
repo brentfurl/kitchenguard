@@ -440,6 +440,7 @@ When suggesting changes:
 - all domain data must use typed model classes, not raw maps
 - all new entities must use UUID v4 for IDs
 - respect the two-domain split (scheduling vs. documentation)
+- all data access in `JobsService` goes through repository interfaces (not raw stores)
 
 When proposing code:
 
@@ -542,7 +543,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.**
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-1 complete).
 
 Core capabilities complete:
 
@@ -565,17 +566,16 @@ Core capabilities complete:
 - lightweight device role model (manager / technician)
 - batch photo move (multi-select gallery, move between units/sub-phases)
 
-Pre-Phase 4 UX rework completed steps:
-- Step 1: Job model expansion — address, city, accessType, accessNotes, hasAlarm, alarmCode, hoodCount, fanCount (all nullable, backward-compatible)
-- Step 2: DaySchedule model — shopMeetupTime, firstRestaurantName, firstArrivalTime; store, repository, provider
-- Step 3: Two-tier Create/Edit Job dialog — shared dialog with expandable sections; auto-create units from counts; contacts as manager notes
-- Step 4: Jobs Home filter row — Today/Upcoming/Past/Unscheduled FilterChips; default Today+Upcoming
-- Step 5a-b: Compact shift notes counter in header + arrival times section from DaySchedule
-- Step 5c: Stitch-style job sub-cards with address, access, unit counts, drag reorder (ReorderableListView)
-- Step 6a: Job Detail header rework — address below name, access info with icon, dual always-visible note counters
-- Step 6b-c: Promoted Pre-clean Layout + Exit Video buttons; tools dropdown for Field Notes + Other Videos; ToolsCard removed
+Phase 4 completed steps:
+- Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
+- Step 1: Firebase project setup — Firebase project `kitchenguard-8e288` created, FlutterFire CLI configured for Android/iOS/Web, `firebase_core` added, `Firebase.initializeApp()` in `main.dart`.
 
-Phase 4: Cloud database, sync, auth, and web access for management
+Phase 4 remaining:
+- Step 2: Firebase Auth + roles (email/password, custom claims Cloud Function, auth gate screen)
+- Step 3: Firestore for scheduling data (schema design, cloud repositories, `clientId` on Job)
+- Step 4: Firebase Storage + upload infrastructure (photo sync status, upload queue, background uploads)
+- Step 5: Sync engine (scheduling cloud-first, documentation device-first)
+- Step 6: Flutter web management dashboard
 
 ---
 
