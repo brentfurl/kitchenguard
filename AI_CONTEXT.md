@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Steps 4a-4d complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Steps 4a-4e complete).
 
 Core capabilities complete:
 
@@ -584,10 +584,10 @@ Phase 4 completed steps:
 - Step 4a: Firebase Storage structure + basic upload — `firebase_storage` and `connectivity_plus` packages, `syncStatus`/`cloudUrl`/`uploadedBy` fields on `PhotoRecord` and `VideoRecord`, `StorageService` (Firebase Storage wrapper with upload/delete/getUrl), `UploadController` (coordinates single-file upload + sync status persistence), `storage.rules` (auth-gated, 10MB photo / 100MB video limits), `storageServiceProvider` and `uploadControllerProvider` wiring.
 - Step 4b: Upload queue + offline persistence — `UploadQueueEntry` model, `UploadQueue` service (persistent JSON queue at `KitchenCleaningJobs/upload_queue.json`), auto-enqueue after photo/video capture in `JobsService`, queue processor (`processNext`/`processAll` via `UploadController`), `uploadQueueProvider` wiring, fixed `movePhotos` sync field preservation for same-unit moves.
 - Step 4c: Background upload service — `workmanager` package, `BackgroundUploadService` (connectivity check, exponential backoff 1m-30m cap), `UploadProgressNotifier` + `uploadProgressProvider` (Riverpod state for UI), workmanager periodic task (15-min), sync status indicator in Jobs Home AppBar (pending badge + processing spinner), `UploadQueue.onNewEntry` callback for immediate post-capture upload trigger.
+- Step 4d: Multi-device coordination — `uploadedBy` attribution on photo/video uploads, `JobMerger` append-only merge by photoId/videoId (union of records, sync-status best-wins, soft-delete additive), `CloudJobRepository.pullFromCloud()` triggered on pull-to-refresh.
+- Step 4e: Download and caching — `cached_network_image` package, `CloudAwareImage` widget (local-first display with cloud URL fallback + cloud badge), `VideoPlayerScreen` network URL support, all gallery/viewer screens cloud-aware.
 
 Phase 4 remaining:
-- Step 4d: Multi-device coordination (uploadedBy attribution, append-only merge)
-- Step 4e: Download and caching (manager/web viewing, cached_network_image)
 - Step 4f: Storage security rules refinement (if needed)
 - Step 5: Sync engine (scheduling cloud-first, documentation device-first)
 - Step 6: Flutter web management dashboard
@@ -772,6 +772,24 @@ Processing checks connectivity before each item and applies exponential backoff 
 
 The workmanager callback runs in a separate isolate and rebuilds its own Firebase/repository/service stack since Riverpod state isn't shared across isolates.
 
+## Download and Caching (Step 4e)
+
+When a photo or video's local file is missing but it has a `cloudUrl` (set during upload on this or another device), the app falls back to loading from Firebase Storage.
+
+**Photos** — all gallery and viewer screens use `CloudAwareImage`, a local-first widget:
+1. Local file exists on disk → `Image.file` (unchanged, zero latency)
+2. Local file missing, `cloudUrl` set → `CachedNetworkImage` (disk-cached by URL)
+3. Neither available → missing-file placeholder
+
+Cloud-loaded thumbnails display a small cloud badge so the user can distinguish local vs. cloud-only photos.
+
+**Videos** — `VideoPlayerScreen` accepts either a local `File` or a `networkUrl`:
+1. Local file found → `VideoPlayerController.file` (unchanged)
+2. Local missing, `cloudUrl` set → `VideoPlayerController.networkUrl` (streaming)
+3. Neither → "Video file missing" snackbar
+
+The `cached_network_image` package handles HTTP-level disk caching for photos, so repeated views of the same cloud image are fast. Video streaming relies on the OS media player's native buffering.
+
 ## Key Storage Files
 
 ```
@@ -786,6 +804,7 @@ lib/providers/upload_progress_provider.dart      — UploadProgressNotifier + up
 lib/domain/models/photo_record.dart              — syncStatus, cloudUrl, uploadedBy fields
 lib/domain/models/video_record.dart              — syncStatus, cloudUrl, uploadedBy fields
 lib/domain/merge/job_merger.dart                 — pure-function merge logic for local + cloud jobs
+lib/presentation/widgets/cloud_aware_image.dart  — local-first image with cloud fallback + badge
 ```
 
 ## Multi-Device Merge (Step 4d)

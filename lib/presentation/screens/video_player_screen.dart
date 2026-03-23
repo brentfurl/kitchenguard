@@ -7,11 +7,13 @@ class VideoPlayerScreen extends StatefulWidget {
   const VideoPlayerScreen({
     super.key,
     required this.title,
-    required this.videoFile,
-  });
+    this.videoFile,
+    this.networkUrl,
+  }) : assert(videoFile != null || networkUrl != null);
 
   final String title;
-  final File videoFile;
+  final File? videoFile;
+  final String? networkUrl;
 
   @override
   State<VideoPlayerScreen> createState() => _VideoPlayerScreenState();
@@ -19,15 +21,27 @@ class VideoPlayerScreen extends StatefulWidget {
 
 class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   late final VideoPlayerController _controller;
+  String? _initError;
 
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.file(widget.videoFile);
+    if (widget.videoFile != null) {
+      _controller = VideoPlayerController.file(widget.videoFile!);
+    } else {
+      _controller = VideoPlayerController.networkUrl(
+        Uri.parse(widget.networkUrl!),
+      );
+    }
     _controller.initialize().then((_) {
       if (!mounted) return;
       setState(() {});
       _controller.play();
+    }).catchError((Object error) {
+      if (!mounted) return;
+      setState(() {
+        _initError = error.toString();
+      });
     });
   }
 
@@ -37,14 +51,40 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     super.dispose();
   }
 
+  bool get _isCloud => widget.videoFile == null && widget.networkUrl != null;
+
   @override
   Widget build(BuildContext context) {
     final initialized = _controller.value.isInitialized;
     final position = initialized ? _controller.value.position : Duration.zero;
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
-      body: initialized
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          if (_isCloud)
+            const Padding(
+              padding: EdgeInsets.only(right: 12),
+              child: Icon(Icons.cloud_outlined, size: 20),
+            ),
+        ],
+      ),
+      body: _initError != null
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, size: 40),
+                  const SizedBox(height: 8),
+                  Text(
+                    _isCloud
+                        ? 'Failed to load video from cloud'
+                        : 'Failed to load video',
+                  ),
+                ],
+              ),
+            )
+          : initialized
           ? Column(
               children: [
                 Expanded(

@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../../domain/models/photo_record.dart';
 import '../../domain/models/unit.dart';
+import '../widgets/cloud_aware_image.dart';
 import '../widgets/move_destination_sheet.dart';
 
 class UnitPhotoBucketScreen extends StatefulWidget {
@@ -292,12 +293,6 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
                 final file = relativePath.isEmpty
                     ? null
                     : File(p.join(widget.jobDir.path, relativePath));
-                final showImage =
-                    photo.isActive &&
-                    relativePath.isNotEmpty &&
-                    file != null &&
-                    file.existsSync();
-                final isMissing = !showImage;
                 final isSelected = _selectedIds.contains(photo.photoId);
 
                 return Material(
@@ -348,24 +343,14 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          isMissing
-                              ? Container(
-                                  color: Colors.grey.shade200,
-                                  child: const Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.broken_image_outlined),
-                                        SizedBox(height: 6),
-                                        Text('Missing'),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                              : AspectRatio(
-                                  aspectRatio: 1,
-                                  child: Image.file(file, fit: BoxFit.cover),
-                                ),
+                          AspectRatio(
+                            aspectRatio: 1,
+                            child: CloudAwareImage(
+                              localFile: file,
+                              cloudUrl: photo.cloudUrl,
+                              showCloudBadge: true,
+                            ),
+                          ),
                           // Press overlay (non-select mode only)
                           if (!_isSelectMode)
                             AnimatedOpacity(

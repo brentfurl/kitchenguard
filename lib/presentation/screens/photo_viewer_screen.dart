@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
@@ -140,28 +141,53 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
               final file = hasPath
                   ? File(p.join(widget.jobDir.path, relativePath))
                   : null;
-              final missing =
-                  photo.isMissing ||
-                  !hasPath ||
-                  file == null ||
-                  !file.existsSync();
+              final localAvailable =
+                  !photo.isMissing &&
+                  hasPath &&
+                  file != null &&
+                  file.existsSync();
+              final cloudUrl = photo.cloudUrl;
+              final cloudAvailable =
+                  cloudUrl != null && cloudUrl.isNotEmpty;
 
-              if (missing) {
-                return const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.broken_image_outlined, size: 40),
-                      SizedBox(height: 8),
-                      Text('Missing file'),
-                    ],
+              if (localAvailable) {
+                return Center(
+                  child: InteractiveViewer(
+                    child: Image.file(file, fit: BoxFit.contain),
                   ),
                 );
               }
 
-              return Center(
-                child: InteractiveViewer(
-                  child: Image.file(file, fit: BoxFit.contain),
+              if (cloudAvailable) {
+                return Center(
+                  child: InteractiveViewer(
+                    child: CachedNetworkImage(
+                      imageUrl: cloudUrl,
+                      fit: BoxFit.contain,
+                      placeholder: (_, __) => const Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                      errorWidget: (_, __, ___) => const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.cloud_off_outlined, size: 40),
+                          SizedBox(height: 8),
+                          Text('Failed to load from cloud'),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.broken_image_outlined, size: 40),
+                    SizedBox(height: 8),
+                    Text('Missing file'),
+                  ],
                 ),
               );
             },

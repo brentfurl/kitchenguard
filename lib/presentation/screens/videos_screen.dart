@@ -165,11 +165,16 @@ class _VideosScreenState extends State<VideosScreen> {
                         ? 'Unnamed video'
                         : video.fileName;
                     final relativePath = video.relativePath;
+                    final cloudUrl = video.cloudUrl;
+                    final hasCloud = cloudUrl != null && cloudUrl.isNotEmpty;
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(fileName),
+                      trailing: hasCloud
+                          ? const Icon(Icons.cloud_outlined, size: 16)
+                          : null,
                       onTap: () async {
-                        if (relativePath.isEmpty) {
+                        if (relativePath.isEmpty && !hasCloud) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('Missing relativePath'),
@@ -178,10 +183,12 @@ class _VideosScreenState extends State<VideosScreen> {
                           return;
                         }
 
-                        final file = await widget.resolveVideoFile(
-                          relativePath,
-                        );
-                        if (file == null) {
+                        File? file;
+                        if (relativePath.isNotEmpty) {
+                          file = await widget.resolveVideoFile(relativePath);
+                        }
+
+                        if (file == null && !hasCloud) {
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Video file missing')),
@@ -195,6 +202,7 @@ class _VideosScreenState extends State<VideosScreen> {
                             builder: (_) => VideoPlayerScreen(
                               title: fileName,
                               videoFile: file,
+                              networkUrl: file == null ? cloudUrl : null,
                             ),
                           ),
                         );

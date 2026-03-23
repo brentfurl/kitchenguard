@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/photo_record.dart';
+import '../widgets/cloud_aware_image.dart';
 import 'photo_viewer_screen.dart';
 import 'rapid_photo_capture_screen.dart';
 
@@ -172,7 +173,6 @@ class _PreCleanLayoutScreenState extends State<PreCleanLayoutScreen> {
                         final file = relativePath.isEmpty
                             ? null
                             : File(p.join(widget.jobDir.path, relativePath));
-                        final exists = file != null && file.existsSync();
 
                         return InkWell(
                           onTap: () async {
@@ -210,21 +210,11 @@ class _PreCleanLayoutScreenState extends State<PreCleanLayoutScreen> {
                           },
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: exists
-                                ? Image.file(file, fit: BoxFit.cover)
-                                : Container(
-                                    color: Colors.grey.shade200,
-                                    child: const Center(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.broken_image_outlined),
-                                          SizedBox(height: 6),
-                                          Text('Missing'),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
+                            child: CloudAwareImage(
+                              localFile: file,
+                              cloudUrl: photo.cloudUrl,
+                              showCloudBadge: true,
+                            ),
                           ),
                         );
                       },
