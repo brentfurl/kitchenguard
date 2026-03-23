@@ -161,17 +161,18 @@ class _WebAuthGateState extends ConsumerState<_WebAuthGate> {
     setState(() => _checkingClaims = true);
     try {
       await ref.read(appRoleProvider.notifier).setRole(role);
-      await _ensureUserDoc();
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          'role': role.toStorageString(),
-        }, SetOptions(merge: true));
-      }
     } catch (_) {
       await ref.read(appRoleProvider.notifier).setRoleLocal(role);
     } finally {
       if (mounted) setState(() => _checkingClaims = false);
+    }
+    // Fire-and-forget Firestore writes — don't block UI.
+    _ensureUserDoc();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'role': role.toStorageString(),
+      }, SetOptions(merge: true)).catchError((_) {});
     }
   }
 
