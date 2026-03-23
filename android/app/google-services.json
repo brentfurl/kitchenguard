@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "82695156984",
+    "project_id": "kitchenguard-8e288",
+    "storage_bucket": "kitchenguard-8e288.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:82695156984:android:99963a2270a7f729fbf70d",
+        "android_client_info": {
+          "package_name": "com.example.kitchenguard_photo_organizer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDyC3-EJFx69wdtftOPNHlCbtnkQsp8RDQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
