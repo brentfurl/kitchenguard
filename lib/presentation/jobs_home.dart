@@ -15,6 +15,7 @@ import '../providers/day_schedule_provider.dart';
 import '../providers/job_detail_provider.dart';
 import '../providers/job_list_provider.dart';
 import '../providers/service_providers.dart';
+import '../providers/upload_progress_provider.dart';
 import '../storage/job_scanner.dart';
 import 'job_detail.dart';
 import 'screens/manager_notes_screen.dart';
@@ -1028,10 +1029,22 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 
     final isLoading = jobsAsync is AsyncLoading;
 
+    final uploadProgress = ref.watch(uploadProgressProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('KitchenGuard Jobs'),
         actions: [
+          if (uploadProgress.isProcessing)
+            const _SyncIndicator(isProcessing: true, pendingCount: 0)
+          else if (uploadProgress.hasPending)
+            _SyncIndicator(
+              isProcessing: false,
+              pendingCount: uploadProgress.pendingCount,
+              onTap: () => ref
+                  .read(uploadProgressProvider.notifier)
+                  .triggerUpload(),
+            ),
           if (currentRole != null)
             Padding(
               padding: const EdgeInsets.only(right: 4),
@@ -1873,3 +1886,43 @@ const _accessTypeLabels = <String, String>{
   'key-hidden': 'Key hidden',
   'lockbox': 'Lockbox',
 };
+
+/// Compact sync status indicator for the AppBar.
+///
+/// Shows a spinning cloud icon while uploading, or a cloud-upload icon
+/// with a pending-count badge when items are queued. Tapping triggers
+/// a manual sync attempt.
+class _SyncIndicator extends StatelessWidget {
+  const _SyncIndicator({
+    required this.isProcessing,
+    required this.pendingCount,
+    this.onTap,
+  });
+
+  final bool isProcessing;
+  final int pendingCount;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isProcessing) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 12),
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    return IconButton(
+      icon: Badge(
+        label: Text('$pendingCount'),
+        child: const Icon(Icons.cloud_upload_outlined),
+      ),
+      tooltip: '$pendingCount pending upload${pendingCount == 1 ? '' : 's'}',
+      onPressed: onTap,
+    );
+  }
+}

@@ -26,6 +26,10 @@ class UploadQueue {
   List<UploadQueueEntry> _entries = [];
   bool _loaded = false;
 
+  /// Fires after a new entry is successfully enqueued.
+  /// Used by the upload progress notifier to trigger immediate processing.
+  void Function()? onNewEntry;
+
   static const int maxRetries = 10;
   static const String _fileName = 'upload_queue.json';
 
@@ -123,13 +127,23 @@ class UploadQueue {
       'Enqueued $mediaType $mediaId for job $jobId',
       name: 'UploadQueue',
     );
+
+    onNewEntry?.call();
   }
 
   /// Returns the next eligible entry, or null if the queue is drained.
-  Future<UploadQueueEntry?> nextPending() async {
+  ///
+  /// When [isEligible] is provided, only entries that pass both the base
+  /// processability check and the custom filter are returned. This is used
+  /// by the background upload service to enforce exponential backoff timing.
+  Future<UploadQueueEntry?> nextPending({
+    bool Function(UploadQueueEntry)? isEligible,
+  }) async {
     await _ensureLoaded();
     for (final entry in _entries) {
-      if (_isProcessable(entry)) return entry;
+      if (!_isProcessable(entry)) continue;
+      if (isEligible != null && !isEligible(entry)) continue;
+      return entry;
     }
     return null;
   }
@@ -166,10 +180,16 @@ class UploadQueue {
 
   /// Processes the next eligible entry using [controller].
   ///
+  /// When [isEligible] is provided, it filters which entries are considered
+  /// ready for processing (e.g., respecting exponential backoff timing).
+  ///
   /// Returns true if an entry was processed (success or failure),
   /// false if no eligible entries remain.
-  Future<bool> processNext(UploadController controller) async {
-    final entry = await nextPending();
+  Future<bool> processNext(
+    UploadController controller, {
+    bool Function(UploadQueueEntry)? isEligible,
+  }) async {
+    final entry = await nextPending(isEligible: isEligible);
     if (entry == null) return false;
 
     await markUploading(entry.id);
@@ -219,9 +239,12 @@ class UploadQueue {
   /// Processes all eligible entries sequentially.
   ///
   /// Returns the number of entries processed.
-  Future<int> processAll(UploadController controller) async {
+  Future<int> processAll(
+    UploadController controller, {
+    bool Function(UploadQueueEntry)? isEligible,
+  }) async {
     var processed = 0;
-    while (await processNext(controller)) {
+    while (await processNext(controller, isEligible: isEligible)) {
       processed++;
     }
     return processed;

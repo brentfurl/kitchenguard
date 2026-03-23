@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Steps 4a-4b complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Steps 4a-4c complete).
 
 Core capabilities complete:
 
@@ -583,9 +583,9 @@ Phase 4 completed steps:
 - Step 3: Firestore for scheduling data — `cloud_firestore` package, `clientId` field on `Job` model, `CloudJobRepository` (wraps local + mirrors to Firestore), `CloudDayNoteRepository` and `CloudDayScheduleRepository` (pure Firestore), `firestore.rules` security rules, hybrid provider wiring (authenticated → cloud repos, unauthenticated → local repos).
 - Step 4a: Firebase Storage structure + basic upload — `firebase_storage` and `connectivity_plus` packages, `syncStatus`/`cloudUrl`/`uploadedBy` fields on `PhotoRecord` and `VideoRecord`, `StorageService` (Firebase Storage wrapper with upload/delete/getUrl), `UploadController` (coordinates single-file upload + sync status persistence), `storage.rules` (auth-gated, 10MB photo / 100MB video limits), `storageServiceProvider` and `uploadControllerProvider` wiring.
 - Step 4b: Upload queue + offline persistence — `UploadQueueEntry` model, `UploadQueue` service (persistent JSON queue at `KitchenCleaningJobs/upload_queue.json`), auto-enqueue after photo/video capture in `JobsService`, queue processor (`processNext`/`processAll` via `UploadController`), `uploadQueueProvider` wiring, fixed `movePhotos` sync field preservation for same-unit moves.
+- Step 4c: Background upload service — `workmanager` package, `BackgroundUploadService` (connectivity check, exponential backoff 1m-30m cap), `UploadProgressNotifier` + `uploadProgressProvider` (Riverpod state for UI), workmanager periodic task (15-min), sync status indicator in Jobs Home AppBar (pending badge + processing spinner), `UploadQueue.onNewEntry` callback for immediate post-capture upload trigger.
 
 Phase 4 remaining:
-- Step 4c: Background upload service (workmanager, retry with backoff, connectivity check, progress UI)
 - Step 4d: Multi-device coordination (uploadedBy attribution, append-only merge)
 - Step 4e: Download and caching (manager/web viewing, cached_network_image)
 - Step 4f: Storage security rules refinement (if needed)
@@ -759,7 +759,18 @@ Auto-enqueue hooks in `JobsService`:
 - `persistAndRecordPreCleanLayoutPhoto`
 - `persistAndRecordVideo`
 
-On load, stale 'uploading' entries (app killed mid-upload) are reset to 'pending'. Duplicate detection prevents re-enqueuing the same media.
+On load, stale 'uploading' entries (app killed mid-upload) are reset to 'pending'. Duplicate detection prevents re-enqueuing the same media. `onNewEntry` callback triggers immediate upload attempt after capture.
+
+## Background Upload
+
+Uploads are processed automatically via three triggers:
+1. **Immediate** — `UploadQueue.onNewEntry` callback fires after each capture, triggering `UploadProgressNotifier` to process the queue
+2. **Periodic background** — workmanager task runs every ~15 minutes with network constraint
+3. **Manual** — user taps the sync indicator in Jobs Home AppBar
+
+Processing checks connectivity before each item and applies exponential backoff for failed retries (1 min, 2 min, 4 min, ... capped at 30 min). Max 10 retries per entry.
+
+The workmanager callback runs in a separate isolate and rebuilds its own Firebase/repository/service stack since Riverpod state isn't shared across isolates.
 
 ## Key Storage Files
 
@@ -768,8 +779,10 @@ storage.rules                                    — Firebase Storage security r
 lib/services/storage_service.dart                — Firebase Storage wrapper (upload, delete, getUrl)
 lib/services/upload_controller.dart              — coordinates single-file upload + sync status updates
 lib/services/upload_queue.dart                   — persistent upload queue + processor
+lib/services/background_upload_service.dart      — backoff logic, connectivity checks, workmanager callback
 lib/domain/models/upload_queue_entry.dart        — queue entry model
 lib/providers/service_providers.dart             — storageServiceProvider, uploadControllerProvider, uploadQueueProvider
+lib/providers/upload_progress_provider.dart      — UploadProgressNotifier + uploadProgressProvider (UI state)
 lib/domain/models/photo_record.dart              — syncStatus, cloudUrl, uploadedBy fields
 lib/domain/models/video_record.dart              — syncStatus, cloudUrl, uploadedBy fields
 ```
