@@ -28,6 +28,7 @@ class Job {
     this.alarmCode,
     this.hoodCount,
     this.fanCount,
+    this.clientId,
   });
 
   final String jobId;
@@ -38,15 +39,16 @@ class Job {
   final int schemaVersion;
   final String? scheduledDate;
   final int? sortOrder;
-  final String? completedAt; // ISO 8601 UTC, null = not complete
+  final String? completedAt;
   final String? address;
   final String? city;
-  final String? accessType; // no-key, get-key-from-shop, key-hidden, lockbox
+  final String? accessType;
   final String? accessNotes;
   final bool? hasAlarm;
   final String? alarmCode;
   final int? hoodCount;
   final int? fanCount;
+  final String? clientId;
   final List<Unit> units;
   final List<JobNote> notes;
   final List<ManagerJobNote> managerNotes;
@@ -91,6 +93,7 @@ class Job {
       alarmCode: json['alarmCode'] as String?,
       hoodCount: json['hoodCount'] as int?,
       fanCount: json['fanCount'] as int?,
+      clientId: json['clientId'] as String?,
       units: unitList,
       notes: noteList,
       managerNotes: managerNoteList,
@@ -117,6 +120,7 @@ class Job {
       if (alarmCode != null) 'alarmCode': alarmCode,
       if (hoodCount != null) 'hoodCount': hoodCount,
       if (fanCount != null) 'fanCount': fanCount,
+      if (clientId != null) 'clientId': clientId,
       'schemaVersion': schemaVersion,
       'units': units.map((u) => u.toJson()).toList(),
       'notes': notes.map((n) => n.toJson()).toList(),
@@ -145,6 +149,7 @@ class Job {
     int? sortOrder,
     int? hoodCount,
     int? fanCount,
+    String? clientId,
     List<Unit>? units,
     List<JobNote>? notes,
     List<ManagerJobNote>? managerNotes,
@@ -168,6 +173,7 @@ class Job {
       alarmCode: alarmCode ?? this.alarmCode,
       hoodCount: hoodCount ?? this.hoodCount,
       fanCount: fanCount ?? this.fanCount,
+      clientId: clientId ?? this.clientId,
       schemaVersion: schemaVersion ?? this.schemaVersion,
       units: units ?? this.units,
       notes: notes ?? this.notes,

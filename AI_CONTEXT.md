@@ -108,6 +108,7 @@ job
  ├ alarmCode          (String?, nullable)
  ├ hoodCount          (int?, nullable)
  ├ fanCount           (int?, nullable)
+ ├ clientId           (String?, nullable — reserved for future Client entity)
  ├ schemaVersion      (integer, current = 3)
  ├ units[]
  ├ preCleanLayoutPhotos[]
@@ -118,7 +119,7 @@ job
       └ other[]
 ```
 
-New fields (address, city, accessType, accessNotes, hasAlarm, alarmCode, hoodCount, fanCount) are all nullable and backward-compatible — omitted from JSON when null, defaulting to null on read. Schema version remains 3.
+New fields (address, city, accessType, accessNotes, hasAlarm, alarmCode, hoodCount, fanCount, clientId) are all nullable and backward-compatible — omitted from JSON when null, defaulting to null on read. Schema version remains 3.
 
 Each unit contains:
 
@@ -543,7 +544,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-2 complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete).
 
 Core capabilities complete:
 
@@ -566,14 +567,15 @@ Core capabilities complete:
 - Firebase Auth (email/password) with auth gate and role picker
 - user-level roles via Firebase custom claims (manager / technician)
 - batch photo move (multi-select gallery, move between units/sub-phases)
+- Firestore scheduling data (cloud repositories, hybrid wiring, security rules)
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
 - Step 1: Firebase project setup — Firebase project `kitchenguard-8e288` created, FlutterFire CLI configured for Android/iOS/Web, `firebase_core` added, `Firebase.initializeApp()` in `main.dart`.
 - Step 2: Firebase Auth + roles — `firebase_auth` and `cloud_functions` packages, `AuthService` wrapper, `authStateProvider` / `authServiceProvider`, auth gate in `app.dart` (AuthScreen → role picker → JobsHome), `AppRoleNotifier` reads from Firebase ID token custom claims with SharedPreferences fallback, `setUserRole` Cloud Function for custom claims.
+- Step 3: Firestore for scheduling data — `cloud_firestore` package, `clientId` field on `Job` model, `CloudJobRepository` (wraps local + mirrors to Firestore), `CloudDayNoteRepository` and `CloudDayScheduleRepository` (pure Firestore), `firestore.rules` security rules, hybrid provider wiring (authenticated → cloud repos, unauthenticated → local repos).
 
 Phase 4 remaining:
-- Step 3: Firestore for scheduling data (schema design, cloud repositories, `clientId` on Job)
 - Step 4: Firebase Storage + upload infrastructure (photo sync status, upload queue, background uploads)
 - Step 5: Sync engine (scheduling cloud-first, documentation device-first)
 - Step 6: Flutter web management dashboard
@@ -624,6 +626,51 @@ functions/index.js                     — setUserRole Cloud Function
 ## Sign-Out
 
 Sign-out button in JobsHome AppBar. Clears local role cache and signs out of Firebase Auth.
+
+---
+
+# Firestore Schema
+
+Firestore stores scheduling data for cross-device access. Media files remain on the local filesystem (synced via Firebase Storage in Step 4).
+
+```
+jobs/{jobId}                      — full job metadata (mirrors job.json)
+dayNotes/{date}                   — { notes: [...DayNote objects] }
+daySchedules/{date}               — { shopMeetupTime, firstRestaurantName, firstArrivalTime }
+users/{userId}                    — reserved (email, displayName, role, createdAt)
+clients/{clientId}                — reserved (empty, denied by rules)
+```
+
+## Hybrid Repository Pattern
+
+Repository providers switch implementation based on auth state:
+
+- **Authenticated**: `CloudJobRepository` wraps local repo and mirrors writes to Firestore. `CloudDayNoteRepository` / `CloudDayScheduleRepository` use Firestore directly (with built-in offline cache).
+- **Not authenticated**: All repos use local filesystem implementations (pre-Step 3 behavior).
+
+This is transparent to `JobsService` and all upstream callers — the repository interface is unchanged.
+
+## Cloud Read/Write Flow
+
+- **Jobs**: reads always from local (fast, offline-first); writes go to local first, then Firestore (fire-and-forget with Firestore offline queueing). Cloud-to-local pull via `CloudJobRepository.fetchCloudJobs()` on app-open / pull-to-refresh.
+- **DayNotes / DaySchedules**: when authenticated, reads and writes go directly to Firestore (offline cache handles offline reads, writes queue automatically).
+
+## Key Firestore Files
+
+```
+firestore.rules                                             — security rules
+lib/data/repositories/cloud_job_repository.dart             — hybrid local+Firestore JobRepository
+lib/data/repositories/cloud_day_note_repository.dart        — Firestore DayNoteRepository
+lib/data/repositories/cloud_day_schedule_repository.dart    — Firestore DayScheduleRepository
+lib/providers/repository_providers.dart                     — auth-based provider switching
+```
+
+## Security Rules Summary
+
+- Any authenticated user can read/write jobs
+- Only managers can write dayNotes and daySchedules
+- Any authenticated user can read dayNotes and daySchedules
+- `clients` collection is denied (reserved for future)
 
 ---
 

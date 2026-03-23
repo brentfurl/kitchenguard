@@ -1,5 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/repositories/cloud_day_note_repository.dart';
+import '../data/repositories/cloud_day_schedule_repository.dart';
+import '../data/repositories/cloud_job_repository.dart';
 import '../data/repositories/day_note_repository.dart';
 import '../data/repositories/day_schedule_repository.dart';
 import '../data/repositories/job_repository.dart';
@@ -14,6 +18,7 @@ import '../storage/image_file_store.dart';
 import '../storage/job_scanner.dart';
 import '../storage/job_store.dart';
 import '../storage/video_file_store.dart';
+import 'auth_provider.dart';
 
 /// Shared [AppPaths] instance.
 final appPathsProvider = Provider<AppPaths>((ref) => AppPaths());
@@ -47,8 +52,8 @@ final jobScannerProvider = Provider<JobScanner>((ref) {
   );
 });
 
-/// The [JobRepository] exposed to the service layer.
-final jobRepositoryProvider = Provider<JobRepository>((ref) {
+/// Filesystem-only [JobRepository] — always available regardless of auth.
+final localJobRepositoryProvider = Provider<LocalJobRepository>((ref) {
   return LocalJobRepository(
     paths: ref.watch(appPathsProvider),
     jobStore: ref.watch(jobStoreProvider),
@@ -58,8 +63,38 @@ final jobRepositoryProvider = Provider<JobRepository>((ref) {
   );
 });
 
+/// The [JobRepository] exposed to the service layer.
+///
+/// When authenticated, wraps the local repo in [CloudJobRepository] so that
+/// every job save is mirrored to Firestore. When not authenticated, uses the
+/// local repo directly.
+final jobRepositoryProvider = Provider<JobRepository>((ref) {
+  final localRepo = ref.watch(localJobRepositoryProvider);
+  final user = ref.watch(authStateProvider).valueOrNull;
+
+  if (user != null) {
+    return CloudJobRepository(
+      local: localRepo,
+      firestore: FirebaseFirestore.instance,
+    );
+  }
+
+  return localRepo;
+});
+
 /// The [DayNoteRepository] exposed to the service layer.
+///
+/// When authenticated, uses Firestore (with built-in offline cache).
+/// When not authenticated, falls back to the local JSON file.
 final dayNoteRepositoryProvider = Provider<DayNoteRepository>((ref) {
+  final user = ref.watch(authStateProvider).valueOrNull;
+
+  if (user != null) {
+    return CloudDayNoteRepository(
+      firestore: FirebaseFirestore.instance,
+    );
+  }
+
   return LocalDayNoteRepository(
     dayNoteStore: ref.watch(dayNoteStoreProvider),
   );
@@ -71,7 +106,18 @@ final dayScheduleStoreProvider = Provider<DayScheduleStore>((ref) {
 });
 
 /// The [DayScheduleRepository] exposed to the service layer.
+///
+/// When authenticated, uses Firestore (with built-in offline cache).
+/// When not authenticated, falls back to the local JSON file.
 final dayScheduleRepositoryProvider = Provider<DayScheduleRepository>((ref) {
+  final user = ref.watch(authStateProvider).valueOrNull;
+
+  if (user != null) {
+    return CloudDayScheduleRepository(
+      firestore: FirebaseFirestore.instance,
+    );
+  }
+
   return LocalDayScheduleRepository(
     dayScheduleStore: ref.watch(dayScheduleStoreProvider),
   );

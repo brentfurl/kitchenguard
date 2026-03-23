@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function hasRole(role) {
+      return isSignedIn() && request.auth.token.role == role;
+    }
+    function isManager() {
+      return hasRole('manager');
+    }
+
+    // Users — each user can write their own profile; any auth'd user can read.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Jobs — any auth'd user can read; managers and technicians can write.
+    // Field-level restrictions (techs write documentation only) deferred to
+    // application logic until the sync engine (Step 5) needs them.
+    match /jobs/{jobId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Day notes — scheduling data, manager-written.
+    match /dayNotes/{date} {
+      allow read: if isSignedIn();
+      allow write: if isManager();
+    }
+
+    // Day schedules — scheduling data, manager-written.
+    match /daySchedules/{date} {
+      allow read: if isSignedIn();
+      allow write: if isManager();
+    }
+
+    // Clients — reserved for future use.
+    match /clients/{clientId} {
+      allow read, write: if false;
+    }
+  }
+}
