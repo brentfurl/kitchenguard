@@ -12,6 +12,7 @@ import '../domain/models/manager_job_note.dart';
 import '../providers/app_role_provider.dart';
 import '../providers/day_notes_provider.dart';
 import '../providers/day_schedule_provider.dart';
+import '../providers/job_detail_provider.dart';
 import '../providers/job_list_provider.dart';
 import '../providers/service_providers.dart';
 import '../storage/job_scanner.dart';
@@ -758,11 +759,15 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           ),
           onMutated: () async {
             ref.invalidate(jobListProvider);
+            ref.invalidate(jobDetailProvider(result.jobDir.path));
           },
         ),
       ),
     );
-    if (mounted) ref.invalidate(jobListProvider);
+    if (mounted) {
+      ref.invalidate(jobListProvider);
+      ref.invalidate(jobDetailProvider(result.jobDir.path));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1191,7 +1196,6 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           ReorderableListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            buildDefaultDragHandles: false,
             padding: const EdgeInsets.symmetric(vertical: 4),
             itemCount: jobs.length,
             onReorder: (oldIndex, newIndex) {
@@ -1203,7 +1207,6 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                 context,
                 key: ValueKey(jobs[i].job.jobId),
                 result: jobs[i],
-                index: i,
               );
             },
           ),
@@ -1535,7 +1538,6 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     BuildContext context, {
     required Key key,
     required JobScanResult result,
-    required int index,
   }) {
     final job = result.job;
     final restaurant =
@@ -1664,24 +1666,20 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  ReorderableDragStartListener(
-                    index: index,
-                    child: const Icon(Icons.drag_handle, size: 20),
-                  ),
                   if (job.managerNotes.where((n) => n.isActive).isNotEmpty)
                     GestureDetector(
                       onTap: () => _openManagerNotesScreen(result),
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        padding: const EdgeInsets.only(top: 2, bottom: 4),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.note_alt_outlined,
-                                size: 14, color: colorScheme.onSurfaceVariant),
+                                size: 18, color: colorScheme.onSurfaceVariant),
                             const SizedBox(width: 2),
                             Text(
                               '${job.managerNotes.where((n) => n.isActive).length}',
-                              style: textTheme.labelSmall?.copyWith(
+                              style: textTheme.labelMedium?.copyWith(
                                 color: colorScheme.onSurfaceVariant,
                               ),
                             ),
