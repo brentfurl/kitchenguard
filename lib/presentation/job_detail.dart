@@ -886,6 +886,8 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             accessNotes: job.accessNotes,
             hasAlarm: job.hasAlarm == true,
             alarmCode: job.alarmCode,
+            hoodCount: job.hoodCount ?? job.units.where((u) => u.type == 'hood').length,
+            fanCount: job.fanCount ?? job.units.where((u) => u.type == 'fan').length,
             isComplete: job.isComplete,
             jobNoteCount: managerNoteCount,
             fieldNoteCount: fieldNoteCount,
@@ -1110,6 +1112,8 @@ class _JobHeader extends StatelessWidget {
     this.accessNotes,
     this.hasAlarm = false,
     this.alarmCode,
+    this.hoodCount = 0,
+    this.fanCount = 0,
     required this.isComplete,
     required this.jobNoteCount,
     required this.fieldNoteCount,
@@ -1124,22 +1128,17 @@ class _JobHeader extends StatelessWidget {
   final String? accessNotes;
   final bool hasAlarm;
   final String? alarmCode;
+  final int hoodCount;
+  final int fanCount;
   final bool isComplete;
   final int jobNoteCount;
   final int fieldNoteCount;
   final VoidCallback onJobNotesTap;
   final VoidCallback onFieldNotesTap;
 
-  static const _accessIcons = <String, IconData>{
-    'no-key': Icons.lock_open_outlined,
-    'get-key-from-shop': Icons.store_outlined,
-    'key-hidden': Icons.vpn_key_outlined,
-    'lockbox': Icons.lock_outlined,
-  };
-
-  static const _accessLabels = <String, String>{
-    'no-key': 'No key',
-    'get-key-from-shop': 'Key from shop',
+  static const _accessTypeLabels = <String, String>{
+    'no-key': 'No key — meet after closing',
+    'get-key-from-shop': 'Get key from shop',
     'key-hidden': 'Key hidden',
     'lockbox': 'Lockbox',
   };
@@ -1148,6 +1147,29 @@ class _JobHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+
+    final unitParts = <String>[];
+    if (hoodCount > 0) unitParts.add('$hoodCount ${hoodCount == 1 ? "hood" : "hoods"}');
+    if (fanCount > 0) unitParts.add('$fanCount ${fanCount == 1 ? "fan" : "fans"}');
+    final unitSummary = unitParts.join(', ');
+
+    final accessLabel = accessType != null
+        ? _accessTypeLabels[accessType] ?? accessType!
+        : null;
+    final accessDetailParts = <String>[];
+    if (accessLabel != null) {
+      final withNotes = (accessNotes != null && accessNotes!.isNotEmpty)
+          ? '$accessLabel, $accessNotes'
+          : accessLabel;
+      accessDetailParts.add(withNotes);
+    }
+    if (hasAlarm) {
+      final alarmText = (alarmCode != null && alarmCode!.isNotEmpty)
+          ? 'Alarm, $alarmCode'
+          : 'Alarm';
+      accessDetailParts.add(alarmText);
+    }
+    final accessDetail = accessDetailParts.join(' · ');
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
@@ -1192,29 +1214,44 @@ class _JobHeader extends StatelessWidget {
                     ),
                   ),
                 ],
-                if (accessType != null) ...[
+                if (unitSummary.isNotEmpty || accessDetail.isNotEmpty) ...[
                   const SizedBox(height: 4),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
                     children: [
-                      Icon(
-                        _accessIcons[accessType] ?? Icons.key_outlined,
-                        size: 16,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          [
-                            _accessLabels[accessType] ?? accessType!,
-                            if (accessNotes != null && accessNotes!.isNotEmpty)
-                              accessNotes!,
-                            if (hasAlarm) 'Has alarm',
-                          ].join(' · '),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
+                      if (unitSummary.isNotEmpty)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.grid_view_outlined,
+                                size: 14, color: colorScheme.onSurfaceVariant),
+                            const SizedBox(width: 4),
+                            Text(
+                              unitSummary,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
+                      if (accessDetail.isNotEmpty)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.key_outlined,
+                                size: 14, color: colorScheme.onSurfaceVariant),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                accessDetail,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ],

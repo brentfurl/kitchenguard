@@ -709,6 +709,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       }
 
       ref.invalidate(jobListProvider);
+      ref.invalidate(jobDetailProvider(result.jobDir.path));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -1560,7 +1561,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     final accessDetailParts = <String>[];
     if (accessLabel != null) {
       final accessWithNotes = (job.accessNotes != null && job.accessNotes!.isNotEmpty)
-          ? '$accessLabel, "${job.accessNotes}"'
+          ? '$accessLabel, ${job.accessNotes}'
           : accessLabel;
       accessDetailParts.add(accessWithNotes);
     }
