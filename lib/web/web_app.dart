@@ -129,7 +129,8 @@ class _WebAuthGateState extends ConsumerState<_WebAuthGate> {
     _checkingClaims = true;
     try {
       await ref.read(appRoleProvider.notifier).refreshFromClaims();
-      await _ensureUserDoc();
+      // Fire-and-forget — don't block auth flow on Firestore write.
+      _ensureUserDoc();
     } finally {
       if (mounted) {
         setState(() {
