@@ -6,6 +6,9 @@ class VideoRecord {
     required this.capturedAt,
     required this.status,
     this.deletedAt,
+    this.syncStatus,
+    this.cloudUrl,
+    this.uploadedBy,
   });
 
   final String videoId;
@@ -15,8 +18,21 @@ class VideoRecord {
   final String status; // 'local' | 'deleted'
   final String? deletedAt;
 
+  /// Cloud sync status: 'pending' | 'uploading' | 'synced' | 'error'.
+  /// Null for videos that predate cloud sync (treated as 'pending').
+  final String? syncStatus;
+
+  /// Firebase Storage download URL, set after successful upload.
+  final String? cloudUrl;
+
+  /// UID of the user who uploaded this video to Storage.
+  final String? uploadedBy;
+
   bool get isActive => status == 'local';
   bool get isDeleted => status == 'deleted';
+  bool get isSynced => syncStatus == 'synced';
+  bool get needsUpload =>
+      isActive && syncStatus != 'synced' && syncStatus != 'uploading';
 
   factory VideoRecord.fromJson(Map<String, dynamic> json) {
     final rawStatus = (json['status'] ?? 'local').toString();
@@ -29,6 +45,9 @@ class VideoRecord {
       capturedAt: (json['capturedAt'] ?? '').toString(),
       status: normalizedStatus,
       deletedAt: json['deletedAt'] as String?,
+      syncStatus: json['syncStatus'] as String?,
+      cloudUrl: json['cloudUrl'] as String?,
+      uploadedBy: json['uploadedBy'] as String?,
     );
   }
 
@@ -40,6 +59,9 @@ class VideoRecord {
       'capturedAt': capturedAt,
       'status': status,
       if (deletedAt != null) 'deletedAt': deletedAt,
+      if (syncStatus != null) 'syncStatus': syncStatus,
+      if (cloudUrl != null) 'cloudUrl': cloudUrl,
+      if (uploadedBy != null) 'uploadedBy': uploadedBy,
     };
   }
 
@@ -50,6 +72,9 @@ class VideoRecord {
     String? capturedAt,
     String? status,
     String? deletedAt,
+    String? syncStatus,
+    String? cloudUrl,
+    String? uploadedBy,
   }) {
     return VideoRecord(
       videoId: videoId ?? this.videoId,
@@ -58,6 +83,9 @@ class VideoRecord {
       capturedAt: capturedAt ?? this.capturedAt,
       status: status ?? this.status,
       deletedAt: deletedAt ?? this.deletedAt,
+      syncStatus: syncStatus ?? this.syncStatus,
+      cloudUrl: cloudUrl ?? this.cloudUrl,
+      uploadedBy: uploadedBy ?? this.uploadedBy,
     );
   }
 }

@@ -1,0 +1,30 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Job media: jobs/{jobId}/...
+    // Mirrors local folder structure: Hoods/unit_folder/Before/photo.jpg, etc.
+    match /jobs/{jobId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+                   && request.resource.size < 10 * 1024 * 1024; // 10 MB photos
+    }
+
+    // Video uploads get a larger size limit.
+    match /jobs/{jobId}/Videos/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+                   && request.resource.size < 100 * 1024 * 1024; // 100 MB videos
+    }
+
+    // Deny everything else.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

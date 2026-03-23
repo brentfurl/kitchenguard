@@ -9,6 +9,9 @@ class PhotoRecord {
     required this.recovered,
     this.deletedAt,
     this.subPhase,
+    this.syncStatus,
+    this.cloudUrl,
+    this.uploadedBy,
   });
 
   final String photoId;
@@ -20,6 +23,16 @@ class PhotoRecord {
   final bool recovered;
   final String? deletedAt;
   final String? subPhase; // 'filters-on'/'filters-off' (hood), 'closed'/'open' (fan), null (misc)
+
+  /// Cloud sync status: 'pending' | 'uploading' | 'synced' | 'error'.
+  /// Null for photos that predate cloud sync (treated as 'pending').
+  final String? syncStatus;
+
+  /// Firebase Storage download URL, set after successful upload.
+  final String? cloudUrl;
+
+  /// UID of the user who uploaded this photo to Storage.
+  final String? uploadedBy;
 
   bool get isActive => status == 'local' && !missingLocal;
   bool get isDeleted => status == 'deleted';
@@ -41,6 +54,9 @@ class PhotoRecord {
       recovered: (json['recovered'] as bool?) ?? false,
       deletedAt: json['deletedAt'] as String?,
       subPhase: json['subPhase'] as String?,
+      syncStatus: json['syncStatus'] as String?,
+      cloudUrl: json['cloudUrl'] as String?,
+      uploadedBy: json['uploadedBy'] as String?,
     );
   }
 
@@ -55,8 +71,15 @@ class PhotoRecord {
       'recovered': recovered,
       if (deletedAt != null) 'deletedAt': deletedAt,
       if (subPhase != null) 'subPhase': subPhase,
+      if (syncStatus != null) 'syncStatus': syncStatus,
+      if (cloudUrl != null) 'cloudUrl': cloudUrl,
+      if (uploadedBy != null) 'uploadedBy': uploadedBy,
     };
   }
+
+  bool get isSynced => syncStatus == 'synced';
+  bool get needsUpload =>
+      isActive && syncStatus != 'synced' && syncStatus != 'uploading';
 
   PhotoRecord copyWith({
     String? photoId,
@@ -68,6 +91,9 @@ class PhotoRecord {
     bool? recovered,
     String? deletedAt,
     String? subPhase,
+    String? syncStatus,
+    String? cloudUrl,
+    String? uploadedBy,
   }) {
     return PhotoRecord(
       photoId: photoId ?? this.photoId,
@@ -79,6 +105,9 @@ class PhotoRecord {
       recovered: recovered ?? this.recovered,
       deletedAt: deletedAt ?? this.deletedAt,
       subPhase: subPhase ?? this.subPhase,
+      syncStatus: syncStatus ?? this.syncStatus,
+      cloudUrl: cloudUrl ?? this.cloudUrl,
+      uploadedBy: uploadedBy ?? this.uploadedBy,
     );
   }
 }

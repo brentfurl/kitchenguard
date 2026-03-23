@@ -150,6 +150,9 @@ missingLocal
 recovered
 deletedAt
 subPhase             (String?, null for misc; Phase 3 addition)
+syncStatus           (String?, 'pending'|'uploading'|'synced'|'error'; Step 4a addition)
+cloudUrl             (String?, Firebase Storage download URL; Step 4a addition)
+uploadedBy           (String?, uploader's UID; Step 4a addition)
 ```
 
 `subPhase` values by unit type:
@@ -166,6 +169,9 @@ relativePath
 capturedAt
 status
 deletedAt
+syncStatus           (String?, 'pending'|'uploading'|'synced'|'error'; Step 4a addition)
+cloudUrl             (String?, Firebase Storage download URL; Step 4a addition)
+uploadedBy           (String?, uploader's UID; Step 4a addition)
 ```
 
 Visible photos exclude:
@@ -544,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 in progress** (Steps 0-3 complete, Step 4a complete).
 
 Core capabilities complete:
 
@@ -568,15 +574,21 @@ Core capabilities complete:
 - user-level roles via Firebase custom claims (manager / technician)
 - batch photo move (multi-select gallery, move between units/sub-phases)
 - Firestore scheduling data (cloud repositories, hybrid wiring, security rules)
+- Firebase Storage upload infrastructure (sync status fields, StorageService, UploadController)
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
 - Step 1: Firebase project setup — Firebase project `kitchenguard-8e288` created, FlutterFire CLI configured for Android/iOS/Web, `firebase_core` added, `Firebase.initializeApp()` in `main.dart`.
 - Step 2: Firebase Auth + roles — `firebase_auth` and `cloud_functions` packages, `AuthService` wrapper, `authStateProvider` / `authServiceProvider`, auth gate in `app.dart` (AuthScreen → role picker → JobsHome), `AppRoleNotifier` reads from Firebase ID token custom claims with SharedPreferences fallback, `setUserRole` Cloud Function for custom claims.
 - Step 3: Firestore for scheduling data — `cloud_firestore` package, `clientId` field on `Job` model, `CloudJobRepository` (wraps local + mirrors to Firestore), `CloudDayNoteRepository` and `CloudDayScheduleRepository` (pure Firestore), `firestore.rules` security rules, hybrid provider wiring (authenticated → cloud repos, unauthenticated → local repos).
+- Step 4a: Firebase Storage structure + basic upload — `firebase_storage` and `connectivity_plus` packages, `syncStatus`/`cloudUrl`/`uploadedBy` fields on `PhotoRecord` and `VideoRecord`, `StorageService` (Firebase Storage wrapper with upload/delete/getUrl), `UploadController` (coordinates single-file upload + sync status persistence), `storage.rules` (auth-gated, 10MB photo / 100MB video limits), `storageServiceProvider` and `uploadControllerProvider` wiring.
 
 Phase 4 remaining:
-- Step 4: Firebase Storage + upload infrastructure (photo sync status, upload queue, background uploads)
+- Step 4b: Upload queue + offline persistence (persistent queue, auto-enqueue after capture)
+- Step 4c: Background upload service (workmanager, retry with backoff, connectivity check, progress UI)
+- Step 4d: Multi-device coordination (uploadedBy attribution, append-only merge)
+- Step 4e: Download and caching (manager/web viewing, cached_network_image)
+- Step 4f: Storage security rules refinement (if needed)
 - Step 5: Sync engine (scheduling cloud-first, documentation device-first)
 - Step 6: Flutter web management dashboard
 
@@ -671,6 +683,74 @@ lib/providers/repository_providers.dart                     — auth-based provi
 - Only managers can write dayNotes and daySchedules
 - Any authenticated user can read dayNotes and daySchedules
 - `clients` collection is denied (reserved for future)
+
+---
+
+# Firebase Storage Architecture
+
+Firebase Storage stores uploaded photos and videos. The local filesystem remains the source of truth; Storage is a cloud mirror for cross-device access and web viewing.
+
+## Storage Path Convention
+
+Upload paths mirror the local folder structure:
+
+```
+jobs/{jobId}/{relativePath}
+```
+
+Examples:
+
+```
+jobs/abc-123/Hoods/hood_1__unit-xyz/Before/photo_20260323_091500.jpg
+jobs/abc-123/Videos/Exit/Exit_video_20260323_120000.mp4
+jobs/abc-123/PreCleanLayout/photo_20260323_083000.jpg
+```
+
+This keeps Storage browsable and matches the local filesystem layout exactly.
+
+## Sync Status Fields
+
+`PhotoRecord` and `VideoRecord` each have three nullable cloud sync fields (backward-compatible — omitted from JSON when null):
+
+```
+syncStatus    String?   'pending' | 'uploading' | 'synced' | 'error' (null = pending)
+cloudUrl      String?   Firebase Storage download URL (set after successful upload)
+uploadedBy    String?   UID of the user who uploaded the file
+```
+
+Computed helpers on both models: `isSynced`, `needsUpload`.
+
+## Upload Flow
+
+```
+Photo captured → saved to local filesystem → PhotoRecord created (syncStatus null)
+    ↓
+UploadController.uploadPhoto(jobDir, jobId, photoId)
+    ↓
+Mark syncStatus = 'uploading' → save job
+    ↓
+StorageService.uploadPhoto → Firebase Storage PUT
+    ↓
+On success: syncStatus = 'synced', cloudUrl = downloadUrl, uploadedBy = uid → save job
+On failure: syncStatus = 'error' → save job (retry later via upload queue)
+```
+
+## Key Storage Files
+
+```
+storage.rules                                    — Firebase Storage security rules
+lib/services/storage_service.dart                — Firebase Storage wrapper (upload, delete, getUrl)
+lib/services/upload_controller.dart              — coordinates single-file upload + sync status updates
+lib/providers/service_providers.dart             — storageServiceProvider, uploadControllerProvider
+lib/domain/models/photo_record.dart              — syncStatus, cloudUrl, uploadedBy fields
+lib/domain/models/video_record.dart              — syncStatus, cloudUrl, uploadedBy fields
+```
+
+## Storage Security Rules
+
+- Any authenticated user can read from `jobs/{jobId}/...`
+- Any authenticated user can write to `jobs/{jobId}/...` (photos: 10MB limit, videos: 100MB limit)
+- Everything else is denied
 
 ---
 
