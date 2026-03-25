@@ -594,6 +594,26 @@ Phase 4 completed steps:
 
 All Phase 4/5/6 steps complete.
 
+### Device Testing Prep
+
+Firebase backend fully deployed to `kitchenguard-8e288`:
+- Cloud Function (`setUserRole`) live
+- Firestore security rules deployed
+- Firebase Storage initialized and security rules deployed
+- `.firebaserc` project alias created
+- `firebase.json` updated with `storage.rules` reference
+
+iOS build configuration fixes:
+- `Info.plist`: added `NSCameraUsageDescription`, `NSMicrophoneUsageDescription`, `NSPhotoLibraryUsageDescription`
+- `Info.plist`: added `UIBackgroundModes` (`fetch`, `processing`) and `BGTaskSchedulerPermittedIdentifiers` for workmanager
+- iOS deployment target raised from 13.0 to 14.0 (required by `workmanager_apple`)
+- CocoaPods + Podfile generated (Flutter 3.41.2 auto-created on first build)
+- `main_mobile.dart`: workmanager initialization wrapped in try-catch to prevent app startup hang if background task registration fails
+
+Tested on physical devices:
+- Android: Samsung Galaxy S24 Ultra (Android 16) — release build
+- iOS: iPhone (iOS 26.3) — release build
+
 ---
 
 # Authentication Architecture
