@@ -58,4 +58,18 @@ abstract class JobRepository {
   /// Returns the number of jobs that were merged.
   /// No-op (returns 0) for local-only repositories.
   Future<int> pullFromCloud() async => 0;
+
+  /// Merges a pre-fetched list of cloud [Job]s with local data.
+  ///
+  /// Same merge logic as [pullFromCloud] but skips the Firestore fetch,
+  /// useful when the caller already has the data (e.g. from a real-time
+  /// snapshot stream).
+  /// No-op (returns 0) for local-only repositories.
+  Future<int> mergeCloudJobs(List<Job> cloudJobs) async => 0;
+
+  /// Returns a real-time stream of all cloud job documents, or `null`
+  /// if this repository does not support cloud sync.
+  ///
+  /// Callers should subscribe and feed snapshots into [mergeCloudJobs].
+  Stream<List<Job>>? watchCloudJobs() => null;
 }

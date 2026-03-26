@@ -4,6 +4,7 @@ import 'dart:developer' as developer;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../domain/models/job.dart';
 import 'job_list_provider.dart';
 import 'repository_providers.dart';
 import 'upload_progress_provider.dart';
@@ -21,6 +22,7 @@ class SyncState {
   const SyncState({
     this.isOnline = true,
     this.isPulling = false,
+    this.isListening = false,
     this.lastPullTime,
     this.uploadPending = 0,
     this.isUploading = false,
@@ -28,16 +30,21 @@ class SyncState {
 
   final bool isOnline;
   final bool isPulling;
+
+  /// True while the Firestore real-time listener is active.
+  final bool isListening;
   final DateTime? lastPullTime;
   final int uploadPending;
   final bool isUploading;
 
-  bool get isSynced => !isPulling && !isUploading && uploadPending == 0;
+  bool get isSynced =>
+      !isPulling && !isUploading && uploadPending == 0 && isListening;
   bool get hasActivity => isPulling || isUploading;
 
   SyncState copyWith({
     bool? isOnline,
     bool? isPulling,
+    bool? isListening,
     DateTime? lastPullTime,
     int? uploadPending,
     bool? isUploading,
@@ -45,6 +52,7 @@ class SyncState {
     return SyncState(
       isOnline: isOnline ?? this.isOnline,
       isPulling: isPulling ?? this.isPulling,
+      isListening: isListening ?? this.isListening,
       lastPullTime: lastPullTime ?? this.lastPullTime,
       uploadPending: uploadPending ?? this.uploadPending,
       isUploading: isUploading ?? this.isUploading,
@@ -52,11 +60,15 @@ class SyncState {
   }
 }
 
-/// Coordinates pull (Firestore → local) and monitors connectivity.
+/// Coordinates real-time Firestore sync and monitors connectivity.
 ///
-/// - Auto-pulls on initialization (app open)
-/// - Runs a periodic pull every [_pullInterval] when online
-/// - Monitors connectivity changes and triggers pull on reconnect
+/// Phase 7 upgrade: replaced 5-minute polling with Firestore `.snapshots()`
+/// real-time listener. Changes from any device now appear within seconds.
+///
+/// - Subscribes to the Firestore `jobs` collection stream on init
+/// - Debounces rapid snapshot events (1 second) to batch filesystem I/O
+/// - Monitors connectivity changes for the offline banner
+/// - Keeps [pullNow] for manual sync triggers (pull-to-refresh, tap)
 /// - Merges upload progress state from [uploadProgressProvider]
 class SyncNotifier extends StateNotifier<SyncState> {
   SyncNotifier({
@@ -66,11 +78,13 @@ class SyncNotifier extends StateNotifier<SyncState> {
   }
 
   final Ref ref;
-  Timer? _periodicTimer;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
-  bool _hasCompletedInitialPull = false;
+  StreamSubscription<List<Job>>? _cloudJobsSub;
+  Timer? _debounceTimer;
+  List<Job>? _pendingCloudJobs;
+  bool _isMerging = false;
 
-  static const _pullInterval = Duration(minutes: 5);
+  static const _debounceDelay = Duration(seconds: 1);
 
   void _init() {
     _connectivitySub = Connectivity().onConnectivityChanged.listen(
@@ -80,44 +94,97 @@ class SyncNotifier extends StateNotifier<SyncState> {
     Connectivity().checkConnectivity().then((results) {
       final online = !results.contains(ConnectivityResult.none);
       state = state.copyWith(isOnline: online);
-      if (online) _initialPull();
+      _subscribeToCloudJobs();
     });
   }
 
   void _onConnectivityChanged(List<ConnectivityResult> results) {
     final online = !results.contains(ConnectivityResult.none);
-    final wasOffline = !state.isOnline;
     state = state.copyWith(isOnline: online);
+  }
 
-    if (online && wasOffline) {
-      pullNow();
+  // ---------------------------------------------------------------------------
+  // Real-time Firestore listener
+  // ---------------------------------------------------------------------------
+
+  void _subscribeToCloudJobs() {
+    _cloudJobsSub?.cancel();
+
+    final stream = ref.read(jobRepositoryProvider).watchCloudJobs();
+    if (stream == null) {
+      developer.log(
+        'Repository does not support cloud watch — skipping listener',
+        name: 'SyncNotifier',
+      );
+      return;
+    }
+
+    state = state.copyWith(isListening: true);
+    _cloudJobsSub = stream.listen(
+      _onCloudSnapshot,
+      onError: (Object e, StackTrace st) {
+        developer.log(
+          'Cloud jobs stream error: $e',
+          name: 'SyncNotifier',
+          error: e,
+          stackTrace: st,
+        );
+      },
+    );
+  }
+
+  /// Debounces incoming snapshots so rapid writes (e.g. manager creating
+  /// several jobs) are batched into a single merge + UI refresh.
+  void _onCloudSnapshot(List<Job> cloudJobs) {
+    _pendingCloudJobs = cloudJobs;
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(_debounceDelay, _processPendingSnapshot);
+  }
+
+  Future<void> _processPendingSnapshot() async {
+    final jobs = _pendingCloudJobs;
+    if (jobs == null) return;
+    _pendingCloudJobs = null;
+
+    if (_isMerging) return;
+    _isMerging = true;
+    state = state.copyWith(isPulling: true);
+
+    try {
+      final repo = ref.read(jobRepositoryProvider);
+      await repo.mergeCloudJobs(jobs);
+      await ref.read(jobListProvider.notifier).reload();
+      ref.read(pullVersionProvider.notifier).state++;
+      state = state.copyWith(
+        isPulling: false,
+        lastPullTime: DateTime.now(),
+      );
+    } catch (e, st) {
+      developer.log(
+        'Real-time merge failed: $e',
+        name: 'SyncNotifier',
+        error: e,
+        stackTrace: st,
+      );
+      state = state.copyWith(isPulling: false);
+    } finally {
+      _isMerging = false;
     }
   }
 
-  Future<void> _initialPull() async {
-    if (_hasCompletedInitialPull) return;
-    _hasCompletedInitialPull = true;
-    await pullNow();
-    _startPeriodicPull();
-  }
+  // ---------------------------------------------------------------------------
+  // Manual pull (pull-to-refresh, tap sync indicator)
+  // ---------------------------------------------------------------------------
 
-  void _startPeriodicPull() {
-    _periodicTimer?.cancel();
-    _periodicTimer = Timer.periodic(_pullInterval, (_) {
-      if (state.isOnline && !state.isPulling) {
-        pullNow();
-      }
-    });
-  }
-
-  /// Triggers an immediate Firestore pull and job list reload.
+  /// Triggers an immediate Firestore fetch-and-merge.
   ///
   /// After a successful pull, bumps [pullVersionProvider] so that any
   /// active [jobDetailProvider] instances rebuild with the merged data.
   Future<void> pullNow() async {
-    if (state.isPulling) return;
+    if (_isMerging) return;
     if (!state.isOnline) return;
 
+    _isMerging = true;
     state = state.copyWith(isPulling: true);
     try {
       await ref.read(jobRepositoryProvider).pullFromCloud();
@@ -135,8 +202,14 @@ class SyncNotifier extends StateNotifier<SyncState> {
         stackTrace: st,
       );
       state = state.copyWith(isPulling: false);
+    } finally {
+      _isMerging = false;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Upload state bridge
+  // ---------------------------------------------------------------------------
 
   /// Updates upload-side state from [UploadProgressState].
   void updateUploadState(UploadProgressState uploadState) {
@@ -148,7 +221,8 @@ class SyncNotifier extends StateNotifier<SyncState> {
 
   @override
   void dispose() {
-    _periodicTimer?.cancel();
+    _debounceTimer?.cancel();
+    _cloudJobsSub?.cancel();
     _connectivitySub?.cancel();
     super.dispose();
   }

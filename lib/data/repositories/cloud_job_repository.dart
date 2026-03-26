@@ -129,10 +129,42 @@ class CloudJobRepository implements JobRepository {
   }
 
   // ---------------------------------------------------------------------------
+  // Real-time stream (Phase 7)
+  // ---------------------------------------------------------------------------
+
+  @override
+  Stream<List<Job>> watchCloudJobs() {
+    return _jobs.snapshots().map((snapshot) {
+      return snapshot.docs
+          .map((doc) => Job.fromJson(doc.data()))
+          .toList();
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Cloud pull + merge
   // ---------------------------------------------------------------------------
 
   /// Fetches all jobs from Firestore and reconciles with local data.
+  ///
+  /// Delegates to [mergeCloudJobs] after fetching.
+  @override
+  Future<int> pullFromCloud() async {
+    try {
+      final cloudJobs = await fetchCloudJobs();
+      return await mergeCloudJobs(cloudJobs);
+    } catch (e, st) {
+      developer.log(
+        'pullFromCloud failed: $e',
+        name: 'CloudJobRepository',
+        error: e,
+        stackTrace: st,
+      );
+      return 0;
+    }
+  }
+
+  /// Merges [cloudJobs] with local data.
   ///
   /// **Existing local jobs** are merged using append-only union for
   /// documentation data and last-write-wins for scheduling fields.
@@ -141,14 +173,13 @@ class CloudJobRepository implements JobRepository {
   /// they appear in the job list. Media files stay cloud-only and are
   /// viewable via [CloudAwareImage] / network video playback (Step 4e).
   ///
-  /// Merged/provisioned results are saved to the local filesystem only
-  /// (no re-push to Firestore to avoid redundant writes).
+  /// Results are saved to the local filesystem only (no re-push to
+  /// Firestore to avoid write loops).
   @override
-  Future<int> pullFromCloud() async {
-    try {
-      final cloudJobs = await fetchCloudJobs();
-      if (cloudJobs.isEmpty) return 0;
+  Future<int> mergeCloudJobs(List<Job> cloudJobs) async {
+    if (cloudJobs.isEmpty) return 0;
 
+    try {
       final localResults = await _local.loadAllJobs();
       final localMap = <String, JobScanResult>{};
       for (final result in localResults) {
@@ -175,7 +206,7 @@ class CloudJobRepository implements JobRepository {
       return mergedCount;
     } catch (e, st) {
       developer.log(
-        'pullFromCloud failed: $e',
+        'mergeCloudJobs failed: $e',
         name: 'CloudJobRepository',
         error: e,
         stackTrace: st,
