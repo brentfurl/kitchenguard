@@ -8,6 +8,11 @@ import 'job_list_provider.dart';
 import 'repository_providers.dart';
 import 'upload_progress_provider.dart';
 
+/// Incremented after every successful pull so that family providers
+/// (e.g. [jobDetailProvider]) that watch it automatically rebuild
+/// with the freshly merged data.
+final pullVersionProvider = StateProvider<int>((_) => 0);
+
 /// Combined sync state exposed to the UI.
 ///
 /// Tracks both the Firestore pull side (scheduling data) and the
@@ -106,6 +111,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
   }
 
   /// Triggers an immediate Firestore pull and job list reload.
+  ///
+  /// After a successful pull, bumps [pullVersionProvider] so that any
+  /// active [jobDetailProvider] instances rebuild with the merged data.
   Future<void> pullNow() async {
     if (state.isPulling) return;
     if (!state.isOnline) return;
@@ -114,6 +122,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
     try {
       await ref.read(jobRepositoryProvider).pullFromCloud();
       await ref.read(jobListProvider.notifier).reload();
+      ref.read(pullVersionProvider.notifier).state++;
       state = state.copyWith(
         isPulling: false,
         lastPullTime: DateTime.now(),

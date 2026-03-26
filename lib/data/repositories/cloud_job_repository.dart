@@ -165,6 +165,7 @@ class CloudJobRepository implements JobRepository {
             cloud: cloudJob,
           );
           await _local.saveJob(localResult.jobDir, merged);
+          await _provisionUnitFolders(localResult.jobDir, merged);
         } else {
           await _provisionCloudOnlyJob(cloudJob);
         }
@@ -200,7 +201,9 @@ class CloudJobRepository implements JobRepository {
 
       if (await Directory(jobPath).exists()) return;
 
-      await _local.createJobFolder(jobPath: jobPath, job: cloudJob);
+      final jobDir =
+          await _local.createJobFolder(jobPath: jobPath, job: cloudJob);
+      await _provisionUnitFolders(jobDir, cloudJob);
       developer.log(
         'Provisioned cloud-only job: ${cloudJob.restaurantName} → $folderName',
         name: 'CloudJobRepository',
@@ -212,6 +215,30 @@ class CloudJobRepository implements JobRepository {
         error: e,
         stackTrace: st,
       );
+    }
+  }
+
+  /// Creates Before/ and After/ folders for any units whose directories
+  /// don't exist locally. Needed when cloud-only units arrive via merge.
+  Future<void> _provisionUnitFolders(Directory jobDir, Job job) async {
+    for (final unit in job.units) {
+      final category = AppPaths.categoryForUnitType(unit.type);
+      if (category == null || unit.unitFolderName.isEmpty) continue;
+
+      final unitPath = p.join(jobDir.path, category, unit.unitFolderName);
+      final beforeDir = Directory(p.join(unitPath, AppPaths.beforeFolderName));
+      final afterDir = Directory(p.join(unitPath, AppPaths.afterFolderName));
+
+      if (!await beforeDir.exists()) {
+        await beforeDir.create(recursive: true);
+        developer.log(
+          'Provisioned unit folder: $category/${unit.unitFolderName}',
+          name: 'CloudJobRepository',
+        );
+      }
+      if (!await afterDir.exists()) {
+        await afterDir.create(recursive: true);
+      }
     }
   }
 

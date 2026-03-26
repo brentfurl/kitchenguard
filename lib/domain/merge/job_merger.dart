@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'dart:math' as math;
 
 import '../models/job.dart';
@@ -30,7 +31,14 @@ class JobMerger {
     final cloudUpdated = DateTime.tryParse(cloud.updatedAt ?? '');
     final cloudIsNewer = _isAfter(cloudUpdated, localUpdated);
 
-    // Scheduling fields come from whichever version was updated more recently.
+    developer.log(
+      'Merging ${local.restaurantName}: '
+      'local ${local.units.length} units / ${local.preCleanLayoutPhotos.length} preclean, '
+      'cloud ${cloud.units.length} units / ${cloud.preCleanLayoutPhotos.length} preclean, '
+      'sched winner=${cloudIsNewer ? "cloud" : "local"}',
+      name: 'JobMerger',
+    );
+
     final sched = cloudIsNewer ? cloud : local;
 
     return Job(
@@ -78,9 +86,19 @@ class JobMerger {
       seenIds.add(lu.unitId);
       final cu = cloudMap[lu.unitId];
       if (cu != null) {
+        final mergedBefore = _mergePhotos(lu.photosBefore, cu.photosBefore);
+        final mergedAfter = _mergePhotos(lu.photosAfter, cu.photosAfter);
+        final newBefore = mergedBefore.length - lu.photosBefore.length;
+        final newAfter = mergedAfter.length - lu.photosAfter.length;
+        if (newBefore > 0 || newAfter > 0) {
+          developer.log(
+            'Unit ${lu.name}: +$newBefore before, +$newAfter after photos from cloud',
+            name: 'JobMerger',
+          );
+        }
         merged.add(lu.copyWith(
-          photosBefore: _mergePhotos(lu.photosBefore, cu.photosBefore),
-          photosAfter: _mergePhotos(lu.photosAfter, cu.photosAfter),
+          photosBefore: mergedBefore,
+          photosAfter: mergedAfter,
         ));
       } else {
         merged.add(lu);
@@ -89,6 +107,11 @@ class JobMerger {
 
     for (final cu in cloud) {
       if (cu.unitId.isNotEmpty && !seenIds.contains(cu.unitId)) {
+        developer.log(
+          'Appending cloud-only unit: ${cu.name} (${cu.type}, '
+          '${cu.photosBefore.length}B/${cu.photosAfter.length}A photos)',
+          name: 'JobMerger',
+        );
         merged.add(cu);
       }
     }
@@ -118,10 +141,20 @@ class JobMerger {
       merged.add(cp != null ? _mergePhotoRecord(lp, cp) : lp);
     }
 
+    var cloudOnlyCount = 0;
     for (final cp in cloud) {
       if (cp.photoId.isNotEmpty && !seenIds.contains(cp.photoId)) {
         merged.add(cp);
+        cloudOnlyCount++;
       }
+    }
+    if (cloudOnlyCount > 0) {
+      developer.log(
+        'Appended $cloudOnlyCount cloud-only photo(s) '
+        '(with cloudUrl: '
+        '${cloud.where((p) => !seenIds.contains(p.photoId) && p.cloudUrl != null).length})',
+        name: 'JobMerger',
+      );
     }
 
     return merged;
