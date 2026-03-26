@@ -594,6 +594,22 @@ Phase 4 completed steps:
 
 All Phase 4/5/6 steps complete.
 
+### Post-Phase 6: Cross-Device Sync Bug Fixes
+
+Device testing on Samsung Galaxy S24 Ultra + iPhone revealed three sync bugs, all fixed:
+
+1. **Job Detail stale after pull** — `pullNow()` only reloaded `jobListProvider`, never refreshing `jobDetailProvider`. Fix: added `pullVersionProvider` (simple counter in `sync_provider.dart`); `jobDetailProvider.build()` watches it and auto-rebuilds when pull completes. This fixed note counters, unit cards, and photo visibility on the Job Detail screen after sync.
+
+2. **Cloud-only unit folders missing** — When `pullFromCloud()` merged a cloud-only unit into a local job, the unit's filesystem folders (`Before/`, `After/`) didn't exist. Fix: added `_provisionUnitFolders()` in `CloudJobRepository`, called after every merge-save and after cloud-only job provisioning. Creates `{category}/{unitFolderName}/Before/` and `After/` for any unit whose directory is missing.
+
+3. **Unit photos marked as missing_local** — `JobScanner._markMissingLocal()` checked if each photo's file existed on disk. Cloud-only photos (captured on another device, no local file) were marked `status: 'missing_local'`, `missingLocal: true` — making `isActive` return false and hiding them from the gallery. Pre-clean photos were unaffected because `_reconcilePhotosFromDisk` only processes the `units` array, not `preCleanLayoutPhotos`. Fix: skip the missing-local marking for photos that have a `cloudUrl` set (they're viewable via `CloudAwareImage`).
+
+4. **Merge diagnostics** — Added `developer.log` calls to `JobMerger` (merge summary, cloud-only units/photos appended, matched-unit photo gains) and `CloudJobRepository` (unit folder provisioning). Filterable by `JobMerger` / `CloudJobRepository` tags in Flutter DevTools.
+
+### Next: Real-Time Sync (Phase 7)
+
+Current sync uses 5-minute polling (`Timer.periodic` in `SyncNotifier`). Planned upgrade: replace polling with Firestore `.snapshots()` real-time listener on the `jobs` collection (mobile already has the web dashboard pattern to follow in `WebJobRepository.watchAllJobs()`). This will give near-instant counter updates and photo appearance across devices when any device captures a photo. Also planned: broken-URL recovery (re-queue uploads when `CachedNetworkImage` fails to load a `cloudUrl`).
+
 ### Device Testing Prep
 
 Firebase backend fully deployed to `kitchenguard-8e288`:
