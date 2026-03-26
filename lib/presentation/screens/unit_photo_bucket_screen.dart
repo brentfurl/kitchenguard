@@ -23,6 +23,7 @@ class UnitPhotoBucketScreen extends StatefulWidget {
     this.currentPhase,
     this.currentSubPhase,
     this.onMovePhotos,
+    this.onBrokenCloudUrl,
   });
 
   final String title;
@@ -48,6 +49,9 @@ class UnitPhotoBucketScreen extends StatefulWidget {
     required String destUnitId,
     required String? destSubPhase,
   })? onMovePhotos;
+
+  /// Called when a cloud URL fails to load, for re-upload recovery.
+  final Future<void> Function(String photoId)? onBrokenCloudUrl;
 
   @override
   State<UnitPhotoBucketScreen> createState() => _UnitPhotoBucketScreenState();
@@ -349,6 +353,9 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
                               localFile: file,
                               cloudUrl: photo.cloudUrl,
                               showCloudBadge: true,
+                              onCloudUrlBroken: widget.onBrokenCloudUrl != null
+                                  ? () => widget.onBrokenCloudUrl!(photo.photoId)
+                                  : null,
                             ),
                           ),
                           // Press overlay (non-select mode only)

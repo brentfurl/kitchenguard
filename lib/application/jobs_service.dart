@@ -1714,6 +1714,108 @@ class JobsService {
     return '$y$m${d}_$hh$mm$ss';
   }
 
+  // ---------------------------------------------------------------------------
+  // Broken-URL recovery (Phase 7)
+  // ---------------------------------------------------------------------------
+
+  /// Resets a photo's cloud sync fields and re-queues it for upload.
+  ///
+  /// Called when [CloudAwareImage] reports a broken cloud URL. Only enqueues
+  /// if the local file exists on disk (otherwise there's nothing to upload
+  /// from this device).
+  Future<void> requeueBrokenPhoto({
+    required Directory jobDir,
+    required String photoId,
+  }) async {
+    final job = await jobRepository.loadJob(jobDir);
+    if (job == null) return;
+
+    var found = false;
+    Job updated = job;
+
+    // Search unit photos (before + after)
+    final updatedUnits = <Unit>[];
+    for (final unit in job.units) {
+      final newBefore = _resetPhotoSync(unit.photosBefore, photoId, jobDir);
+      final newAfter = _resetPhotoSync(unit.photosAfter, photoId, jobDir);
+      if (newBefore != null || newAfter != null) found = true;
+      updatedUnits.add(unit.copyWith(
+        photosBefore: newBefore ?? unit.photosBefore,
+        photosAfter: newAfter ?? unit.photosAfter,
+      ));
+    }
+    if (found) {
+      updated = updated.copyWith(units: updatedUnits);
+    }
+
+    // Search pre-clean layout photos
+    final newPreClean =
+        _resetPhotoSync(job.preCleanLayoutPhotos, photoId, jobDir);
+    if (newPreClean != null) {
+      found = true;
+      updated = updated.copyWith(preCleanLayoutPhotos: newPreClean);
+    }
+
+    if (!found) return;
+
+    await jobRepository.saveJob(jobDir, updated);
+
+    final localFile = _localFileForPhoto(jobDir, photoId, updated);
+    if (localFile != null && localFile.existsSync()) {
+      await uploadQueue?.enqueue(
+        jobId: job.jobId,
+        jobDirPath: jobDir.path,
+        mediaId: photoId,
+        mediaType: 'photo',
+      );
+    }
+  }
+
+  /// Returns a new list with [photoId]'s sync fields cleared, or `null` if
+  /// the photo was not found in [photos].
+  List<PhotoRecord>? _resetPhotoSync(
+    List<PhotoRecord> photos,
+    String photoId,
+    Directory jobDir,
+  ) {
+    final idx = photos.indexWhere((p) => p.photoId == photoId);
+    if (idx < 0) return null;
+
+    final old = photos[idx];
+    final reset = PhotoRecord(
+      photoId: old.photoId,
+      fileName: old.fileName,
+      relativePath: old.relativePath,
+      capturedAt: old.capturedAt,
+      status: old.status,
+      missingLocal: old.missingLocal,
+      recovered: old.recovered,
+      deletedAt: old.deletedAt,
+      subPhase: old.subPhase,
+    );
+    return [...photos]..[idx] = reset;
+  }
+
+  File? _localFileForPhoto(Directory jobDir, String photoId, Job job) {
+    for (final unit in job.units) {
+      for (final photo in [...unit.photosBefore, ...unit.photosAfter]) {
+        if (photo.photoId == photoId && photo.relativePath.isNotEmpty) {
+          return File(p.join(jobDir.path, photo.relativePath));
+        }
+      }
+    }
+    for (final photo in job.preCleanLayoutPhotos) {
+      if (photo.photoId == photoId && photo.relativePath.isNotEmpty) {
+        return File(p.join(jobDir.path, photo.relativePath));
+      }
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
   String _sanitizeZipBaseName(String input) {
     final trimmed = input.trim();
     final spacesToUnderscore = trimmed.replaceAll(RegExp(r'\s+'), '_');

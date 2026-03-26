@@ -267,6 +267,10 @@ class _JobDetailState extends ConsumerState<JobDetail> {
               destSubPhase: destSubPhase,
             );
           },
+          onBrokenCloudUrl: (photoId) => widget.jobs.requeueBrokenPhoto(
+            jobDir: widget.job.jobDir,
+            photoId: photoId,
+          ),
         ),
       ),
     );
@@ -509,6 +513,10 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             );
           },
           onJobMutated: _reloadJob,
+          onBrokenCloudUrl: (photoId) => widget.jobs.requeueBrokenPhoto(
+            jobDir: widget.job.jobDir,
+            photoId: photoId,
+          ),
         ),
       ),
     );

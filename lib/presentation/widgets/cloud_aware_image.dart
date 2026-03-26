@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 /// Displays an image using local-first strategy with cloud fallback.
 ///
@@ -12,7 +13,7 @@ import 'package:flutter/material.dart';
 ///
 /// Used by all gallery/viewer screens so that photos uploaded by another
 /// device (or photos whose local copy was lost) remain viewable.
-class CloudAwareImage extends StatelessWidget {
+class CloudAwareImage extends StatefulWidget {
   const CloudAwareImage({
     super.key,
     this.localFile,
@@ -21,6 +22,7 @@ class CloudAwareImage extends StatelessWidget {
     this.width,
     this.height,
     this.showCloudBadge = false,
+    this.onCloudUrlBroken,
   });
 
   final File? localFile;
@@ -33,26 +35,61 @@ class CloudAwareImage extends StatelessWidget {
   /// network (helps the user distinguish local vs. cloud-only photos).
   final bool showCloudBadge;
 
-  bool get _localAvailable => localFile != null && localFile!.existsSync();
-  bool get _cloudAvailable => cloudUrl != null && cloudUrl!.isNotEmpty;
+  /// Fired (at most once per [cloudUrl]) when [CachedNetworkImage] fails
+  /// to load the URL.
+  ///
+  /// Callers can use this to reset the photo's sync state and re-queue
+  /// the upload from the device that has the local file.
+  final VoidCallback? onCloudUrlBroken;
+
+  @override
+  State<CloudAwareImage> createState() => _CloudAwareImageState();
+}
+
+class _CloudAwareImageState extends State<CloudAwareImage> {
+  /// Tracks the URL for which the error callback has already fired so we
+  /// don't re-fire on every rebuild.
+  String? _reportedBrokenUrl;
+
+  bool get _localAvailable =>
+      widget.localFile != null && widget.localFile!.existsSync();
+  bool get _cloudAvailable =>
+      widget.cloudUrl != null && widget.cloudUrl!.isNotEmpty;
+
+  @override
+  void didUpdateWidget(CloudAwareImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.cloudUrl != widget.cloudUrl) {
+      _reportedBrokenUrl = null;
+    }
+  }
+
+  void _handleCloudError() {
+    if (widget.onCloudUrlBroken == null) return;
+    if (_reportedBrokenUrl == widget.cloudUrl) return;
+    _reportedBrokenUrl = widget.cloudUrl;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      widget.onCloudUrlBroken?.call();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     if (_localAvailable) {
       return Image.file(
-        localFile!,
-        fit: fit,
-        width: width,
-        height: height,
+        widget.localFile!,
+        fit: widget.fit,
+        width: widget.width,
+        height: widget.height,
       );
     }
 
     if (_cloudAvailable) {
       final image = CachedNetworkImage(
-        imageUrl: cloudUrl!,
-        fit: fit,
-        width: width,
-        height: height,
+        imageUrl: widget.cloudUrl!,
+        fit: widget.fit,
+        width: widget.width,
+        height: widget.height,
         placeholder: (_, __) => Container(
           color: Colors.grey.shade100,
           child: const Center(
@@ -63,10 +100,13 @@ class CloudAwareImage extends StatelessWidget {
             ),
           ),
         ),
-        errorWidget: (_, __, ___) => _missingPlaceholder(),
+        errorWidget: (_, __, ___) {
+          _handleCloudError();
+          return _missingPlaceholder();
+        },
       );
 
-      if (!showCloudBadge) return image;
+      if (!widget.showCloudBadge) return image;
 
       return Stack(
         fit: StackFit.passthrough,

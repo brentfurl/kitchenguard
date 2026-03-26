@@ -16,6 +16,7 @@ class PreCleanLayoutScreen extends StatefulWidget {
     required this.onCaptureFile,
     required this.onSoftDelete,
     required this.onJobMutated,
+    this.onBrokenCloudUrl,
   });
 
   final Directory jobDir;
@@ -23,6 +24,9 @@ class PreCleanLayoutScreen extends StatefulWidget {
   final Future<void> Function(File file) onCaptureFile;
   final Future<void> Function(String relativePath) onSoftDelete;
   final Future<void> Function() onJobMutated;
+
+  /// Called when a cloud URL fails to load, for re-upload recovery.
+  final Future<void> Function(String photoId)? onBrokenCloudUrl;
 
   @override
   State<PreCleanLayoutScreen> createState() => _PreCleanLayoutScreenState();
@@ -214,6 +218,9 @@ class _PreCleanLayoutScreenState extends State<PreCleanLayoutScreen> {
                               localFile: file,
                               cloudUrl: photo.cloudUrl,
                               showCloudBadge: true,
+                              onCloudUrlBroken: widget.onBrokenCloudUrl != null
+                                  ? () => widget.onBrokenCloudUrl!(photo.photoId)
+                                  : null,
                             ),
                           ),
                         );
