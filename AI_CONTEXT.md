@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery).
 
 Core capabilities complete:
 
@@ -576,6 +576,8 @@ Core capabilities complete:
 - Firestore scheduling data (cloud repositories, hybrid wiring, security rules)
 - Firebase Storage upload infrastructure (sync status fields, StorageService, UploadController)
 - Flutter web management dashboard (schedule management, photo review, user management)
+- real-time Firestore sync (replaced 5-min polling with `.snapshots()` listener)
+- broken-URL recovery (re-queue photo uploads when cloud image load fails)
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
@@ -594,6 +596,10 @@ Phase 4 completed steps:
 
 All Phase 4/5/6 steps complete.
 
+- Phase 7: Real-time sync + broken-URL recovery — replaced 5-minute `Timer.periodic` polling with Firestore `.snapshots()` real-time listener on the `jobs` collection; incoming snapshots are debounced (1 second) before merge to batch rapid writes. `CloudAwareImage` fires `onCloudUrlBroken` callback when `CachedNetworkImage` fails; `JobsService.requeueBrokenPhoto` resets sync fields and re-enqueues the photo for upload if the local file exists.
+
+All Phase 4/5/6/7 steps complete.
+
 ### Post-Phase 6: Cross-Device Sync Bug Fixes
 
 Device testing on Samsung Galaxy S24 Ultra + iPhone revealed three sync bugs, all fixed:
@@ -606,9 +612,34 @@ Device testing on Samsung Galaxy S24 Ultra + iPhone revealed three sync bugs, al
 
 4. **Merge diagnostics** — Added `developer.log` calls to `JobMerger` (merge summary, cloud-only units/photos appended, matched-unit photo gains) and `CloudJobRepository` (unit folder provisioning). Filterable by `JobMerger` / `CloudJobRepository` tags in Flutter DevTools.
 
-### Next: Real-Time Sync (Phase 7)
+### Phase 7: Real-Time Sync (complete)
 
-Current sync uses 5-minute polling (`Timer.periodic` in `SyncNotifier`). Planned upgrade: replace polling with Firestore `.snapshots()` real-time listener on the `jobs` collection (mobile already has the web dashboard pattern to follow in `WebJobRepository.watchAllJobs()`). This will give near-instant counter updates and photo appearance across devices when any device captures a photo. Also planned: broken-URL recovery (re-queue uploads when `CachedNetworkImage` fails to load a `cloudUrl`).
+Replaced 5-minute `Timer.periodic` polling with Firestore `.snapshots()` real-time listener on the `jobs` collection. Changes from any device now appear within seconds on all other devices.
+
+**Real-time listener:**
+- `CloudJobRepository.watchCloudJobs()` returns `_jobs.snapshots().map(...)` stream
+- `CloudJobRepository.mergeCloudJobs(List<Job>)` extracted from `pullFromCloud()` — same merge logic, no fetch step
+- `SyncNotifier` subscribes to the stream on init; debounces rapid snapshots (1 second) before running merge + UI refresh
+- `pullNow()` kept for manual sync (pull-to-refresh, tap sync indicator)
+- `SyncState.isListening` field tracks whether the real-time listener is active; `isSynced` now requires `isListening`
+- `_isMerging` guard prevents concurrent merge operations from stream + manual pull
+
+**Broken-URL recovery:**
+- `CloudAwareImage` (now `StatefulWidget`) fires `onCloudUrlBroken` callback (at most once per URL) when `CachedNetworkImage` fails to load
+- `JobsService.requeueBrokenPhoto(jobDir, photoId)` resets the photo's `syncStatus` and `cloudUrl` to null, then re-enqueues for upload if the local file exists on disk
+- Wired in `UnitPhotoBucketScreen` and `PreCleanLayoutScreen` via `onBrokenCloudUrl` callback passed from `JobDetail`
+
+**Key files changed:**
+```
+lib/data/repositories/job_repository.dart           — added watchCloudJobs(), mergeCloudJobs()
+lib/data/repositories/cloud_job_repository.dart     — implemented stream + extracted merge
+lib/providers/sync_provider.dart                    — stream subscription replaces Timer.periodic
+lib/presentation/widgets/cloud_aware_image.dart     — StatefulWidget with onCloudUrlBroken
+lib/application/jobs_service.dart                   — requeueBrokenPhoto()
+lib/presentation/screens/unit_photo_bucket_screen.dart  — onBrokenCloudUrl wiring
+lib/presentation/screens/pre_clean_layout_screen.dart   — onBrokenCloudUrl wiring
+lib/presentation/job_detail.dart                    — passes callbacks to both screens
+```
 
 ### Device Testing Prep
 
@@ -864,16 +895,15 @@ address, city, accessType, etc.) — **last-write-wins** via `updatedAt` timesta
 **Units** matched by `unitId`; photos within matched units are merged with the same
 append-only logic. Cloud-only units are appended. Local-only units are kept.
 
-**Pull flow**: `CloudJobRepository.pullFromCloud()` fetches all cloud job documents,
-matches them to local jobs by `jobId`, merges, and saves the result to the local
+**Pull flow**: `CloudJobRepository.mergeCloudJobs()` takes a list of cloud job
+documents, matches them to local jobs by `jobId`, merges, and saves to the local
 filesystem only (no re-push to Firestore). Cloud-only jobs (no local folder) are
 provisioned locally with a folder named `{sanitized_name}_{jobId_prefix}`. Triggered
-automatically on app open, every 5 minutes when online, on reconnect, and via
-pull-to-refresh.
+in real-time via Firestore `.snapshots()` listener, and manually via pull-to-refresh.
 
 ---
 
-# Sync Engine (Step 5)
+# Sync Engine (Step 5 → Phase 7)
 
 The sync engine coordinates bidirectional data flow between devices.
 
@@ -882,25 +912,26 @@ The sync engine coordinates bidirectional data flow between devices.
 ```
 Scheduling data (jobs, day notes, day schedules):
   Cloud (Firestore) → Device (local filesystem)
-  Manager pushes scheduling data; devices pull periodically.
+  Real-time via Firestore .snapshots() listener; manual via pull-to-refresh.
 
 Documentation data (photos, videos, field notes):
   Device (local filesystem) → Cloud (Firebase Storage + Firestore)
   Technicians capture locally; uploads sync when connectivity allows.
 ```
 
-## Pull Triggers
+## Sync Triggers (Phase 7)
 
 | Trigger | Mechanism |
 |---------|-----------|
-| App open | `SyncNotifier._initialPull()` on init |
-| Periodic | `Timer.periodic` every 5 minutes |
-| Reconnect | `Connectivity.onConnectivityChanged` listener |
-| Manual | Pull-to-refresh on Jobs Home |
+| Real-time | Firestore `.snapshots()` stream on `jobs` collection, debounced 1 s |
+| Manual | Pull-to-refresh or tap sync indicator → `pullNow()` (one-time fetch + merge) |
+| Connectivity | `Connectivity.onConnectivityChanged` updates offline banner |
+
+Phase 5 used 5-minute `Timer.periodic` polling; Phase 7 replaced it with a Firestore real-time listener for near-instant cross-device updates.
 
 ## Cloud-Only Job Provisioning
 
-When `pullFromCloud()` encounters a Firestore job with no local folder:
+When `mergeCloudJobs()` encounters a Firestore job with no local folder:
 1. Creates folder at `{root}/{sanitized_name}_{jobId_prefix}`
 2. Saves `job.json` via local repository (no re-push)
 3. Media files are cloud-only — viewable via `CloudAwareImage` (Step 4e)
@@ -909,11 +940,12 @@ When `pullFromCloud()` encounters a Firestore job with no local folder:
 
 `SyncState` merges pull and upload status:
 - `isOnline` — connectivity stream from `connectivity_plus`
-- `isPulling` — Firestore pull in progress
+- `isPulling` — Firestore merge in progress (from stream or manual pull)
+- `isListening` — Firestore real-time listener is active (Phase 7)
 - `isUploading` — upload queue processing
 - `uploadPending` — count of queued media uploads
-- `lastPullTime` — timestamp of last successful pull
-- `isSynced` — all clear (no pull, no upload, no pending)
+- `lastPullTime` — timestamp of last successful merge
+- `isSynced` — all clear (listening, no pull, no upload, no pending)
 
 ## Sync UI
 
@@ -921,14 +953,20 @@ When `pullFromCloud()` encounters a Firestore job with no local folder:
 - **Offline banner**: `MaterialBanner` below AppBar when device is offline
 - **Manual sync**: tap indicator to trigger pull + upload
 
+## Broken-URL Recovery (Phase 7)
+
+When `CloudAwareImage` fails to load a `cloudUrl`, the `onCloudUrlBroken` callback fires (at most once per URL). The gallery screen passes the `photoId` to `JobsService.requeueBrokenPhoto()`, which resets `syncStatus` and `cloudUrl` to null and re-enqueues the photo for upload — but only if the local file exists on disk (otherwise there's nothing to re-upload from this device).
+
 ## Key Sync Files
 
 ```
-lib/providers/sync_provider.dart                   — SyncNotifier + SyncState + syncProvider
+lib/providers/sync_provider.dart                   — SyncNotifier (stream sub + debounce) + SyncState
 lib/providers/upload_progress_provider.dart         — upload queue progress (merged into SyncState)
-lib/data/repositories/cloud_job_repository.dart     — pullFromCloud + cloud-only provisioning
+lib/data/repositories/cloud_job_repository.dart     — watchCloudJobs + mergeCloudJobs + pullFromCloud
 lib/domain/merge/job_merger.dart                    — merge logic (scheduling LWW + docs append-only)
 lib/services/background_upload_service.dart         — workmanager background upload processing
+lib/presentation/widgets/cloud_aware_image.dart     — local-first image + onCloudUrlBroken recovery
+lib/application/jobs_service.dart                   — requeueBrokenPhoto (sync field reset + re-enqueue)
 ```
 
 ## Storage Security Rules
