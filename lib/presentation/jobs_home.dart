@@ -19,6 +19,7 @@ import 'job_detail.dart';
 import 'screens/manager_notes_screen.dart';
 import 'widgets/day_card.dart';
 import 'widgets/job_dialog.dart';
+import 'widgets/job_sub_card.dart';
 
 class JobsHome extends ConsumerStatefulWidget {
   const JobsHome({super.key});
@@ -577,16 +578,27 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                         ),
                         onAddShiftNote: () => _addShiftNote(date),
                         jobCardBuilder: (context, i) {
-                          final jobs = scheduledByDate[date]!;
-                          return _buildJobSubCard(
-                            context,
-                            key: ValueKey(jobs[i].job.jobId),
-                            result: jobs[i],
+                          final dateJobs = scheduledByDate[date]!;
+                          final r = dateJobs[i];
+                          return JobSubCard(
+                            key: ValueKey(r.job.jobId),
+                            result: r,
+                            onTap: () => _openJobDetail(r),
+                            onEdit: () => _editJob(r),
+                            onDelete: () => _confirmDeleteJob(r),
+                            onToggleCompletion: () => _toggleJobCompletion(r),
+                            onManagerNotes: () => _openManagerNotesScreen(r),
                           );
                         },
                       ),
                     if (showUnscheduled)
-                      _buildUnscheduledSection(context, unscheduled),
+                      UnscheduledSection(
+                        jobs: unscheduled,
+                        onJobTap: _openJobDetail,
+                        onJobEdit: _editJob,
+                        onJobDelete: _confirmDeleteJob,
+                        onJobToggleCompletion: _toggleJobCompletion,
+                      ),
                   ],
                 ),
               ),
@@ -851,306 +863,6 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         context,
       ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
-  }
-
-  Widget _buildJobSubCard(
-    BuildContext context, {
-    required Key key,
-    required JobScanResult result,
-  }) {
-    final job = result.job;
-    final restaurant =
-        job.restaurantName.isNotEmpty ? job.restaurantName : 'Unknown';
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    final hoodCount = job.hoodCount ?? job.units.where((u) => u.type == 'hood').length;
-    final fanCount = job.fanCount ?? job.units.where((u) => u.type == 'fan').length;
-    final unitSummaryParts = <String>[];
-    if (hoodCount > 0) unitSummaryParts.add('$hoodCount ${hoodCount == 1 ? "hood" : "hoods"}');
-    if (fanCount > 0) unitSummaryParts.add('$fanCount ${fanCount == 1 ? "fan" : "fans"}');
-    final unitSummary = unitSummaryParts.join(', ');
-
-    final accessLabel = job.accessType != null
-        ? accessTypeLabels[job.accessType] ?? job.accessType!
-        : null;
-
-    // Build access detail string with notes and alarm code
-    final accessDetailParts = <String>[];
-    if (accessLabel != null) {
-      final accessWithNotes = (job.accessNotes != null && job.accessNotes!.isNotEmpty)
-          ? '$accessLabel, ${job.accessNotes}'
-          : accessLabel;
-      accessDetailParts.add(accessWithNotes);
-    }
-    if (job.hasAlarm == true) {
-      final alarmText = (job.alarmCode != null && job.alarmCode!.isNotEmpty)
-          ? 'Alarm, ${job.alarmCode}'
-          : 'Alarm';
-      accessDetailParts.add(alarmText);
-    }
-    final accessDetail = accessDetailParts.join(' · ');
-
-    return Card(
-      key: key,
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      elevation: 1,
-      child: InkWell(
-        onTap: () => _openJobDetail(result),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (job.isComplete)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8, top: 2),
-                  child: Icon(
-                    Icons.check_circle,
-                    size: 18,
-                    color: colorScheme.primary,
-                  ),
-                ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      restaurant,
-                      style: textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: job.isComplete
-                            ? colorScheme.onSurfaceVariant
-                            : null,
-                      ),
-                    ),
-                    if (job.address != null && job.address!.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        job.city != null && job.city!.isNotEmpty
-                            ? '${job.address!}, ${job.city!}'
-                            : job.address!,
-                        style: textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                    if (unitSummary.isNotEmpty || accessDetail.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: [
-                          if (unitSummary.isNotEmpty)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.grid_view_outlined,
-                                    size: 14,
-                                    color: colorScheme.onSurfaceVariant),
-                                const SizedBox(width: 4),
-                                Text(
-                                  unitSummary,
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          if (accessDetail.isNotEmpty)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.key_outlined,
-                                    size: 14,
-                                    color: colorScheme.onSurfaceVariant),
-                                const SizedBox(width: 4),
-                                Flexible(
-                                  child: Text(
-                                    accessDetail,
-                                    style: textTheme.labelSmall?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (job.managerNotes.where((n) => n.isActive).isNotEmpty)
-                    GestureDetector(
-                      onTap: () => _openManagerNotesScreen(result),
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 2, bottom: 4),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.note_alt_outlined,
-                                size: 18, color: colorScheme.onSurfaceVariant),
-                            const SizedBox(width: 2),
-                            Text(
-                              '${job.managerNotes.where((n) => n.isActive).length}',
-                              style: textTheme.labelMedium?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  PopupMenuButton<String>(
-                    onSelected: (value) async {
-                      if (value == 'edit') {
-                        await _editJob(result);
-                      } else if (value == 'delete') {
-                        await _confirmDeleteJob(result);
-                      } else if (value == 'complete') {
-                        await _toggleJobCompletion(result);
-                      }
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem<String>(
-                        value: 'edit',
-                        child: Text('Edit Job'),
-                      ),
-                      PopupMenuItem<String>(
-                        value: 'complete',
-                        child: Text(
-                          job.isComplete ? 'Reopen Job' : 'Mark Complete',
-                        ),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'delete',
-                        child: Text('Delete Job'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildJobTile(BuildContext context, JobScanResult result) {
-    final job = result.job;
-    final restaurant =
-        job.restaurantName.isNotEmpty ? job.restaurantName : 'Unknown';
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return InkWell(
-      onTap: () => _openJobDetail(result),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-        child: Row(
-          children: [
-            if (job.isComplete)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Icon(
-                  Icons.check_circle,
-                  size: 18,
-                  color: colorScheme.primary,
-                ),
-              ),
-            Expanded(
-              child: Text(
-                restaurant,
-                style: textTheme.bodyLarge?.copyWith(
-                  color: job.isComplete
-                      ? colorScheme.onSurfaceVariant
-                      : null,
-                ),
-              ),
-            ),
-            PopupMenuButton<String>(
-              onSelected: (value) async {
-                if (value == 'edit') {
-                  await _editJob(result);
-                } else if (value == 'delete') {
-                  await _confirmDeleteJob(result);
-                } else if (value == 'complete') {
-                  await _toggleJobCompletion(result);
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem<String>(
-                  value: 'edit',
-                  child: Text('Edit Job'),
-                ),
-                PopupMenuItem<String>(
-                  value: 'complete',
-                  child: Text(
-                    job.isComplete ? 'Reopen Job' : 'Mark Complete',
-                  ),
-                ),
-                const PopupMenuItem<String>(
-                  value: 'delete',
-                  child: Text('Delete Job'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUnscheduledSection(
-    BuildContext context,
-    List<JobScanResult> jobs,
-  ) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ColoredBox(
-            color: colorScheme.surfaceContainerHigh,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.schedule_outlined,
-                    size: 18,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Unscheduled',
-                    style: textTheme.titleMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const Divider(height: 1),
-          ...jobs.map((result) => _buildJobTile(context, result)),
-        ],
-      ),
-    );
   }
 }
 
