@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes).
 
 Core capabilities complete:
 
@@ -589,6 +589,10 @@ Core capabilities complete:
 - overnight shift support: past dates with incomplete jobs stay in "Today" filter; actual today deferred to "Upcoming" until prior days complete
 - web console: Mark Complete / Reopen in job tile menu and job detail header
 - web console: full note CRUD (shift notes on day cards, job notes on job tiles + detail, field notes in detail)
+- web console: Published filter chip (mutually exclusive with Today/Upcoming/Past/Unscheduled)
+- web console: drag-to-reorder jobs within dates (ReorderableListView, persists sortOrder to Firestore)
+- unit card redesign: camera icon (leading) + label+count opens gallery (swapped roles for intuitiveness)
+- chronological note ordering: field notes and job notes sorted oldest-to-newest on mobile
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
@@ -780,6 +784,38 @@ Full CRUD for all three note types in the web management console, with cross-dev
 lib/web/widgets/web_notes_dialog.dart           — NEW: reusable notes CRUD dialog (WebNotesDialog, WebNoteItem)
 lib/web/screens/web_schedule_screen.dart        — clickable shift notes chip on day cards, job notes chip on job tiles, CRUD dialog methods
 lib/web/screens/web_job_detail_screen.dart      — clickable note counter chips in header, manager notes + field notes CRUD dialog methods
+```
+
+### Web Console UX + Unit Card Redesign (complete)
+
+Four improvements across web console and mobile unit cards:
+
+**1. Published filter chip (web console):**
+- Added 5th filter chip "Published" to the schedule screen filter row
+- Mutually exclusive with other filters: selecting Published clears Today/Upcoming/Past/Unscheduled; selecting any other filter clears Published
+- When active, shows all dates where `DaySchedule.isPublished == true`, regardless of today/upcoming/past classification — gives managers a quick view of what technicians see
+- Unscheduled section is hidden when Published is active (unscheduled jobs have no date, so no publish state)
+
+**2. Drag-to-reorder jobs within dates (web console):**
+- Replaced static `...jobs.map()` spread in `_DayCard` with `ReorderableListView.builder` (shrinkWrap + NeverScrollableScrollPhysics, same nested-scroll pattern as mobile `day_card.dart`)
+- Each `_JobTile` wrapped in `ReorderableDragStartListener` for click-and-drag on web (mouse-native)
+- `proxyDecorator` adds elevation to dragged item for visual feedback
+- `_reorderJobs` persists new `sortOrder` to Firestore via `WebJobRepository.saveJob`; mobile picks up changes automatically via real-time Firestore listener
+
+**3. Unit card sub-phase row redesign (mobile):**
+- `_SubPhaseRow` (hood/fan cards): camera icon (`Icons.camera_alt`, 30px, primary color) now at the leading edge; tapping "Filters On (4)" text opens gallery instead of camera
+- `_SimpleUnitBody` (misc cards): same swap — camera icon on the left, "Before (N)" / "After (N)" buttons now open gallery
+- Resolves user confusion where the count label felt like a gallery link but opened camera
+
+**4. Chronological note ordering (mobile):**
+- Field notes and job notes now sorted oldest-to-newest (`a.createdAt.compareTo(b.createdAt)`) instead of newest-first
+- Matches existing chronological ordering of day notes on mobile and web console
+
+**Key files changed:**
+```
+lib/web/screens/web_schedule_screen.dart                — Published filter, mutual exclusion, ReorderableListView, _reorderJobs
+lib/presentation/job_detail.dart                        — _SubPhaseRow redesign, _SimpleUnitBody redesign
+lib/presentation/controllers/job_detail_controller.dart — chronological sort for activeNotes and activeManagerNotes
 ```
 
 ### Device Testing Prep
