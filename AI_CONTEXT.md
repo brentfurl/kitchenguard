@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.**
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing).
 
 Core capabilities complete:
 
@@ -578,6 +578,7 @@ Core capabilities complete:
 - Flutter web management dashboard (schedule management, photo review, user management)
 - real-time Firestore sync (replaced 5-min polling with `.snapshots()` listener)
 - broken-URL recovery (re-queue photo uploads when cloud image load fails)
+- day publishing (managers publish days to make them visible to technicians)
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
@@ -733,6 +734,37 @@ lib/presentation/widgets/shift_notes_sheet.dart      — showShiftNoteDialog, op
 **Extraction pattern:** Each widget takes data + typed callbacks as parameters, keeping them independent of `JobsService` and Riverpod state. `jobs_home.dart` retains the service/provider wiring and delegates UI rendering to the extracted widgets.
 
 **`jobs_home.dart` now contains:** scaffold, build method, filter row, provider watching, job grouping/sorting logic, and thin action handlers that call `JobsService` methods and invalidate providers.
+
+### Phase A: Day Publishing (complete)
+
+Managers can publish/unpublish days to control which days are visible to technicians. Unpublished days appear with a "DRAFT" badge for managers and are hidden from technicians entirely.
+
+**Model changes:**
+- `DaySchedule` gains three nullable fields: `published` (bool?), `publishedAt` (String?, ISO 8601), `publishedBy` (String?, Firebase UID). All omitted from JSON when null for backward compatibility.
+- `DaySchedule.isPublished` convenience getter returns `published == true`.
+- `DaySchedule.isEmpty` treats a published-only schedule (no times set) as non-empty so it isn't pruned from storage.
+
+**Service changes:**
+- `JobsService.publishDay(date, publisherUid)` — sets `published = true`, stamps `publishedAt` and `publishedBy`, creates a `DaySchedule` if one doesn't exist yet.
+- `JobsService.unpublishDay(date)` — clears all publish fields. Removes the schedule document if it has no other data.
+
+**Mobile UI (Jobs Home):**
+- Technicians: after the date-filter pass, a second pass excludes dates where `DaySchedule.isPublished != true`. Technicians see only published days.
+- Managers: all days are visible. Unpublished days show a "DRAFT" chip in the day card header. A publish/unpublish icon button toggles the state with a snackbar confirmation.
+
+**Web UI (Schedule Screen):**
+- All web day cards show a "DRAFT" badge for unpublished days and a Publish/Unpublish text button. The web dashboard is manager-only, so no role check needed.
+
+**Firestore rules:** No changes required — `daySchedules` writes are already restricted to managers.
+
+**Key files changed:**
+```
+lib/domain/models/day_schedule.dart              — published/publishedAt/publishedBy fields
+lib/application/jobs_service.dart                — publishDay(), unpublishDay()
+lib/presentation/jobs_home.dart                  — tech day filtering, publish toggle handler
+lib/presentation/widgets/day_card.dart           — DRAFT badge, publish icon (managers)
+lib/web/screens/web_schedule_screen.dart         — DRAFT badge, publish button, toggle handler
+```
 
 ---
 
@@ -1154,7 +1186,7 @@ KitchenCleaningJobs/
 }
 ```
 
-`DaySchedule` fields: `date` (YYYY-MM-DD), `shopMeetupTime` (String?, HH:mm), `firstRestaurantName` (String?), `firstArrivalTime` (String?, HH:mm). All optional fields omitted from JSON when null. Empty schedules (all nulls) are removed from the file.
+`DaySchedule` fields: `date` (YYYY-MM-DD), `shopMeetupTime` (String?, HH:mm), `firstRestaurantName` (String?), `firstArrivalTime` (String?, HH:mm), `published` (bool?, null = draft), `publishedAt` (String?, ISO 8601 UTC), `publishedBy` (String?, Firebase UID). All optional fields omitted from JSON when null. Empty schedules (all nulls and not published) are removed from the file.
 
 ---
 
