@@ -491,7 +491,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           return false;
         }).toList();
 
-        if (currentRole.isTechnician) {
+        if (!currentRole.isManager) {
           filteredDates = filteredDates.where((date) {
             final schedule = daySchedules[date];
             return schedule != null && schedule.isPublished;

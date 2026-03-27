@@ -8,4 +8,7 @@ abstract class DayScheduleRepository {
   Future<Map<String, DaySchedule>> loadAll();
   Future<DaySchedule?> loadForDate(String date);
   Future<void> saveAll(Map<String, DaySchedule> allSchedules);
+
+  /// Real-time stream of all day schedules. Returns null if not supported.
+  Stream<Map<String, DaySchedule>>? watchAll() => null;
 }

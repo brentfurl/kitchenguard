@@ -20,4 +20,7 @@ class LocalDayScheduleRepository implements DayScheduleRepository {
   @override
   Future<void> saveAll(Map<String, DaySchedule> allSchedules) =>
       dayScheduleStore.write(allSchedules);
+
+  @override
+  Stream<Map<String, DaySchedule>>? watchAll() => null;
 }

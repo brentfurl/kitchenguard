@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/models/day_note.dart';
 import '../domain/models/job.dart';
 import 'day_notes_provider.dart';
+import 'day_schedule_provider.dart';
 import 'job_list_provider.dart';
 import 'repository_providers.dart';
 import 'upload_progress_provider.dart';
@@ -83,6 +84,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   StreamSubscription<List<Job>>? _cloudJobsSub;
   StreamSubscription<Map<String, List<DayNote>>>? _dayNotesSub;
+  StreamSubscription<Map<String, dynamic>>? _daySchedulesSub;
   Timer? _debounceTimer;
   List<Job>? _pendingCloudJobs;
   bool _isMerging = false;
@@ -99,6 +101,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
       state = state.copyWith(isOnline: online);
       _subscribeToCloudJobs();
       _subscribeToDayNotes();
+      _subscribeToDaySchedules();
     });
   }
 
@@ -159,6 +162,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
       await repo.mergeCloudJobs(jobs);
       await ref.read(jobListProvider.notifier).reload();
       ref.read(pullVersionProvider.notifier).state++;
+      ref.invalidate(dayScheduleProvider);
       state = state.copyWith(
         isPulling: false,
         lastPullTime: DateTime.now(),
@@ -202,6 +206,31 @@ class SyncNotifier extends StateNotifier<SyncState> {
   }
 
   // ---------------------------------------------------------------------------
+  // Real-time DaySchedules listener
+  // ---------------------------------------------------------------------------
+
+  void _subscribeToDaySchedules() {
+    _daySchedulesSub?.cancel();
+
+    final stream = ref.read(dayScheduleRepositoryProvider).watchAll();
+    if (stream == null) return;
+
+    _daySchedulesSub = stream.listen(
+      (_) {
+        ref.invalidate(dayScheduleProvider);
+      },
+      onError: (Object e, StackTrace st) {
+        developer.log(
+          'Day schedules stream error: $e',
+          name: 'SyncNotifier',
+          error: e,
+          stackTrace: st,
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Manual pull (pull-to-refresh, tap sync indicator)
   // ---------------------------------------------------------------------------
 
@@ -219,6 +248,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
       await ref.read(jobRepositoryProvider).pullFromCloud();
       await ref.read(jobListProvider.notifier).reload();
       ref.read(pullVersionProvider.notifier).state++;
+      ref.invalidate(dayScheduleProvider);
       state = state.copyWith(
         isPulling: false,
         lastPullTime: DateTime.now(),
@@ -253,6 +283,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
     _debounceTimer?.cancel();
     _cloudJobsSub?.cancel();
     _dayNotesSub?.cancel();
+    _daySchedulesSub?.cancel();
     _connectivitySub?.cancel();
     super.dispose();
   }

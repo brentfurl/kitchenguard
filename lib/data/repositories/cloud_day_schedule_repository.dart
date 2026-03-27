@@ -38,6 +38,19 @@ class CloudDayScheduleRepository implements DayScheduleRepository {
   }
 
   @override
+  Stream<Map<String, DaySchedule>> watchAll() {
+    return _daySchedules.snapshots().map((snapshot) {
+      final result = <String, DaySchedule>{};
+      for (final doc in snapshot.docs) {
+        final data = Map<String, dynamic>.from(doc.data());
+        data['date'] = doc.id;
+        result[doc.id] = DaySchedule.fromJson(data);
+      }
+      return result;
+    });
+  }
+
+  @override
   Future<void> saveAll(Map<String, DaySchedule> allSchedules) async {
     final batch = _daySchedules.firestore.batch();
 
