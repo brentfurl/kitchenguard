@@ -179,6 +179,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             daySchedulesAsync: ref.watch(webDaySchedulesProvider),
             onTogglePublish: () => _togglePublish(date),
             isEffectiveToday: isEffectiveToday(date),
+            onToggleJobCompletion: _toggleJobCompletion,
           ),
         if (showUnscheduled) ...[
           Padding(
@@ -194,10 +195,20 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
                 onTap: () => widget.onJobTap(job.jobId),
                 onDelete: () => _deleteJob(job.jobId),
                 onEdit: () => _showEditJobDialog(context, job),
+                onToggleCompletion: () => _toggleJobCompletion(job),
               )),
         ],
       ],
     );
+  }
+
+  Future<void> _toggleJobCompletion(Job job) async {
+    final updated = job.copyWith(
+      completedAt: job.isComplete
+          ? null
+          : DateTime.now().toUtc().toIso8601String(),
+    );
+    await ref.read(webJobRepositoryProvider).saveJob(updated);
   }
 
   Future<void> _deleteJob(String jobId) async {
@@ -310,6 +321,7 @@ class _DayCard extends StatelessWidget {
     required this.daySchedulesAsync,
     this.onTogglePublish,
     this.isEffectiveToday = false,
+    this.onToggleJobCompletion,
   });
 
   final String date;
@@ -324,6 +336,7 @@ class _DayCard extends StatelessWidget {
   final AsyncValue<Map<String, DaySchedule>> daySchedulesAsync;
   final VoidCallback? onTogglePublish;
   final bool isEffectiveToday;
+  final ValueChanged<Job>? onToggleJobCompletion;
 
   bool get _isToday => isEffectiveToday || date == todayStr;
 
@@ -449,6 +462,9 @@ class _DayCard extends StatelessWidget {
                     onTap: () => onJobTap(job.jobId),
                     onDelete: () => onDeleteJob(job.jobId),
                     onEdit: () => onEditJob(job),
+                    onToggleCompletion: onToggleJobCompletion != null
+                        ? () => onToggleJobCompletion!(job)
+                        : null,
                   )),
             ],
           ),
@@ -479,12 +495,14 @@ class _JobTile extends StatelessWidget {
     required this.onTap,
     required this.onDelete,
     required this.onEdit,
+    this.onToggleCompletion,
   });
 
   final Job job;
   final VoidCallback onTap;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
+  final VoidCallback? onToggleCompletion;
 
   @override
   Widget build(BuildContext context) {
@@ -555,10 +573,15 @@ class _JobTile extends StatelessWidget {
             PopupMenuButton<String>(
               itemBuilder: (_) => [
                 const PopupMenuItem(value: 'edit', child: Text('Edit Job')),
+                PopupMenuItem(
+                  value: 'complete',
+                  child: Text(job.isComplete ? 'Reopen Job' : 'Mark Complete'),
+                ),
                 const PopupMenuItem(value: 'delete', child: Text('Delete Job')),
               ],
               onSelected: (val) {
                 if (val == 'edit') onEdit();
+                if (val == 'complete') onToggleCompletion?.call();
                 if (val == 'delete') onDelete();
               },
             ),

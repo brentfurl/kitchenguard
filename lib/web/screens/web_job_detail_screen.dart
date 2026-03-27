@@ -55,7 +55,19 @@ class WebJobDetailScreen extends ConsumerWidget {
           );
         }
 
-        return _JobDetailBody(job: job, onBack: onBack, theme: theme);
+        return _JobDetailBody(
+          job: job,
+          onBack: onBack,
+          theme: theme,
+          onToggleCompletion: () async {
+            final updated = job.copyWith(
+              completedAt: job.isComplete
+                  ? null
+                  : DateTime.now().toUtc().toIso8601String(),
+            );
+            await ref.read(webJobRepositoryProvider).saveJob(updated);
+          },
+        );
       },
     );
   }
@@ -66,11 +78,13 @@ class _JobDetailBody extends StatefulWidget {
     required this.job,
     required this.onBack,
     required this.theme,
+    required this.onToggleCompletion,
   });
 
   final Job job;
   final VoidCallback onBack;
   final ThemeData theme;
+  final VoidCallback onToggleCompletion;
 
   @override
   State<_JobDetailBody> createState() => _JobDetailBodyState();
@@ -180,6 +194,15 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
                     ],
                   ],
                 ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: widget.onToggleCompletion,
+                icon: Icon(
+                  job.isComplete ? Icons.replay : Icons.check_circle_outline,
+                  size: 18,
+                ),
+                label: Text(job.isComplete ? 'Reopen' : 'Mark Complete'),
               ),
               const SizedBox(width: 8),
               _isExporting
