@@ -17,6 +17,7 @@ import '../providers/upload_progress_provider.dart';
 import '../storage/job_scanner.dart';
 import 'job_detail.dart';
 import 'screens/manager_notes_screen.dart';
+import 'widgets/day_card.dart';
 import 'widgets/job_dialog.dart';
 
 class JobsHome extends ConsumerStatefulWidget {
@@ -558,12 +559,31 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                   padding: const EdgeInsets.only(top: 8, bottom: 80),
                   children: [
                     for (final date in filteredDates)
-                      _buildDayCard(
-                        context,
+                      DayCard(
                         date: date,
                         jobs: scheduledByDate[date]!,
                         shiftNotes: activeShiftNotes[date] ?? const [],
                         daySchedule: daySchedules[date],
+                        onReorder: (oldIndex, newIndex) =>
+                            _reorderJobs(date, scheduledByDate[date]!, oldIndex, newIndex),
+                        onArrivalTimesTap: () => _handleArrivalTimesTap(
+                          date,
+                          daySchedules[date],
+                          scheduledByDate[date]!.isNotEmpty ? scheduledByDate[date]!.first : null,
+                        ),
+                        onShiftNotesTap: () => _openShiftNotesScreen(
+                          date,
+                          activeShiftNotes[date] ?? const [],
+                        ),
+                        onAddShiftNote: () => _addShiftNote(date),
+                        jobCardBuilder: (context, i) {
+                          final jobs = scheduledByDate[date]!;
+                          return _buildJobSubCard(
+                            context,
+                            key: ValueKey(jobs[i].job.jobId),
+                            result: jobs[i],
+                          );
+                        },
                       ),
                     if (showUnscheduled)
                       _buildUnscheduledSection(context, unscheduled),
@@ -672,294 +692,20 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     }
   }
 
-  Widget _buildDayCard(
-    BuildContext context, {
-    required String date,
-    required List<JobScanResult> jobs,
-    required List<DayNote> shiftNotes,
-    DaySchedule? daySchedule,
-  }) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final allComplete =
-        jobs.isNotEmpty && jobs.every((r) => r.job.isComplete);
-    final isToday = date == toYyyyMmDd(DateTime.now());
-
-    final Color headerColor;
-    final Color headerForeground;
-    if (allComplete) {
-      headerColor = colorScheme.surfaceContainerHigh;
-      headerForeground = colorScheme.onSurfaceVariant;
-    } else if (isToday) {
-      headerColor = colorScheme.primary;
-      headerForeground = colorScheme.onPrimary;
-    } else {
-      headerColor = colorScheme.primaryContainer;
-      headerForeground = colorScheme.onPrimaryContainer;
-    }
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Day card header
-          ColoredBox(
-            color: headerColor,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  Icon(
-                    allComplete ? Icons.check_circle : Icons.calendar_today,
-                    size: 18,
-                    color: headerForeground,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      formatDateLabel(date),
-                      style: textTheme.titleMedium?.copyWith(
-                        color: headerForeground,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  if (isToday && !allComplete)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colorScheme.onPrimary.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        'TODAY',
-                        style: textTheme.labelSmall?.copyWith(
-                          color: headerForeground,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          // Arrival times section
-          _buildArrivalTimesSection(context, date: date, shiftNotes: shiftNotes, schedule: daySchedule, firstJob: jobs.isNotEmpty ? jobs.first : null),
-          const Divider(height: 1),
-          ReorderableListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            itemCount: jobs.length,
-            onReorder: (oldIndex, newIndex) {
-              if (newIndex > oldIndex) newIndex--;
-              _reorderJobs(date, jobs, oldIndex, newIndex);
-            },
-            itemBuilder: (context, i) {
-              return _buildJobSubCard(
-                context,
-                key: ValueKey(jobs[i].job.jobId),
-                result: jobs[i],
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildArrivalTimesSection(
-    BuildContext context, {
-    required String date,
-    required List<DayNote> shiftNotes,
-    DaySchedule? schedule,
-    JobScanResult? firstJob,
-  }) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    final hasShopTime = schedule?.shopMeetupTime != null;
-    final hasArrival = schedule?.firstArrivalTime != null;
-    final hasAnyTime = hasShopTime || hasArrival;
-
-    return ColoredBox(
-      color: colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: InkWell(
-                onTap: () => _showArrivalTimeDialog(date, schedule, firstJob),
-                child: hasAnyTime
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (hasShopTime)
-                            Row(
-                              children: [
-                                Icon(Icons.store_outlined,
-                                    size: 16, color: colorScheme.onSurfaceVariant),
-                                const SizedBox(width: 6),
-                                Text(
-                                  'Shop meetup: ${schedule!.shopMeetupTime}',
-                                  style: textTheme.bodySmall?.copyWith(
-                                    color: colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          if (hasArrival) ...[
-                            if (hasShopTime) const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Icon(Icons.restaurant_outlined,
-                                    size: 16, color: colorScheme.onSurfaceVariant),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    '${schedule!.firstRestaurantName ?? "First restaurant"} arrival: ${schedule.firstArrivalTime}',
-                                    style: textTheme.bodySmall?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ],
-                      )
-                    : Row(
-                        children: [
-                          Icon(Icons.schedule_outlined,
-                              size: 16, color: colorScheme.onSurfaceVariant),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Add arrival times',
-                            style: textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-            ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                InkWell(
-                  onTap: shiftNotes.isNotEmpty
-                      ? () => _openShiftNotesScreen(date, shiftNotes)
-                      : () => _addShiftNote(date),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.assignment_outlined,
-                            size: 16, color: colorScheme.onSurfaceVariant),
-                        if (shiftNotes.isNotEmpty) ...[
-                          const SizedBox(width: 2),
-                          Text(
-                            '${shiftNotes.length}',
-                            style: textTheme.labelSmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ] else ...[
-                          const SizedBox(width: 2),
-                          Icon(Icons.add, size: 14, color: colorScheme.onSurfaceVariant),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showArrivalTimeDialog(
+  Future<void> _handleArrivalTimesTap(
     String date,
     DaySchedule? existing,
     JobScanResult? firstJob,
   ) async {
-    final arrivalController = TextEditingController(
-      text: existing?.firstArrivalTime ?? '',
-    );
-    final shopController = TextEditingController(
-      text: existing?.shopMeetupTime ?? '',
-    );
-    final restaurantName =
-        existing?.firstRestaurantName ??
-        firstJob?.job.restaurantName ??
-        '';
-
-    final result = await showDialog<Map<String, String?>>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Arrival Times'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: arrivalController,
-                decoration: InputDecoration(
-                  labelText: restaurantName.isNotEmpty
-                      ? '$restaurantName arrival'
-                      : 'First restaurant arrival',
-                  hintText: 'e.g. 9:45',
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: shopController,
-                decoration: const InputDecoration(
-                  labelText: 'Shop meetup time',
-                  hintText: 'e.g. 9:15 (optional)',
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            if (existing != null && !existing.isEmpty)
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop({
-                  'clear': 'true',
-                }),
-                child: const Text('Clear'),
-              ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop({
-                'arrival': arrivalController.text.trim(),
-                'shop': shopController.text.trim(),
-                'restaurant': restaurantName,
-              }),
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
+    final result = await showArrivalTimeDialog(
+      context,
+      existing: existing,
+      firstJobRestaurantName: firstJob?.job.restaurantName,
     );
     if (result == null || !mounted) return;
 
     try {
-      if (result.containsKey('clear')) {
+      if (result.clear) {
         await _jobs.setDaySchedule(
           date: date,
           clearShopMeetupTime: true,
@@ -967,9 +713,9 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           clearFirstArrivalTime: true,
         );
       } else {
-        final arrival = result['arrival'];
-        final shop = result['shop'];
-        final name = result['restaurant'];
+        final arrival = result.arrivalTime;
+        final shop = result.shopMeetupTime;
+        final name = result.restaurantName;
         await _jobs.setDaySchedule(
           date: date,
           firstArrivalTime: arrival != null && arrival.isNotEmpty ? arrival : null,
