@@ -1437,9 +1437,25 @@ class _SubPhaseRow extends StatelessWidget {
     final theme = Theme.of(context);
     return Row(
       children: [
+        SizedBox(
+          width: 40,
+          height: 40,
+          child: IconButton(
+            onPressed: isBusy ? null : onTap,
+            icon: Icon(
+              Icons.camera_alt,
+              size: 30,
+              color: isBusy ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.primary,
+            ),
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            tooltip: '$label capture',
+          ),
+        ),
+        const SizedBox(width: 4),
         Expanded(
           child: InkWell(
-            onTap: isBusy ? null : onTap,
+            onTap: isBusy ? null : onGallery,
             borderRadius: BorderRadius.circular(6),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1453,17 +1469,6 @@ class _SubPhaseRow extends StatelessWidget {
                 ),
               ),
             ),
-          ),
-        ),
-        SizedBox(
-          width: 28,
-          height: 28,
-          child: IconButton(
-            onPressed: isBusy ? null : onGallery,
-            icon: const Icon(Icons.photo_library_outlined, size: 16),
-            padding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            tooltip: '$label gallery',
           ),
         ),
       ],
@@ -1490,48 +1495,48 @@ class _SimpleUnitBody extends StatelessWidget {
       children: [
         Row(
           children: [
+            IconButton(
+              onPressed: isBusy
+                  ? null
+                  : () => onCapture(phase: 'before'),
+              tooltip: 'Capture Before Photos',
+              icon: const Icon(Icons.camera_alt, size: 30),
+              visualDensity: VisualDensity.compact,
+            ),
+            const SizedBox(width: 2),
             Expanded(
               child: FilledButton(
                 onPressed: isBusy
                     ? null
-                    : () => onCapture(phase: 'before'),
+                    : () => onGallery(phase: 'before'),
                 child: Text(
                   'Before (${unit.visibleBeforeCount})',
                 ),
               ),
-            ),
-            const SizedBox(width: 2),
-            IconButton(
-              onPressed: isBusy
-                  ? null
-                  : () => onGallery(phase: 'before'),
-              tooltip: 'View Before Photos',
-              icon: const Icon(Icons.photo_library_outlined),
-              visualDensity: VisualDensity.compact,
             ),
           ],
         ),
         const SizedBox(height: 8),
         Row(
           children: [
+            IconButton(
+              onPressed: isBusy
+                  ? null
+                  : () => onCapture(phase: 'after'),
+              tooltip: 'Capture After Photos',
+              icon: const Icon(Icons.camera_alt, size: 30),
+              visualDensity: VisualDensity.compact,
+            ),
+            const SizedBox(width: 2),
             Expanded(
               child: OutlinedButton(
                 onPressed: isBusy
                     ? null
-                    : () => onCapture(phase: 'after'),
+                    : () => onGallery(phase: 'after'),
                 child: Text(
                   'After (${unit.visibleAfterCount})',
                 ),
               ),
-            ),
-            const SizedBox(width: 2),
-            IconButton(
-              onPressed: isBusy
-                  ? null
-                  : () => onGallery(phase: 'after'),
-              tooltip: 'View After Photos',
-              icon: const Icon(Icons.photo_library_outlined),
-              visualDensity: VisualDensity.compact,
             ),
           ],
         ),
