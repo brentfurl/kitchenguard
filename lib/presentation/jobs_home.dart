@@ -20,6 +20,7 @@ import 'screens/manager_notes_screen.dart';
 import 'widgets/day_card.dart';
 import 'widgets/job_dialog.dart';
 import 'widgets/job_sub_card.dart';
+import 'widgets/shift_notes_sheet.dart';
 
 class JobsHome extends ConsumerStatefulWidget {
   const JobsHome({super.key});
@@ -322,41 +323,11 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   }
 
   // ---------------------------------------------------------------------------
-  // Shift note operations
+  // Shift note operations — delegates to shift_notes_sheet.dart
   // ---------------------------------------------------------------------------
 
-  Future<String?> _showShiftNoteDialog({String? initialText}) {
-    final controller = TextEditingController(text: initialText ?? '');
-    final isEdit = initialText != null;
-    return showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isEdit ? 'Edit Shift Note' : 'Add Shift Note'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(hintText: 'Enter note'),
-          autofocus: true,
-          minLines: 3,
-          maxLines: 6,
-          textInputAction: TextInputAction.newline,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(context).pop(controller.text.trim()),
-            child: Text(isEdit ? 'Save' : 'Add'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _addShiftNote(String date) async {
-    final text = await _showShiftNoteDialog();
+    final text = await showShiftNoteDialog(context);
     if (text == null || text.isEmpty || !mounted) return;
     try {
       await _jobs.addDayNote(date, text);
@@ -370,7 +341,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   }
 
   Future<void> _editShiftNote(String date, String noteId, String currentText) async {
-    final newText = await _showShiftNoteDialog(initialText: currentText);
+    final newText = await showShiftNoteDialog(context, initialText: currentText);
     if (newText == null || newText.isEmpty || newText == currentText || !mounted) return;
     try {
       await _jobs.editDayNote(date, noteId, newText);
@@ -383,29 +354,9 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     }
   }
 
-  Future<void> _confirmDeleteShiftNote(
-    String date,
-    String noteId,
-    String noteText,
-  ) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove shift note?'),
-        content: Text(noteText),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
+  Future<void> _deleteShiftNote(String date, String noteId, String noteText) async {
+    final confirmed = await confirmDeleteShiftNote(context, noteText);
+    if (!confirmed || !mounted) return;
     try {
       await _jobs.softDeleteDayNote(date, noteId);
       ref.invalidate(dayNotesProvider);
@@ -485,10 +436,6 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Date formatting — delegates to job_dialog.dart helpers
-  // ---------------------------------------------------------------------------
 
   // ---------------------------------------------------------------------------
   // Build
@@ -747,105 +694,12 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   }
 
   void _openShiftNotesScreen(String date, List<DayNote> notes) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) {
-        return StatefulBuilder(
-          builder: (sheetContext, setSheetState) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.5,
-              minChildSize: 0.3,
-              maxChildSize: 0.85,
-              expand: false,
-              builder: (_, scrollController) {
-                return Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
-                      child: Row(
-                        children: [
-                          Text(
-                            'Shift Notes',
-                            style: Theme.of(sheetContext).textTheme.titleMedium,
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            icon: const Icon(Icons.add),
-                            onPressed: () async {
-                              await _addShiftNote(date);
-                              if (!mounted) return;
-                              ref.invalidate(dayNotesProvider);
-                              Navigator.of(sheetContext).pop();
-                            },
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            onPressed: () => Navigator.of(sheetContext).pop(),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: notes.isEmpty
-                          ? const Center(child: Text('No shift notes'))
-                          : ListView.builder(
-                              controller: scrollController,
-                              itemCount: notes.length,
-                              padding: const EdgeInsets.all(16),
-                              itemBuilder: (_, i) {
-                                final note = notes[i];
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(
-                                        child: Text(note.text),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                            Icons.edit_outlined,
-                                            size: 18),
-                                        onPressed: () async {
-                                          await _editShiftNote(
-                                            date,
-                                            note.noteId,
-                                            note.text,
-                                          );
-                                          if (!mounted) return;
-                                          Navigator.of(sheetContext).pop();
-                                        },
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                            Icons.delete_outline,
-                                            size: 18),
-                                        onPressed: () async {
-                                          await _confirmDeleteShiftNote(
-                                            date,
-                                            note.noteId,
-                                            note.text,
-                                          );
-                                          if (!mounted) return;
-                                          Navigator.of(sheetContext).pop();
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
-                );
-              },
-            );
-          },
-        );
-      },
+    openShiftNotesSheet(
+      context,
+      notes: notes,
+      onAdd: () => _addShiftNote(date),
+      onEdit: (noteId, currentText) => _editShiftNote(date, noteId, currentText),
+      onDelete: (noteId, noteText) => _deleteShiftNote(date, noteId, noteText),
     );
   }
 
