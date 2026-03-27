@@ -13,4 +13,7 @@ abstract class DayNoteRepository {
 
   /// Writes the full [allNotes] map to storage.
   Future<void> saveAll(Map<String, List<DayNote>> allNotes);
+
+  /// Real-time stream of all day notes. Returns null if not supported.
+  Stream<Map<String, List<DayNote>>>? watchAll() => null;
 }

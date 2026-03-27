@@ -4,7 +4,9 @@ import 'dart:developer' as developer;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../domain/models/day_note.dart';
 import '../domain/models/job.dart';
+import 'day_notes_provider.dart';
 import 'job_list_provider.dart';
 import 'repository_providers.dart';
 import 'upload_progress_provider.dart';
@@ -80,6 +82,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
   final Ref ref;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   StreamSubscription<List<Job>>? _cloudJobsSub;
+  StreamSubscription<Map<String, List<DayNote>>>? _dayNotesSub;
   Timer? _debounceTimer;
   List<Job>? _pendingCloudJobs;
   bool _isMerging = false;
@@ -95,6 +98,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
       final online = !results.contains(ConnectivityResult.none);
       state = state.copyWith(isOnline: online);
       _subscribeToCloudJobs();
+      _subscribeToDayNotes();
     });
   }
 
@@ -173,6 +177,31 @@ class SyncNotifier extends StateNotifier<SyncState> {
   }
 
   // ---------------------------------------------------------------------------
+  // Real-time DayNotes listener
+  // ---------------------------------------------------------------------------
+
+  void _subscribeToDayNotes() {
+    _dayNotesSub?.cancel();
+
+    final stream = ref.read(dayNoteRepositoryProvider).watchAll();
+    if (stream == null) return;
+
+    _dayNotesSub = stream.listen(
+      (_) {
+        ref.invalidate(dayNotesProvider);
+      },
+      onError: (Object e, StackTrace st) {
+        developer.log(
+          'Day notes stream error: $e',
+          name: 'SyncNotifier',
+          error: e,
+          stackTrace: st,
+        );
+      },
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Manual pull (pull-to-refresh, tap sync indicator)
   // ---------------------------------------------------------------------------
 
@@ -223,6 +252,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
   void dispose() {
     _debounceTimer?.cancel();
     _cloudJobsSub?.cancel();
+    _dayNotesSub?.cancel();
     _connectivitySub?.cancel();
     super.dispose();
   }

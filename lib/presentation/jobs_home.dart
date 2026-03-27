@@ -769,18 +769,19 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   // Shift note operations
   // ---------------------------------------------------------------------------
 
-  Future<String?> _showAddShiftNoteDialog() {
-    final controller = TextEditingController();
+  Future<String?> _showShiftNoteDialog({String? initialText}) {
+    final controller = TextEditingController(text: initialText ?? '');
+    final isEdit = initialText != null;
     return showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Add Shift Note'),
+        title: Text(isEdit ? 'Edit Shift Note' : 'Add Shift Note'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: 'Enter shift note'),
+          decoration: const InputDecoration(hintText: 'Enter note'),
           autofocus: true,
-          minLines: 2,
-          maxLines: 4,
+          minLines: 3,
+          maxLines: 6,
           textInputAction: TextInputAction.newline,
         ),
         actions: [
@@ -791,7 +792,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           FilledButton(
             onPressed: () =>
                 Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Save'),
+            child: Text(isEdit ? 'Save' : 'Add'),
           ),
         ],
       ),
@@ -799,7 +800,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   }
 
   Future<void> _addShiftNote(String date) async {
-    final text = await _showAddShiftNoteDialog();
+    final text = await _showShiftNoteDialog();
     if (text == null || text.isEmpty || !mounted) return;
     try {
       await _jobs.addDayNote(date, text);
@@ -813,32 +814,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   }
 
   Future<void> _editShiftNote(String date, String noteId, String currentText) async {
-    final controller = TextEditingController(text: currentText);
-    final newText = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit Shift Note'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          minLines: 2,
-          maxLines: 4,
-          textInputAction: TextInputAction.newline,
-          decoration: const InputDecoration(hintText: 'Enter shift note'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
+    final newText = await _showShiftNoteDialog(initialText: currentText);
     if (newText == null || newText.isEmpty || newText == currentText || !mounted) return;
     try {
       await _jobs.editDayNote(date, noteId, newText);

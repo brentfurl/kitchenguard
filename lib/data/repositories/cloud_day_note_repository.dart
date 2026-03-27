@@ -62,4 +62,21 @@ class CloudDayNoteRepository implements DayNoteRepository {
 
     await batch.commit();
   }
+
+  @override
+  Stream<Map<String, List<DayNote>>> watchAll() {
+    return _dayNotes.snapshots().map((snapshot) {
+      final result = <String, List<DayNote>>{};
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final notes = (data['notes'] as List<dynamic>? ?? [])
+            .map((e) => DayNote.fromJson(e as Map<String, dynamic>))
+            .toList();
+        if (notes.isNotEmpty) {
+          result[doc.id] = notes;
+        }
+      }
+      return result;
+    });
+  }
 }

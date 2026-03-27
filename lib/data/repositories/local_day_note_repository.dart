@@ -20,4 +20,7 @@ class LocalDayNoteRepository implements DayNoteRepository {
   @override
   Future<void> saveAll(Map<String, List<DayNote>> allNotes) =>
       dayNoteStore.write(allNotes);
+
+  @override
+  Stream<Map<String, List<DayNote>>>? watchAll() => null;
 }

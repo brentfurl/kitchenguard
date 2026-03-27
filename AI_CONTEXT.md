@@ -666,9 +666,14 @@ All three note types now support editing with cross-device sync:
 
 **UI changes:**
 - `NotesScreen` (field notes) — added `editNote` callback, edit icon per note, edit dialog (same pattern as `ManagerNotesScreen`)
-- Shift notes bottom sheet (`jobs_home.dart`) — added edit icon per note, `_editShiftNote` dialog
+- Shift notes bottom sheet (`jobs_home.dart`) — added edit icon per note, shared `_showShiftNoteDialog` (add/edit), consistent sizing (minLines:3, maxLines:6)
 - `JobDetailController.editNote` — delegates to `JobsService.editJobNote`
 - `job_detail.dart` — passes `editNote` callback to `NotesScreen`
+
+**Real-time DayNote sync:**
+- `DayNoteRepository.watchAll()` — new interface method (returns `Stream?`, null for local repo)
+- `CloudDayNoteRepository.watchAll()` — Firestore `.snapshots()` stream on `dayNotes` collection
+- `SyncNotifier` subscribes to the DayNotes stream on init; invalidates `dayNotesProvider` on each snapshot so shift notes from other devices appear in real-time
 
 **Test coverage:**
 - 6 new merger tests for note LWW behavior (cloud newer wins, local newer keeps, null vs set, manager notes, deletion priority)
@@ -681,9 +686,13 @@ lib/domain/models/day_note.dart                  — updatedAt field
 lib/domain/merge/job_merger.dart                 — LWW on updatedAt for notes
 lib/application/jobs_service.dart                — editJobNote, editDayNote, editManagerNote updatedAt
 lib/presentation/screens/notes_screen.dart       — edit UI for field notes
-lib/presentation/jobs_home.dart                  — edit UI for shift notes
+lib/presentation/jobs_home.dart                  — edit UI for shift notes + consistent dialog
 lib/presentation/controllers/job_detail_controller.dart — editNote method
 lib/presentation/job_detail.dart                 — editNote wiring
+lib/data/repositories/day_note_repository.dart   — watchAll() interface
+lib/data/repositories/cloud_day_note_repository.dart — watchAll() Firestore stream
+lib/data/repositories/local_day_note_repository.dart — watchAll() returns null
+lib/providers/sync_provider.dart                 — DayNotes real-time subscription
 test/domain/merge/job_merger_test.dart           — 6 LWW tests
 ```
 
