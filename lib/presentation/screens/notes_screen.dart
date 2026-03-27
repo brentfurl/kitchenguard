@@ -7,12 +7,14 @@ class NotesScreen extends StatefulWidget {
     super.key,
     required this.loadNotes,
     required this.addNote,
+    required this.editNote,
     required this.softDeleteNote,
     this.onMutated,
   });
 
   final Future<List<JobNote>> Function() loadNotes;
   final Future<void> Function(String text) addNote;
+  final Future<void> Function(String noteId, String newText) editNote;
   final Future<void> Function(String noteId) softDeleteNote;
   final Future<void> Function()? onMutated;
 
@@ -43,13 +45,14 @@ class _NotesScreenState extends State<NotesScreen> {
     }
   }
 
-  Future<String?> _showAddNoteDialog() {
-    final controller = TextEditingController();
+  Future<String?> _showNoteDialog({String? initialText}) {
+    final controller = TextEditingController(text: initialText ?? '');
+    final isEdit = initialText != null;
     return showDialog<String>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Add Note'),
+          title: Text(isEdit ? 'Edit Note' : 'Add Note'),
           content: TextField(
             controller: controller,
             autofocus: true,
@@ -66,7 +69,7 @@ class _NotesScreenState extends State<NotesScreen> {
             FilledButton(
               onPressed: () =>
                   Navigator.of(context).pop(controller.text.trim()),
-              child: const Text('Save'),
+              child: Text(isEdit ? 'Save' : 'Add'),
             ),
           ],
         );
@@ -75,14 +78,8 @@ class _NotesScreenState extends State<NotesScreen> {
   }
 
   Future<void> _addNoteFlow() async {
-    final text = await _showAddNoteDialog();
-    if (!mounted || text == null) return;
-    if (text.trim().isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Note cannot be empty')));
-      return;
-    }
+    final text = await _showNoteDialog();
+    if (!mounted || text == null || text.isEmpty) return;
 
     try {
       await widget.addNote(text);
@@ -104,6 +101,33 @@ class _NotesScreenState extends State<NotesScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message.isEmpty ? 'Failed to add note' : message),
+        ),
+      );
+    }
+  }
+
+  Future<void> _editNoteFlow({
+    required String noteId,
+    required String currentText,
+  }) async {
+    final newText = await _showNoteDialog(initialText: currentText);
+    if (!mounted || newText == null || newText.isEmpty) return;
+    if (newText == currentText) return;
+
+    try {
+      await widget.editNote(noteId, newText);
+      if (widget.onMutated != null) await widget.onMutated!();
+      if (!mounted) return;
+      await _reload();
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString().replaceFirst(
+        RegExp(r'^(StateError|ArgumentError|Exception):\s*'),
+        '',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message.isEmpty ? 'Failed to edit note' : message),
         ),
       );
     }
@@ -187,12 +211,26 @@ class _NotesScreenState extends State<NotesScreen> {
                           contentPadding: EdgeInsets.zero,
                           title: Text(note.text),
                           subtitle: Text(note.createdAt),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () => _removeNoteFlow(
-                              noteId: note.noteId,
-                              text: note.text,
-                            ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined),
+                                tooltip: 'Edit',
+                                onPressed: () => _editNoteFlow(
+                                  noteId: note.noteId,
+                                  currentText: note.text,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline),
+                                tooltip: 'Delete',
+                                onPressed: () => _removeNoteFlow(
+                                  noteId: note.noteId,
+                                  text: note.text,
+                                ),
+                              ),
+                            ],
                           ),
                         );
                       },

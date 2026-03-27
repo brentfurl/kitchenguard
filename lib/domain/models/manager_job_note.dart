@@ -4,12 +4,14 @@ class ManagerJobNote {
     required this.text,
     required this.createdAt,
     required this.status,
+    this.updatedAt,
   });
 
   final String noteId;
   final String text;
   final String createdAt;
   final String status; // 'active' | 'deleted'
+  final String? updatedAt; // ISO 8601, null = never edited
 
   bool get isActive => status == 'active';
   bool get isDeleted => status == 'deleted';
@@ -24,6 +26,7 @@ class ManagerJobNote {
       text: (json['text'] ?? '').toString(),
       createdAt: (json['createdAt'] ?? '').toString(),
       status: normalizedStatus,
+      updatedAt: json['updatedAt'] as String?,
     );
   }
 
@@ -33,6 +36,7 @@ class ManagerJobNote {
       'text': text,
       'createdAt': createdAt,
       'status': status,
+      if (updatedAt != null) 'updatedAt': updatedAt,
     };
   }
 
@@ -41,12 +45,14 @@ class ManagerJobNote {
     String? text,
     String? createdAt,
     String? status,
+    String? updatedAt,
   }) {
     return ManagerJobNote(
       noteId: noteId ?? this.noteId,
       text: text ?? this.text,
       createdAt: createdAt ?? this.createdAt,
       status: status ?? this.status,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 }

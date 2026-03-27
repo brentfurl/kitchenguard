@@ -117,12 +117,14 @@ JobNote _note({
   required String id,
   String text = 'note text',
   String status = 'active',
+  String? updatedAt,
 }) {
   return JobNote(
     noteId: id,
     text: text,
     createdAt: '2025-01-01T12:00:00Z',
     status: status,
+    updatedAt: updatedAt,
   );
 }
 
@@ -130,12 +132,14 @@ ManagerJobNote _mgrNote({
   required String id,
   String text = 'manager note',
   String status = 'active',
+  String? updatedAt,
 }) {
   return ManagerJobNote(
     noteId: id,
     text: text,
     createdAt: '2025-01-01T12:00:00Z',
     status: status,
+    updatedAt: updatedAt,
   );
 }
 
@@ -510,6 +514,68 @@ void main() {
 
       final merged = JobMerger.merge(local: local, cloud: cloud);
       expect(merged.managerNotes.first.isDeleted, isTrue);
+    });
+
+    test('job note text LWW — cloud updatedAt newer wins text', () {
+      final local = _baseJob(notes: [
+        _note(id: 'n1', text: 'old text', updatedAt: '2025-06-01T10:00:00Z'),
+      ]);
+      final cloud = _baseJob(notes: [
+        _note(id: 'n1', text: 'new text', updatedAt: '2025-06-01T14:00:00Z'),
+      ]);
+
+      final merged = JobMerger.merge(local: local, cloud: cloud);
+      expect(merged.notes.first.text, 'new text');
+      expect(merged.notes.first.updatedAt, '2025-06-01T14:00:00Z');
+    });
+
+    test('job note text LWW — local updatedAt newer keeps text', () {
+      final local = _baseJob(notes: [
+        _note(id: 'n1', text: 'local edit', updatedAt: '2025-06-01T16:00:00Z'),
+      ]);
+      final cloud = _baseJob(notes: [
+        _note(id: 'n1', text: 'cloud edit', updatedAt: '2025-06-01T14:00:00Z'),
+      ]);
+
+      final merged = JobMerger.merge(local: local, cloud: cloud);
+      expect(merged.notes.first.text, 'local edit');
+    });
+
+    test('job note text LWW — cloud has updatedAt, local null → cloud wins', () {
+      final local = _baseJob(notes: [
+        _note(id: 'n1', text: 'original'),
+      ]);
+      final cloud = _baseJob(notes: [
+        _note(id: 'n1', text: 'edited', updatedAt: '2025-06-01T14:00:00Z'),
+      ]);
+
+      final merged = JobMerger.merge(local: local, cloud: cloud);
+      expect(merged.notes.first.text, 'edited');
+    });
+
+    test('manager note text LWW — cloud updatedAt newer wins text', () {
+      final local = _baseJob(managerNotes: [
+        _mgrNote(id: 'm1', text: 'old', updatedAt: '2025-06-01T10:00:00Z'),
+      ]);
+      final cloud = _baseJob(managerNotes: [
+        _mgrNote(id: 'm1', text: 'new', updatedAt: '2025-06-01T14:00:00Z'),
+      ]);
+
+      final merged = JobMerger.merge(local: local, cloud: cloud);
+      expect(merged.managerNotes.first.text, 'new');
+      expect(merged.managerNotes.first.updatedAt, '2025-06-01T14:00:00Z');
+    });
+
+    test('deletion wins over LWW text update', () {
+      final local = _baseJob(notes: [
+        _note(id: 'n1', text: 'edited', updatedAt: '2025-06-01T10:00:00Z'),
+      ]);
+      final cloud = _baseJob(notes: [
+        _note(id: 'n1', text: 'deleted ver', status: 'deleted'),
+      ]);
+
+      final merged = JobMerger.merge(local: local, cloud: cloud);
+      expect(merged.notes.first.isDeleted, isTrue);
     });
   });
 

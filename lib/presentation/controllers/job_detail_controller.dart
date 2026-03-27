@@ -246,6 +246,27 @@ class JobDetailController {
     await loadJob();
   }
 
+  Future<void> editNote(String noteId, String newText) async {
+    final trimmedId = noteId.trim();
+    final trimmedText = newText.trim();
+    if (trimmedId.isEmpty) {
+      throw ArgumentError.value(noteId, 'noteId', 'Note id cannot be empty.');
+    }
+    if (trimmedText.isEmpty) {
+      throw ArgumentError.value(
+        newText,
+        'newText',
+        'Note text cannot be empty.',
+      );
+    }
+    await jobs.editJobNote(
+      jobDir: jobDir,
+      noteId: trimmedId,
+      newText: trimmedText,
+    );
+    await loadJob();
+  }
+
   Future<void> addManagerNote(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) {

@@ -649,9 +649,43 @@ lib/presentation/job_detail.dart                    — passes callbacks to both
 
 3. **Filter row overflow on Android** — Filter chips (Today / Upcoming / Past / Unscheduled) use `VisualDensity.compact`, `MaterialTapTargetSize.shrinkWrap`, and reduced padding so all four fit on narrower Android screens without clipping.
 
-### Planned: Note Editing + Sync
+### Note Editing + Sync (complete)
 
-Manager job notes can be edited but edits don't sync across devices (merge is append-only by noteId, ignoring text changes). Field notes and shift notes don't support editing in the UI at all. Planned fix: add `updatedAt` timestamp to `JobNote`, `ManagerJobNote`, and `DayNote` models; use LWW for text content in merge; add edit UI for field notes and shift notes.
+All three note types now support editing with cross-device sync:
+
+**Model changes:**
+- Added nullable `updatedAt` (ISO 8601) field to `JobNote`, `ManagerJobNote`, and `DayNote` models. Omitted from JSON when null for backward compatibility.
+
+**Merge changes:**
+- `JobMerger._mergeJobNotes` and `_mergeManagerNotes` now use last-write-wins (LWW) on `updatedAt` for text content when the same `noteId` exists on both sides. Cloud text wins only if its `updatedAt` is strictly newer than local. Deletion still takes priority over text edits.
+
+**Service changes:**
+- `JobsService.editJobNote` — edits field note text, sets `updatedAt`
+- `JobsService.editManagerNote` — now sets `updatedAt` on edit (was missing before)
+- `JobsService.editDayNote` — edits shift note text, sets `updatedAt`
+
+**UI changes:**
+- `NotesScreen` (field notes) — added `editNote` callback, edit icon per note, edit dialog (same pattern as `ManagerNotesScreen`)
+- Shift notes bottom sheet (`jobs_home.dart`) — added edit icon per note, `_editShiftNote` dialog
+- `JobDetailController.editNote` — delegates to `JobsService.editJobNote`
+- `job_detail.dart` — passes `editNote` callback to `NotesScreen`
+
+**Test coverage:**
+- 6 new merger tests for note LWW behavior (cloud newer wins, local newer keeps, null vs set, manager notes, deletion priority)
+
+**Key files changed:**
+```
+lib/domain/models/job_note.dart                  — updatedAt field
+lib/domain/models/manager_job_note.dart          — updatedAt field
+lib/domain/models/day_note.dart                  — updatedAt field
+lib/domain/merge/job_merger.dart                 — LWW on updatedAt for notes
+lib/application/jobs_service.dart                — editJobNote, editDayNote, editManagerNote updatedAt
+lib/presentation/screens/notes_screen.dart       — edit UI for field notes
+lib/presentation/jobs_home.dart                  — edit UI for shift notes
+lib/presentation/controllers/job_detail_controller.dart — editNote method
+lib/presentation/job_detail.dart                 — editNote wiring
+test/domain/merge/job_merger_test.dart           — 6 LWW tests
+```
 
 ### Device Testing Prep
 

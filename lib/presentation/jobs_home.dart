@@ -812,6 +812,45 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     }
   }
 
+  Future<void> _editShiftNote(String date, String noteId, String currentText) async {
+    final controller = TextEditingController(text: currentText);
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Shift Note'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 4,
+          textInputAction: TextInputAction.newline,
+          decoration: const InputDecoration(hintText: 'Enter shift note'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newText == null || newText.isEmpty || newText == currentText || !mounted) return;
+    try {
+      await _jobs.editDayNote(date, noteId, newText);
+      ref.invalidate(dayNotesProvider);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
   Future<void> _confirmDeleteShiftNote(
     String date,
     String noteId,
@@ -1510,6 +1549,20 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                                     children: [
                                       Expanded(
                                         child: Text(note.text),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                            Icons.edit_outlined,
+                                            size: 18),
+                                        onPressed: () async {
+                                          await _editShiftNote(
+                                            date,
+                                            note.noteId,
+                                            note.text,
+                                          );
+                                          if (!mounted) return;
+                                          Navigator.of(sheetContext).pop();
+                                        },
                                       ),
                                       IconButton(
                                         icon: const Icon(

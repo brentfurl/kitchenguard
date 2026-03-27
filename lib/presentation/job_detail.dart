@@ -533,6 +533,8 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             return _controller.activeNotes;
           },
           addNote: (text) => _controller.addNote(text),
+          editNote: (noteId, newText) =>
+              _controller.editNote(noteId, newText),
           softDeleteNote: (noteId) => _controller.softDeleteNote(noteId),
           onMutated: _reloadJob,
         ),

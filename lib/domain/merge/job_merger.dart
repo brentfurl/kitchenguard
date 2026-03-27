@@ -14,6 +14,8 @@ import '../models/videos.dart';
 /// **Strategy:**
 /// - Scheduling / metadata fields: last-write-wins via [Job.updatedAt].
 /// - Documentation data (photos, videos, notes): append-only union by ID.
+/// - Note text content: last-write-wins via [JobNote.updatedAt] /
+///   [ManagerJobNote.updatedAt] when the same noteId exists on both sides.
 /// - Soft-deletion is additive: if either side is deleted, the merge result
 ///   is deleted.
 /// - Sync metadata (syncStatus, cloudUrl, uploadedBy) prefers the "better"
@@ -269,8 +271,15 @@ class JobMerger {
     for (final ln in local) {
       seenIds.add(ln.noteId);
       final cn = cloudMap[ln.noteId];
-      if (cn != null && cn.isDeleted && !ln.isDeleted) {
+      if (cn == null) {
+        merged.add(ln);
+      } else if (cn.isDeleted && !ln.isDeleted) {
         merged.add(ln.copyWith(status: 'deleted'));
+      } else if (_isAfter(
+        DateTime.tryParse(cn.updatedAt ?? ''),
+        DateTime.tryParse(ln.updatedAt ?? ''),
+      )) {
+        merged.add(ln.copyWith(text: cn.text, updatedAt: cn.updatedAt));
       } else {
         merged.add(ln);
       }
@@ -300,8 +309,15 @@ class JobMerger {
     for (final ln in local) {
       seenIds.add(ln.noteId);
       final cn = cloudMap[ln.noteId];
-      if (cn != null && cn.isDeleted && !ln.isDeleted) {
+      if (cn == null) {
+        merged.add(ln);
+      } else if (cn.isDeleted && !ln.isDeleted) {
         merged.add(ln.copyWith(status: 'deleted'));
+      } else if (_isAfter(
+        DateTime.tryParse(cn.updatedAt ?? ''),
+        DateTime.tryParse(ln.updatedAt ?? ''),
+      )) {
+        merged.add(ln.copyWith(text: cn.text, updatedAt: cn.updatedAt));
       } else {
         merged.add(ln);
       }

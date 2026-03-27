@@ -686,6 +686,39 @@ class JobsService {
     await jobRepository.saveJob(jobDir, job.copyWith(notes: updatedNotes));
   }
 
+  Future<void> editJobNote({
+    required Directory jobDir,
+    required String noteId,
+    required String newText,
+  }) async {
+    final trimmed = newText.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(
+        newText,
+        'newText',
+        'Note text cannot be empty.',
+      );
+    }
+
+    final job = await jobRepository.loadJob(jobDir);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final idx = job.notes.indexWhere((n) => n.noteId == noteId);
+    if (idx < 0) {
+      throw StateError('Note not found: $noteId');
+    }
+
+    final updatedNotes = [...job.notes];
+    updatedNotes[idx] = job.notes[idx].copyWith(
+      text: trimmed,
+      updatedAt: DateTime.now().toUtc().toIso8601String(),
+    );
+
+    await jobRepository.saveJob(jobDir, job.copyWith(notes: updatedNotes));
+  }
+
   // ---------------------------------------------------------------------------
   // Manager Job Notes
   // ---------------------------------------------------------------------------
@@ -766,7 +799,10 @@ class JobsService {
     }
 
     final updatedNotes = [...job.managerNotes];
-    updatedNotes[idx] = job.managerNotes[idx].copyWith(text: trimmed);
+    updatedNotes[idx] = job.managerNotes[idx].copyWith(
+      text: trimmed,
+      updatedAt: DateTime.now().toUtc().toIso8601String(),
+    );
 
     await jobRepository.saveJob(
       jobDir,
@@ -1610,6 +1646,33 @@ class JobsService {
 
     final updatedNotes = [...notes];
     updatedNotes[idx] = notes[idx].copyWith(status: 'deleted');
+
+    await dayNoteRepository.saveAll({...all, date: updatedNotes});
+  }
+
+  Future<void> editDayNote(String date, String noteId, String newText) async {
+    final trimmed = newText.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(
+        newText,
+        'newText',
+        'Note text cannot be empty.',
+      );
+    }
+
+    final all = await dayNoteRepository.loadAll();
+    final notes = all[date] ?? [];
+
+    final idx = notes.indexWhere((n) => n.noteId == noteId);
+    if (idx < 0) {
+      throw StateError('Day note not found: $noteId');
+    }
+
+    final updatedNotes = [...notes];
+    updatedNotes[idx] = notes[idx].copyWith(
+      text: trimmed,
+      updatedAt: DateTime.now().toUtc().toIso8601String(),
+    );
 
     await dayNoteRepository.saveAll({...all, date: updatedNotes});
   }
