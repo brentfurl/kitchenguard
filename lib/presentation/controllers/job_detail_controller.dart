@@ -23,8 +23,7 @@ class JobDetailController {
     final active = notes
         .where((note) => note.status == 'active')
         .toList(growable: false);
-    // newest first
-    active.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    active.sort((a, b) => a.createdAt.compareTo(b.createdAt));
     return active;
   }
 
@@ -51,7 +50,7 @@ class JobDetailController {
     final active = notes
         .where((note) => note.status == 'active')
         .toList(growable: false);
-    active.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    active.sort((a, b) => a.createdAt.compareTo(b.createdAt));
     return active;
   }
 
