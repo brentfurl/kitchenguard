@@ -623,17 +623,21 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
   Widget _buildFilterRow() {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
       child: Row(
         children: [
           for (final filter in _JobFilter.values) ...[
-            if (filter != _JobFilter.values.first) const SizedBox(width: 6),
+            if (filter != _JobFilter.values.first) const SizedBox(width: 4),
             FilterChip(
-              label: Text(_filterLabel(filter)),
+              label: Text(
+                _filterLabel(filter),
+                style: const TextStyle(fontSize: 13),
+              ),
               selected: _activeFilters.contains(filter),
               visualDensity: VisualDensity.compact,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
+              padding: EdgeInsets.zero,
+              labelPadding: const EdgeInsets.symmetric(horizontal: 6),
               onSelected: (selected) {
                 setState(() {
                   if (selected) {
