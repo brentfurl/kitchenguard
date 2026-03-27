@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.**
 
 Core capabilities complete:
 
@@ -715,6 +715,24 @@ iOS build configuration fixes:
 Tested on physical devices:
 - Android: Samsung Galaxy S24 Ultra (Android 16) — release build
 - iOS: iPhone (iOS 26.3) — release build
+
+### Phase 0: Pre-Publishing Targeted Refactoring (complete)
+
+Decomposed `jobs_home.dart` from 2014 lines to ~794 lines in preparation for the day-publishing feature. Pure extraction — no behavior changes. Also added role utility helpers for the 5+ role checks the publishing feature will introduce.
+
+**New files:**
+
+```
+lib/utils/role_helpers.dart                          — RoleCheck extension on AppRole? (isManager, isTechnician) + ManagerOnly widget
+lib/presentation/widgets/job_dialog.dart             — showJobDialog(), JobDialogResult, accessTypeLabels, toYyyyMmDd, formatDateLabel
+lib/presentation/widgets/day_card.dart               — DayCard widget, _ArrivalTimesSection, showArrivalTimeDialog, ArrivalTimeDialogResult
+lib/presentation/widgets/job_sub_card.dart           — JobSubCard, JobTile, UnscheduledSection, _JobOverflowMenu
+lib/presentation/widgets/shift_notes_sheet.dart      — showShiftNoteDialog, openShiftNotesSheet, confirmDeleteShiftNote
+```
+
+**Extraction pattern:** Each widget takes data + typed callbacks as parameters, keeping them independent of `JobsService` and Riverpod state. `jobs_home.dart` retains the service/provider wiring and delegates UI rendering to the extracted widgets.
+
+**`jobs_home.dart` now contains:** scaffold, build method, filter row, provider watching, job grouping/sorting logic, and thin action handlers that call `JobsService` methods and invalidate providers.
 
 ---
 
