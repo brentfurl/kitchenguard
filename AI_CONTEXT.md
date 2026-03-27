@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export).
 
 Core capabilities complete:
 
@@ -579,6 +579,9 @@ Core capabilities complete:
 - real-time Firestore sync (replaced 5-min polling with `.snapshots()` listener)
 - broken-URL recovery (re-queue photo uploads when cloud image load fails)
 - day publishing (managers publish days to make them visible to technicians)
+- web console: photo display fix (Image.network + distinct error/status states)
+- web console: multi-select filter chips with Unscheduled, filter state preserved across navigation
+- web console: ZIP download/export from job detail (in-memory archive + browser download)
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
@@ -764,6 +767,41 @@ lib/application/jobs_service.dart                — publishDay(), unpublishDay(
 lib/presentation/jobs_home.dart                  — tech day filtering, publish toggle handler
 lib/presentation/widgets/day_card.dart           — DRAFT badge, publish icon (managers)
 lib/web/screens/web_schedule_screen.dart         — DRAFT badge, publish button, toggle handler
+```
+
+### Web Console Fixes (complete)
+
+Five fixes to the Flutter web management dashboard:
+
+**1. Photo display — replaced CachedNetworkImage with Image.network:**
+- `CachedNetworkImage` on Flutter web has reliability issues (caching layer, CORS). The `errorWidget` rendered the same "Not uploaded" placeholder as the null-URL case, making it impossible to distinguish "no cloudUrl" from "failed to load."
+- `_PhotoThumbnail` is now a `StatefulWidget` using `Image.network` (browser handles caching natively). Three distinct visual states: sync-status placeholder (pending/uploading/error), "Load failed — tap to retry" error state, and the actual image.
+- Full-image dialog viewer also migrated to `Image.network` with error handling.
+- Added `cors.json` at project root for Firebase Storage CORS (deploy with `gsutil cors set cors.json gs://kitchenguard-8e288.appspot.com`).
+
+**2. Filter state preserved on back navigation:**
+- `WebDashboard` content area changed from a ternary (which destroyed `WebScheduleScreen` on each job-detail open) to `Offstage` + `Stack`. `WebScheduleScreen` stays alive in the widget tree while `WebJobDetailScreen` is shown. Filter selections survive round-trip navigation.
+
+**3. "Unscheduled" filter added:**
+- Replaced "All" chip with "Unscheduled" to match mobile (Today, Upcoming, Past, Unscheduled). Unscheduled jobs (those with `scheduledDate == null`) shown only when the Unscheduled chip is active.
+
+**4. Multi-select filter chips:**
+- Changed `String _filter` to `Set<String> _activeFilters` with default `{'today', 'upcoming'}`. `FilterChip.onSelected` adds/removes from the set. Job list filtering uses OR logic across active filters, matching mobile behavior.
+
+**5. ZIP download from web console:**
+- "Download ZIP" button in `WebJobDetailScreen` header. `WebExportService` collects all active photos/videos with a `cloudUrl`, downloads bytes via `XMLHttpRequest`, builds an in-memory ZIP using `package:archive` (`Archive` + `ZipEncoder`), and triggers a browser file download via `package:web` (`Blob` + `URL.createObjectURL` + anchor click).
+- ZIP structure mirrors mobile export: `job.json`, `notes.txt`, `Hoods/`+`Fans/`+`Misc/` unit folders, `Videos/`. Pre-clean layout photos excluded per export rules.
+- Progress indicator shows during download; skipped items (no cloudUrl) reported to user.
+- Added `package:web` as explicit dependency for browser download APIs.
+
+**Key files changed:**
+```
+lib/web/screens/web_job_detail_screen.dart  — Image.network photo display, download ZIP button + progress
+lib/web/screens/web_schedule_screen.dart    — multi-select filter Set, Unscheduled chip, OR filter logic
+lib/web/web_dashboard.dart                  — Offstage + Stack to preserve schedule screen state
+lib/web/web_export_service.dart             — NEW: web ZIP export service
+cors.json                                   — NEW: Firebase Storage CORS config
+pubspec.yaml                                — added package:web dependency
 ```
 
 ---
@@ -1106,11 +1144,13 @@ Web App
   ├─ Manager-only access check (technicians see "Access Restricted")
   └─ WebDashboard (sidebar navigation)
        ├─ Schedule — jobs grouped by date, create/edit/delete, day notes/schedules
+       │    └─ Multi-select filter row (Today | Upcoming | Past | Unscheduled), default: Today + Upcoming
        ├─ Users — user list from Firestore `users` collection, role assignment
-       └─ Job Detail (drill-in from schedule)
+       └─ Job Detail (drill-in from schedule, filter state preserved via Offstage)
             ├─ Job metadata (address, access info, notes)
-            ├─ Photo review (grid, Firebase Storage URLs via CachedNetworkImage)
-            └─ Video list (upload status, cloud URLs)
+            ├─ Photo review (grid, Firebase Storage URLs via Image.network + status indicators)
+            ├─ Video list (upload status, cloud URLs)
+            └─ Download ZIP button (in-memory archive from cloud URLs, browser download)
 ```
 
 ## Web Providers
@@ -1137,8 +1177,9 @@ lib/web/web_dashboard.dart                       — sidebar navigation shell
 lib/web/web_providers.dart                       — web-specific Riverpod providers
 lib/web/web_job_repository.dart                  — Firestore-only job CRUD + real-time streams
 lib/web/screens/web_schedule_screen.dart         — schedule management (job CRUD, day cards)
-lib/web/screens/web_job_detail_screen.dart       — photo review + job detail
+lib/web/screens/web_job_detail_screen.dart       — photo review + job detail + ZIP download
 lib/web/screens/web_users_screen.dart            — user management + role assignment
+lib/web/web_export_service.dart                  — web ZIP export (HTTP download + in-memory archive + browser trigger)
 ```
 
 ## Deployment

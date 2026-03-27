@@ -24,7 +24,7 @@ class WebScheduleScreen extends ConsumerStatefulWidget {
 }
 
 class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
-  String _filter = 'upcoming'; // 'today', 'upcoming', 'past', 'all'
+  final Set<String> _activeFilters = {'today', 'upcoming'};
 
   @override
   Widget build(BuildContext context) {
@@ -61,7 +61,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
               _filterChip('Today', 'today', cs),
               _filterChip('Upcoming', 'upcoming', cs),
               _filterChip('Past', 'past', cs),
-              _filterChip('All', 'all', cs),
+              _filterChip('Unscheduled', 'unscheduled', cs),
             ],
           ),
         ),
@@ -79,11 +79,17 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
   }
 
   Widget _filterChip(String label, String value, ColorScheme cs) {
-    final isSelected = _filter == value;
+    final isSelected = _activeFilters.contains(value);
     return FilterChip(
       label: Text(label),
       selected: isSelected,
-      onSelected: (_) => setState(() => _filter = value),
+      onSelected: (selected) => setState(() {
+        if (selected) {
+          _activeFilters.add(value);
+        } else {
+          _activeFilters.remove(value);
+        }
+      }),
       selectedColor: cs.primaryContainer,
       checkmarkColor: cs.onPrimaryContainer,
     );
@@ -94,41 +100,41 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     final todayStr =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
-    final filtered = allJobs.where((j) {
-      final date = j.scheduledDate;
-      switch (_filter) {
-        case 'today':
-          return date == todayStr;
-        case 'upcoming':
-          return date != null && date.compareTo(todayStr) >= 0;
-        case 'past':
-          return date != null && date.compareTo(todayStr) < 0;
-        default:
-          return true;
-      }
-    }).toList();
-
-    // Group by scheduledDate
-    final grouped = <String, List<Job>>{};
-    final unscheduled = <Job>[];
-    for (final job in filtered) {
+    // Group all jobs by scheduledDate vs unscheduled
+    final allGrouped = <String, List<Job>>{};
+    final allUnscheduled = <Job>[];
+    for (final job in allJobs) {
       if (job.scheduledDate != null) {
-        grouped.putIfAbsent(job.scheduledDate!, () => []).add(job);
+        allGrouped.putIfAbsent(job.scheduledDate!, () => []).add(job);
       } else {
-        unscheduled.add(job);
+        allUnscheduled.add(job);
       }
     }
 
-    // Sort dates
-    final sortedDates = grouped.keys.toList()..sort();
+    // Filter scheduled dates using OR logic across active filters
+    final filteredDates = allGrouped.keys.where((date) {
+      if (_activeFilters.contains('today') && date == todayStr) return true;
+      if (_activeFilters.contains('upcoming') &&
+          date.compareTo(todayStr) > 0) {
+        return true;
+      }
+      if (_activeFilters.contains('past') && date.compareTo(todayStr) < 0) {
+        return true;
+      }
+      return false;
+    }).toList()
+      ..sort();
 
     // Sort jobs within each date by sortOrder
-    for (final date in sortedDates) {
-      grouped[date]!.sort((a, b) =>
-          (a.sortOrder ?? 999).compareTo(b.sortOrder ?? 999));
+    for (final date in filteredDates) {
+      allGrouped[date]!.sort(
+          (a, b) => (a.sortOrder ?? 999).compareTo(b.sortOrder ?? 999));
     }
 
-    if (sortedDates.isEmpty && unscheduled.isEmpty) {
+    final showUnscheduled =
+        _activeFilters.contains('unscheduled') && allUnscheduled.isNotEmpty;
+
+    if (filteredDates.isEmpty && !showUnscheduled) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -145,11 +151,11 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       children: [
-        for (final date in sortedDates)
+        for (final date in filteredDates)
           _DayCard(
             date: date,
             todayStr: todayStr,
-            jobs: grouped[date]!,
+            jobs: allGrouped[date]!,
             onJobTap: widget.onJobTap,
             onDeleteJob: _deleteJob,
             onEditJob: (job) => _showEditJobDialog(context, job),
@@ -159,7 +165,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             daySchedulesAsync: ref.watch(webDaySchedulesProvider),
             onTogglePublish: () => _togglePublish(date),
           ),
-        if (unscheduled.isNotEmpty) ...[
+        if (showUnscheduled) ...[
           Padding(
             padding: const EdgeInsets.only(top: 16, bottom: 8),
             child: Text('Unscheduled',
@@ -168,7 +174,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
                     .titleMedium
                     ?.copyWith(fontWeight: FontWeight.w600)),
           ),
-          ...unscheduled.map((job) => _JobTile(
+          ...allUnscheduled.map((job) => _JobTile(
                 job: job,
                 onTap: () => widget.onJobTap(job.jobId),
                 onDelete: () => _deleteJob(job.jobId),

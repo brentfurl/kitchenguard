@@ -115,4 +115,10 @@ class LocalJobRepository implements JobRepository {
 
   @override
   Future<int> pullFromCloud() async => 0;
+
+  @override
+  Future<int> mergeCloudJobs(List<Job> cloudJobs) async => 0;
+
+  @override
+  Stream<List<Job>>? watchCloudJobs() => null;
 }

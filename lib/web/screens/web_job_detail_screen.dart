@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +5,7 @@ import '../../domain/models/job.dart';
 import '../../domain/models/photo_record.dart';
 import '../../domain/models/unit.dart';
 import '../../domain/models/video_record.dart';
+import '../web_export_service.dart';
 import '../web_providers.dart';
 
 /// Real-time single-job stream provider, keyed by jobId.
@@ -60,7 +60,7 @@ class WebJobDetailScreen extends ConsumerWidget {
   }
 }
 
-class _JobDetailBody extends StatelessWidget {
+class _JobDetailBody extends StatefulWidget {
   const _JobDetailBody({
     required this.job,
     required this.onBack,
@@ -70,6 +70,52 @@ class _JobDetailBody extends StatelessWidget {
   final Job job;
   final VoidCallback onBack;
   final ThemeData theme;
+
+  @override
+  State<_JobDetailBody> createState() => _JobDetailBodyState();
+}
+
+class _JobDetailBodyState extends State<_JobDetailBody> {
+  WebExportProgress? _exportProgress;
+  bool _isExporting = false;
+
+  Job get job => widget.job;
+  ThemeData get theme => widget.theme;
+
+  Future<void> _startExport() async {
+    if (_isExporting) return;
+    setState(() => _isExporting = true);
+
+    try {
+      final result = await WebExportService.exportJobZip(
+        job: job,
+        onProgress: (p) {
+          if (mounted) setState(() => _exportProgress = p);
+        },
+      );
+
+      if (!mounted) return;
+      final msg = result.skipped > 0
+          ? 'ZIP downloaded (${result.skipped} item${result.skipped == 1 ? '' : 's'} skipped — not yet uploaded)'
+          : 'ZIP downloaded';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isExporting = false;
+          _exportProgress = null;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +138,7 @@ class _JobDetailBody extends StatelessWidget {
             children: [
               IconButton(
                 icon: const Icon(Icons.arrow_back),
-                onPressed: onBack,
+                onPressed: widget.onBack,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -134,6 +180,30 @@ class _JobDetailBody extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
+              _isExporting
+                  ? SizedBox(
+                      width: 160,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          LinearProgressIndicator(
+                            value: _exportProgress?.fraction,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _exportProgress?.currentFile ?? 'Preparing…',
+                            style: theme.textTheme.labelSmall,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    )
+                  : FilledButton.tonalIcon(
+                      onPressed: _startExport,
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('Download ZIP'),
+                    ),
             ],
           ),
         ),
@@ -316,10 +386,29 @@ class _PhotoGrid extends StatelessWidget {
   }
 }
 
-class _PhotoThumbnail extends StatelessWidget {
+class _PhotoThumbnail extends StatefulWidget {
   const _PhotoThumbnail({required this.photo});
 
   final PhotoRecord photo;
+
+  @override
+  State<_PhotoThumbnail> createState() => _PhotoThumbnailState();
+}
+
+class _PhotoThumbnailState extends State<_PhotoThumbnail> {
+  bool _loadFailed = false;
+  int _retryKey = 0;
+
+  PhotoRecord get photo => widget.photo;
+
+  @override
+  void didUpdateWidget(_PhotoThumbnail old) {
+    super.didUpdateWidget(old);
+    if (old.photo.cloudUrl != photo.cloudUrl) {
+      _loadFailed = false;
+      _retryKey++;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -336,38 +425,96 @@ class _PhotoThumbnail extends StatelessWidget {
           border: Border.all(color: cs.outlineVariant),
         ),
         clipBehavior: Clip.antiAlias,
-        child: photo.cloudUrl != null
-            ? CachedNetworkImage(
-                imageUrl: photo.cloudUrl!,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => Container(
-                  color: cs.surfaceContainerHighest,
-                  child: const Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                ),
-                errorWidget: (_, __, ___) => _placeholder(cs),
-              )
-            : _placeholder(cs),
+        child: _buildContent(cs),
       ),
     );
   }
 
-  Widget _placeholder(ColorScheme cs) {
+  Widget _buildContent(ColorScheme cs) {
+    if (photo.cloudUrl != null && !_loadFailed) {
+      return Image.network(
+        photo.cloudUrl!,
+        key: ValueKey('img_${photo.photoId}_$_retryKey'),
+        fit: BoxFit.cover,
+        width: 120,
+        height: 120,
+        loadingBuilder: (_, child, progress) {
+          if (progress == null) return child;
+          return Container(
+            color: cs.surfaceContainerHighest,
+            child: const Center(
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        },
+        errorBuilder: (_, _, _) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _loadFailed = true);
+          });
+          return _errorPlaceholder(cs);
+        },
+      );
+    }
+
+    if (_loadFailed) return _errorPlaceholder(cs);
+
+    return _statusPlaceholder(cs);
+  }
+
+  Widget _statusPlaceholder(ColorScheme cs) {
+    final status = photo.syncStatus;
+    final IconData icon;
+    final String label;
+
+    if (status == 'uploading') {
+      icon = Icons.cloud_upload_outlined;
+      label = 'Uploading…';
+    } else if (status == 'error') {
+      icon = Icons.error_outline;
+      label = 'Upload error';
+    } else {
+      icon = Icons.cloud_off;
+      label = 'Not uploaded';
+    }
+
     return Container(
       color: cs.surfaceContainerHighest,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.cloud_off, size: 24, color: cs.onSurfaceVariant),
+          Icon(icon, size: 24, color: cs.onSurfaceVariant),
           const SizedBox(height: 4),
-          Text('Not uploaded',
+          Text(label,
               style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
         ],
+      ),
+    );
+  }
+
+  Widget _errorPlaceholder(ColorScheme cs) {
+    return GestureDetector(
+      onTap: () => setState(() {
+        _loadFailed = false;
+        _retryKey++;
+      }),
+      child: Container(
+        color: cs.surfaceContainerHighest,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.broken_image_outlined, size: 24, color: cs.error),
+            const SizedBox(height: 4),
+            Text('Load failed',
+                style: TextStyle(fontSize: 10, color: cs.error)),
+            const SizedBox(height: 2),
+            Text('Tap to retry',
+                style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+          ],
+        ),
       ),
     );
   }
@@ -381,11 +528,25 @@ class _PhotoThumbnail extends StatelessWidget {
         child: Stack(
           children: [
             InteractiveViewer(
-              child: CachedNetworkImage(
-                imageUrl: photo.cloudUrl!,
+              child: Image.network(
+                photo.cloudUrl!,
                 fit: BoxFit.contain,
-                placeholder: (_, __) =>
-                    const Center(child: CircularProgressIndicator()),
+                loadingBuilder: (_, child, progress) {
+                  if (progress == null) return child;
+                  return const Center(child: CircularProgressIndicator());
+                },
+                errorBuilder: (_, _, _) => Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.broken_image_outlined,
+                          size: 48,
+                          color: Theme.of(ctx).colorScheme.error),
+                      const SizedBox(height: 8),
+                      const Text('Failed to load image'),
+                    ],
+                  ),
+                ),
               ),
             ),
             Positioned(

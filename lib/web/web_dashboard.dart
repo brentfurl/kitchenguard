@@ -126,26 +126,32 @@ class _WebDashboardState extends ConsumerState<WebDashboard> {
           // Sidebar border
           VerticalDivider(width: 1, thickness: 1, color: cs.outlineVariant),
           // --- Content area ---
-          Expanded(
-            child: _selectedJobId != null
-                ? WebJobDetailScreen(
-                    jobId: _selectedJobId!,
-                    onBack: _closeJobDetail,
-                  )
-                : _buildPage(),
-          ),
+          Expanded(child: _buildContent()),
         ],
       ),
     );
   }
 
-  Widget _buildPage() {
-    switch (_page) {
-      case _WebPage.schedule:
-        return WebScheduleScreen(onJobTap: _openJobDetail);
-      case _WebPage.users:
-        return const WebUsersScreen();
+  Widget _buildContent() {
+    if (_page == _WebPage.users) {
+      return const WebUsersScreen();
     }
+
+    // Keep WebScheduleScreen alive via Offstage so filter state survives
+    // navigation to/from job detail.
+    return Stack(
+      children: [
+        Offstage(
+          offstage: _selectedJobId != null,
+          child: WebScheduleScreen(onJobTap: _openJobDetail),
+        ),
+        if (_selectedJobId != null)
+          WebJobDetailScreen(
+            jobId: _selectedJobId!,
+            onBack: _closeJobDetail,
+          ),
+      ],
+    );
   }
 }
 
