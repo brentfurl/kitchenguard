@@ -64,6 +64,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
               _filterChip('Upcoming', 'upcoming', cs),
               _filterChip('Past', 'past', cs),
               _filterChip('Unscheduled', 'unscheduled', cs),
+              _filterChip('Published', 'published', cs),
             ],
           ),
         ),
@@ -73,7 +74,8 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
           child: jobsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text('Error loading jobs: $e')),
-            data: (jobs) => _buildJobList(context, jobs),
+            data: (jobs) => _buildJobList(context, jobs,
+                ref.watch(webDaySchedulesProvider).valueOrNull ?? {}),
           ),
         ),
       ],
@@ -87,7 +89,14 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
       selected: isSelected,
       onSelected: (selected) => setState(() {
         if (selected) {
-          _activeFilters.add(value);
+          if (value == 'published') {
+            _activeFilters
+              ..clear()
+              ..add('published');
+          } else {
+            _activeFilters.remove('published');
+            _activeFilters.add(value);
+          }
         } else {
           _activeFilters.remove(value);
         }
@@ -97,7 +106,8 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     );
   }
 
-  Widget _buildJobList(BuildContext context, List<Job> allJobs) {
+  Widget _buildJobList(BuildContext context, List<Job> allJobs,
+      Map<String, DaySchedule> daySchedules) {
     final now = DateTime.now();
     final todayStr =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
@@ -112,6 +122,8 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
         allUnscheduled.add(job);
       }
     }
+
+    final bool isPublishedView = _activeFilters.contains('published');
 
     // Actual today is deferred to "Upcoming" while earlier days still
     // have incomplete jobs (overnight shifts that cross midnight).
@@ -129,23 +141,34 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
       return false;
     }
 
-    final filteredDates = allGrouped.keys.where((date) {
-      if (_activeFilters.contains('today') && isEffectiveToday(date)) {
-        return true;
-      }
-      if (_activeFilters.contains('upcoming') &&
-          (date.compareTo(todayStr) > 0 ||
-           (date == todayStr && hasIncompletePastDays))) {
-        return true;
-      }
-      if (_activeFilters.contains('past') &&
-          date.compareTo(todayStr) < 0 &&
-          !isEffectiveToday(date)) {
-        return true;
-      }
-      return false;
-    }).toList()
-      ..sort();
+    final List<String> filteredDates;
+    if (isPublishedView) {
+      filteredDates = allGrouped.keys
+          .where((date) {
+            final schedule = daySchedules[date];
+            return schedule != null && schedule.isPublished;
+          })
+          .toList()
+        ..sort();
+    } else {
+      filteredDates = allGrouped.keys.where((date) {
+        if (_activeFilters.contains('today') && isEffectiveToday(date)) {
+          return true;
+        }
+        if (_activeFilters.contains('upcoming') &&
+            (date.compareTo(todayStr) > 0 ||
+             (date == todayStr && hasIncompletePastDays))) {
+          return true;
+        }
+        if (_activeFilters.contains('past') &&
+            date.compareTo(todayStr) < 0 &&
+            !isEffectiveToday(date)) {
+          return true;
+        }
+        return false;
+      }).toList()
+        ..sort();
+    }
 
     // Sort jobs within each date by sortOrder
     for (final date in filteredDates) {
@@ -153,7 +176,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
           (a, b) => (a.sortOrder ?? 999).compareTo(b.sortOrder ?? 999));
     }
 
-    final showUnscheduled =
+    final showUnscheduled = !isPublishedView &&
         _activeFilters.contains('unscheduled') && allUnscheduled.isNotEmpty;
 
     if (filteredDates.isEmpty && !showUnscheduled) {
@@ -190,6 +213,8 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             onToggleJobCompletion: _toggleJobCompletion,
             onShiftNotesTap: () => _openShiftNotes(context, date),
             onJobNotesTap: (job) => _openJobNotes(context, job),
+            onReorder: (oldIndex, newIndex) =>
+                _reorderJobs(date, allGrouped[date]!, oldIndex, newIndex),
           ),
         if (showUnscheduled) ...[
           Padding(
@@ -211,6 +236,18 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
         ],
       ],
     );
+  }
+
+  Future<void> _reorderJobs(
+      String date, List<Job> jobs, int oldIndex, int newIndex) async {
+    final reordered = List<Job>.from(jobs);
+    final item = reordered.removeAt(oldIndex);
+    reordered.insert(newIndex, item);
+
+    final repo = ref.read(webJobRepositoryProvider);
+    for (var i = 0; i < reordered.length; i++) {
+      await repo.saveJob(reordered[i].copyWith(sortOrder: i));
+    }
   }
 
   Future<void> _toggleJobCompletion(Job job) async {
@@ -456,6 +493,7 @@ class _DayCard extends StatelessWidget {
     this.onToggleJobCompletion,
     this.onShiftNotesTap,
     this.onJobNotesTap,
+    this.onReorder,
   });
 
   final String date;
@@ -473,6 +511,7 @@ class _DayCard extends StatelessWidget {
   final ValueChanged<Job>? onToggleJobCompletion;
   final VoidCallback? onShiftNotesTap;
   final ValueChanged<Job>? onJobNotesTap;
+  final void Function(int oldIndex, int newIndex)? onReorder;
 
   bool get _isToday => isEffectiveToday;
 
@@ -594,19 +633,43 @@ class _DayCard extends StatelessWidget {
                 ),
               ],
               const Divider(height: 20),
-              // Job tiles
-              ...jobs.map((job) => _JobTile(
-                    job: job,
-                    onTap: () => onJobTap(job.jobId),
-                    onDelete: () => onDeleteJob(job.jobId),
-                    onEdit: () => onEditJob(job),
-                    onToggleCompletion: onToggleJobCompletion != null
-                        ? () => onToggleJobCompletion!(job)
-                        : null,
-                    onJobNotesTap: onJobNotesTap != null
-                        ? () => onJobNotesTap!(job)
-                        : null,
-                  )),
+              // Job tiles (drag-reorderable)
+              ReorderableListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                buildDefaultDragHandles: false,
+                itemCount: jobs.length,
+                onReorder: (oldIndex, newIndex) {
+                  if (newIndex > oldIndex) newIndex--;
+                  onReorder?.call(oldIndex, newIndex);
+                },
+                proxyDecorator: (child, index, animation) {
+                  return Material(
+                    elevation: 4,
+                    borderRadius: BorderRadius.circular(8),
+                    child: child,
+                  );
+                },
+                itemBuilder: (context, i) {
+                  final job = jobs[i];
+                  return ReorderableDragStartListener(
+                    key: ValueKey(job.jobId),
+                    index: i,
+                    child: _JobTile(
+                      job: job,
+                      onTap: () => onJobTap(job.jobId),
+                      onDelete: () => onDeleteJob(job.jobId),
+                      onEdit: () => onEditJob(job),
+                      onToggleCompletion: onToggleJobCompletion != null
+                          ? () => onToggleJobCompletion!(job)
+                          : null,
+                      onJobNotesTap: onJobNotesTap != null
+                          ? () => onJobNotesTap!(job)
+                          : null,
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),
