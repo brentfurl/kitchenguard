@@ -4,6 +4,7 @@ import 'dart:js_interop';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:web/web.dart' as web;
 
 import '../domain/models/job.dart';
@@ -68,12 +69,14 @@ class WebExportService {
       for (final p in unit.photosBefore.where((p) => p.isActive)) {
         items.add(_MediaItem(
           cloudUrl: p.cloudUrl,
+          storagePath: 'jobs/${job.jobId}/${p.relativePath.replaceAll('\\', '/')}',
           archivePath: '$cat/$folder/Before/${p.fileName}',
         ));
       }
       for (final p in unit.photosAfter.where((p) => p.isActive)) {
         items.add(_MediaItem(
           cloudUrl: p.cloudUrl,
+          storagePath: 'jobs/${job.jobId}/${p.relativePath.replaceAll('\\', '/')}',
           archivePath: '$cat/$folder/After/${p.fileName}',
         ));
       }
@@ -82,12 +85,14 @@ class WebExportService {
     for (final v in job.videos.exit.where((v) => v.isActive)) {
       items.add(_MediaItem(
         cloudUrl: v.cloudUrl,
+        storagePath: 'jobs/${job.jobId}/${v.relativePath.replaceAll('\\', '/')}',
         archivePath: 'Videos/Exit/${v.fileName}',
       ));
     }
     for (final v in job.videos.other.where((v) => v.isActive)) {
       items.add(_MediaItem(
         cloudUrl: v.cloudUrl,
+        storagePath: 'jobs/${job.jobId}/${v.relativePath.replaceAll('\\', '/')}',
         archivePath: 'Videos/Other/${v.fileName}',
       ));
     }
@@ -104,14 +109,21 @@ class WebExportService {
         skipped: skipped,
       ));
 
-      if (item.cloudUrl == null) {
+      var url = item.cloudUrl;
+
+      // Resolve missing cloudUrl from Firebase Storage directly.
+      if (url == null) {
+        url = await _resolveStorageUrl(item.storagePath);
+      }
+
+      if (url == null) {
         skipped++;
         completed++;
         continue;
       }
 
       try {
-        final bytes = await _downloadBytes(item.cloudUrl!);
+        final bytes = await _downloadBytes(url);
         if (bytes != null) {
           archive.addFile(
             ArchiveFile(item.archivePath, bytes.length, bytes),
@@ -151,6 +163,16 @@ class WebExportService {
   // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------
+
+  static Future<String?> _resolveStorageUrl(String storagePath) async {
+    try {
+      return await FirebaseStorage.instance
+          .ref(storagePath)
+          .getDownloadURL();
+    } catch (_) {
+      return null;
+    }
+  }
 
   static Future<Uint8List?> _downloadBytes(String url) {
     final completer = Completer<Uint8List?>();
@@ -200,7 +222,12 @@ class WebExportService {
 }
 
 class _MediaItem {
-  const _MediaItem({required this.cloudUrl, required this.archivePath});
+  const _MediaItem({
+    required this.cloudUrl,
+    required this.storagePath,
+    required this.archivePath,
+  });
   final String? cloudUrl;
+  final String storagePath;
   final String archivePath;
 }

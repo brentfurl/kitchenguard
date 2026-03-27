@@ -582,6 +582,9 @@ Core capabilities complete:
 - web console: photo display fix (Image.network + distinct error/status states)
 - web console: multi-select filter chips with Unscheduled, filter state preserved across navigation
 - web console: ZIP download/export from job detail (in-memory archive + browser download)
+- web console: CORS deployed to Firebase Storage bucket for cross-origin image loading
+- web console: photo tap-to-retry gesture fix (was intercepted by parent InkWell)
+- web console: video URL resolution from Firebase Storage when cloudUrl missing in Firestore
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
@@ -794,13 +797,24 @@ Five fixes to the Flutter web management dashboard:
 - Progress indicator shows during download; skipped items (no cloudUrl) reported to user.
 - Added `package:web` as explicit dependency for browser download APIs.
 
+**6. CORS deployed to Firebase Storage:**
+- `cors.json` applied to `gs://kitchenguard-8e288.firebasestorage.app` via `gsutil cors set`. Without CORS, `Image.network` on the web console was blocked by browser cross-origin policy, causing all photos to show "Load failed."
+- Google Cloud SDK (`gcloud-cli`) installed via Homebrew for `gsutil` access.
+
+**7. Photo tap-to-retry fix:**
+- The `_errorPlaceholder`'s `GestureDetector` competed with the parent `InkWell` (which opened the full-image dialog). Replaced with a single `GestureDetector` that switches behavior based on `_loadFailed` state: retry when failed, open full image otherwise.
+
+**8. Video URL resolution from Firebase Storage:**
+- Videos may have `cloudUrl: null` in Firestore even when the file exists in Storage (race condition during upload or failed sync-back). `_VideoList` is now a `StatefulWidget` that resolves missing URLs by calling `FirebaseStorage.instance.ref(storagePath).getDownloadURL()` for videos without a `cloudUrl`. Shows "Checking…" spinner while resolving, "Uploaded (recovered)" when found in Storage.
+- `WebExportService` also resolves missing cloudUrls from Storage before downloading, so ZIP exports include media even when Firestore metadata is stale.
+
 **Key files changed:**
 ```
-lib/web/screens/web_job_detail_screen.dart  — Image.network photo display, download ZIP button + progress
+lib/web/screens/web_job_detail_screen.dart  — Image.network photo display, download ZIP button + progress, video URL resolution, tap-to-retry fix
 lib/web/screens/web_schedule_screen.dart    — multi-select filter Set, Unscheduled chip, OR filter logic
 lib/web/web_dashboard.dart                  — Offstage + Stack to preserve schedule screen state
-lib/web/web_export_service.dart             — NEW: web ZIP export service
-cors.json                                   — NEW: Firebase Storage CORS config
+lib/web/web_export_service.dart             — NEW: web ZIP export service with Storage URL fallback
+cors.json                                   — NEW: Firebase Storage CORS config (deployed via gsutil)
 pubspec.yaml                                — added package:web dependency
 ```
 

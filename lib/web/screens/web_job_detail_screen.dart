@@ -1,3 +1,4 @@
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -246,7 +247,7 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
               // Exit videos
               if (exitVideos.isNotEmpty) ...[
                 _sectionHeader('Exit Videos'),
-                _VideoList(videos: exitVideos),
+                _VideoList(videos: exitVideos, jobId: job.jobId),
               ],
               // Manager notes
               if (activeManagerNotes.isNotEmpty) ...[
@@ -414,9 +415,13 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
-    return InkWell(
-      onTap: () => _showFullImage(context),
-      borderRadius: BorderRadius.circular(8),
+    return GestureDetector(
+      onTap: _loadFailed
+          ? () => setState(() {
+                _loadFailed = false;
+                _retryKey++;
+              })
+          : () => _showFullImage(context),
       child: Container(
         width: 120,
         height: 120,
@@ -496,25 +501,19 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
   }
 
   Widget _errorPlaceholder(ColorScheme cs) {
-    return GestureDetector(
-      onTap: () => setState(() {
-        _loadFailed = false;
-        _retryKey++;
-      }),
-      child: Container(
-        color: cs.surfaceContainerHighest,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.broken_image_outlined, size: 24, color: cs.error),
-            const SizedBox(height: 4),
-            Text('Load failed',
-                style: TextStyle(fontSize: 10, color: cs.error)),
-            const SizedBox(height: 2),
-            Text('Tap to retry',
-                style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
-          ],
-        ),
+    return Container(
+      color: cs.surfaceContainerHighest,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.broken_image_outlined, size: 24, color: cs.error),
+          const SizedBox(height: 4),
+          Text('Load failed',
+              style: TextStyle(fontSize: 10, color: cs.error)),
+          const SizedBox(height: 2),
+          Text('Tap to retry',
+              style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+        ],
       ),
     );
   }
@@ -583,32 +582,118 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
 // Video list
 // ---------------------------------------------------------------------------
 
-class _VideoList extends StatelessWidget {
-  const _VideoList({required this.videos});
+class _VideoList extends StatefulWidget {
+  const _VideoList({required this.videos, required this.jobId});
 
   final List<VideoRecord> videos;
+  final String jobId;
+
+  @override
+  State<_VideoList> createState() => _VideoListState();
+}
+
+class _VideoListState extends State<_VideoList> {
+  final Map<String, String?> _resolvedUrls = {};
+  final Set<String> _resolving = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveAll();
+  }
+
+  @override
+  void didUpdateWidget(_VideoList old) {
+    super.didUpdateWidget(old);
+    if (old.jobId != widget.jobId) {
+      _resolvedUrls.clear();
+      _resolving.clear();
+      _resolveAll();
+    }
+  }
+
+  /// For videos without a cloudUrl, try to look up the download URL
+  /// directly from Firebase Storage using the known path convention.
+  void _resolveAll() {
+    for (final v in widget.videos) {
+      if (v.cloudUrl == null && !_resolvedUrls.containsKey(v.videoId)) {
+        _resolveVideoUrl(v);
+      }
+    }
+  }
+
+  Future<void> _resolveVideoUrl(VideoRecord video) async {
+    if (_resolving.contains(video.videoId)) return;
+    _resolving.add(video.videoId);
+
+    try {
+      final storagePath =
+          'jobs/${widget.jobId}/${video.relativePath.replaceAll('\\', '/')}';
+      final url = await FirebaseStorage.instance
+          .ref(storagePath)
+          .getDownloadURL();
+      if (mounted) {
+        setState(() => _resolvedUrls[video.videoId] = url);
+      }
+    } on FirebaseException {
+      if (mounted) {
+        setState(() => _resolvedUrls[video.videoId] = null);
+      }
+    } finally {
+      _resolving.remove(video.videoId);
+    }
+  }
+
+  String? _effectiveUrl(VideoRecord v) =>
+      v.cloudUrl ?? _resolvedUrls[v.videoId];
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Column(
-      children: videos
-          .map((v) => ListTile(
-                leading: Icon(Icons.videocam, color: cs.primary),
-                title: Text(v.fileName, overflow: TextOverflow.ellipsis),
-                subtitle: Text(v.isSynced ? 'Uploaded' : 'Not uploaded',
-                    style: TextStyle(
-                        color:
-                            v.isSynced ? cs.primary : cs.onSurfaceVariant)),
-                trailing: v.cloudUrl != null
-                    ? IconButton(
-                        icon: const Icon(Icons.open_in_new),
-                        tooltip: 'Open video',
-                        onPressed: () => _openVideoUrl(context, v.cloudUrl!),
-                      )
-                    : null,
-              ))
-          .toList(),
+      children: widget.videos.map((v) {
+        final url = _effectiveUrl(v);
+        final isResolved = url != null && v.cloudUrl == null;
+        final uploaded = v.isSynced || url != null;
+        final isChecking =
+            v.cloudUrl == null && !_resolvedUrls.containsKey(v.videoId);
+
+        return ListTile(
+          leading: Icon(Icons.videocam, color: cs.primary),
+          title: Text(v.fileName, overflow: TextOverflow.ellipsis),
+          subtitle: isChecking
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text('Checking…',
+                        style: TextStyle(color: cs.onSurfaceVariant)),
+                  ],
+                )
+              : Text(
+                  uploaded
+                      ? (isResolved ? 'Uploaded (recovered)' : 'Uploaded')
+                      : 'Not uploaded',
+                  style: TextStyle(
+                      color: uploaded ? cs.primary : cs.onSurfaceVariant),
+                ),
+          trailing: url != null
+              ? IconButton(
+                  icon: const Icon(Icons.open_in_new),
+                  tooltip: 'Open video',
+                  onPressed: () => _openVideoUrl(context, url),
+                )
+              : null,
+        );
+      }).toList(),
     );
   }
 
