@@ -17,6 +17,8 @@ class DayCard extends StatelessWidget {
     required this.onShiftNotesTap,
     required this.onAddShiftNote,
     required this.jobCardBuilder,
+    this.isManager = false,
+    this.onTogglePublish,
   });
 
   final String date;
@@ -28,6 +30,8 @@ class DayCard extends StatelessWidget {
   final VoidCallback onShiftNotesTap;
   final VoidCallback onAddShiftNote;
   final Widget Function(BuildContext context, int index) jobCardBuilder;
+  final bool isManager;
+  final VoidCallback? onTogglePublish;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +40,7 @@ class DayCard extends StatelessWidget {
     final allComplete =
         jobs.isNotEmpty && jobs.every((r) => r.job.isComplete);
     final isToday = date == toYyyyMmDd(DateTime.now());
+    final isDraft = daySchedule == null || !daySchedule!.isPublished;
 
     final Color headerColor;
     final Color headerForeground;
@@ -77,6 +82,29 @@ class DayCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (isManager && isDraft)
+                    Container(
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: headerForeground.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: headerForeground.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Text(
+                        'DRAFT',
+                        style: textTheme.labelSmall?.copyWith(
+                          color: headerForeground,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ),
                   if (isToday && !allComplete)
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -94,6 +122,21 @@ class DayCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                           letterSpacing: 1,
                         ),
+                      ),
+                    ),
+                  if (isManager && onTogglePublish != null)
+                    SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: IconButton(
+                        padding: EdgeInsets.zero,
+                        iconSize: 20,
+                        tooltip: isDraft ? 'Publish day' : 'Unpublish day',
+                        icon: Icon(
+                          isDraft ? Icons.publish : Icons.unpublished_outlined,
+                          color: headerForeground,
+                        ),
+                        onPressed: onTogglePublish,
                       ),
                     ),
                 ],

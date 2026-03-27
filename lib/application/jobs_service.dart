@@ -1736,6 +1736,55 @@ class JobsService {
     return schedule;
   }
 
+  /// Marks a day as published so technicians can see it.
+  Future<DaySchedule> publishDay(String date, String publisherUid) async {
+    final repo = dayScheduleRepository;
+    if (repo == null) {
+      throw StateError('DayScheduleRepository not configured');
+    }
+    final allSchedules = await repo.loadAll();
+    final existing = allSchedules[date];
+
+    final schedule = DaySchedule(
+      date: date,
+      shopMeetupTime: existing?.shopMeetupTime,
+      firstRestaurantName: existing?.firstRestaurantName,
+      firstArrivalTime: existing?.firstArrivalTime,
+      published: true,
+      publishedAt: DateTime.now().toUtc().toIso8601String(),
+      publishedBy: publisherUid,
+    );
+
+    allSchedules[date] = schedule;
+    await repo.saveAll(allSchedules);
+    return schedule;
+  }
+
+  /// Marks a day as unpublished (draft). Technicians will no longer see it.
+  Future<DaySchedule> unpublishDay(String date) async {
+    final repo = dayScheduleRepository;
+    if (repo == null) {
+      throw StateError('DayScheduleRepository not configured');
+    }
+    final allSchedules = await repo.loadAll();
+    final existing = allSchedules[date];
+
+    final schedule = DaySchedule(
+      date: date,
+      shopMeetupTime: existing?.shopMeetupTime,
+      firstRestaurantName: existing?.firstRestaurantName,
+      firstArrivalTime: existing?.firstArrivalTime,
+    );
+
+    if (schedule.isEmpty) {
+      allSchedules.remove(date);
+    } else {
+      allSchedules[date] = schedule;
+    }
+    await repo.saveAll(allSchedules);
+    return schedule;
+  }
+
   /// Loads the [DaySchedule] for [date], or null if none exists.
   Future<DaySchedule?> loadDaySchedule(String date) async {
     final repo = dayScheduleRepository;

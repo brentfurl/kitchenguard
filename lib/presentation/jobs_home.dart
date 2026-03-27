@@ -7,6 +7,7 @@ import '../domain/models/day_schedule.dart';
 import '../domain/models/manager_job_note.dart';
 import '../providers/app_role_provider.dart';
 import '../providers/auth_provider.dart';
+import '../utils/role_helpers.dart';
 import '../providers/day_notes_provider.dart';
 import '../providers/day_schedule_provider.dart';
 import '../providers/job_detail_provider.dart';
@@ -475,7 +476,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         final unscheduled = _unscheduledJobs(results);
         final todayStr = toYyyyMmDd(DateTime.now());
 
-        final filteredDates = sortedDates.where((date) {
+        var filteredDates = sortedDates.where((date) {
           if (_activeFilters.contains(_JobFilter.today) && date == todayStr) {
             return true;
           }
@@ -489,6 +490,13 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           }
           return false;
         }).toList();
+
+        if (currentRole.isTechnician) {
+          filteredDates = filteredDates.where((date) {
+            final schedule = daySchedules[date];
+            return schedule != null && schedule.isPublished;
+          }).toList();
+        }
 
         final showUnscheduled =
             _activeFilters.contains(_JobFilter.unscheduled) &&
@@ -512,6 +520,10 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                         jobs: scheduledByDate[date]!,
                         shiftNotes: activeShiftNotes[date] ?? const [],
                         daySchedule: daySchedules[date],
+                        isManager: currentRole.isManager,
+                        onTogglePublish: currentRole.isManager
+                            ? () => _togglePublish(date, daySchedules[date])
+                            : null,
                         onReorder: (oldIndex, newIndex) =>
                             _reorderJobs(date, scheduledByDate[date]!, oldIndex, newIndex),
                         onArrivalTimesTap: () => _handleArrivalTimesTap(
@@ -701,6 +713,32 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       onEdit: (noteId, currentText) => _editShiftNote(date, noteId, currentText),
       onDelete: (noteId, noteText) => _deleteShiftNote(date, noteId, noteText),
     );
+  }
+
+  Future<void> _togglePublish(String date, DaySchedule? schedule) async {
+    try {
+      if (schedule != null && schedule.isPublished) {
+        await _jobs.unpublishDay(date);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Day unpublished'), duration: Duration(seconds: 2)),
+          );
+        }
+      } else {
+        final uid = ref.read(authServiceProvider).currentUser?.uid ?? '';
+        await _jobs.publishDay(date, uid);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Day published'), duration: Duration(seconds: 2)),
+          );
+        }
+      }
+      ref.invalidate(dayScheduleProvider);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    }
   }
 
   Future<void> _toggleJobCompletion(JobScanResult result) async {
