@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -156,6 +157,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             dayScheduleRepo: ref.read(webDayScheduleRepositoryProvider),
             dayNotesAsync: ref.watch(webDayNotesProvider),
             daySchedulesAsync: ref.watch(webDaySchedulesProvider),
+            onTogglePublish: () => _togglePublish(date),
           ),
         if (unscheduled.isNotEmpty) ...[
           Padding(
@@ -200,6 +202,51 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     }
   }
 
+  Future<void> _togglePublish(String date) async {
+    final repo = ref.read(webDayScheduleRepositoryProvider);
+    final allSchedules = await repo.loadAll();
+    final existing = allSchedules[date];
+    final isCurrentlyPublished = existing != null && existing.isPublished;
+
+    final DaySchedule updated;
+    if (isCurrentlyPublished) {
+      updated = DaySchedule(
+        date: date,
+        shopMeetupTime: existing.shopMeetupTime,
+        firstRestaurantName: existing.firstRestaurantName,
+        firstArrivalTime: existing.firstArrivalTime,
+      );
+    } else {
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      updated = DaySchedule(
+        date: date,
+        shopMeetupTime: existing?.shopMeetupTime,
+        firstRestaurantName: existing?.firstRestaurantName,
+        firstArrivalTime: existing?.firstArrivalTime,
+        published: true,
+        publishedAt: DateTime.now().toUtc().toIso8601String(),
+        publishedBy: uid,
+      );
+    }
+
+    if (updated.isEmpty) {
+      allSchedules.remove(date);
+    } else {
+      allSchedules[date] = updated;
+    }
+    await repo.saveAll(allSchedules);
+    ref.invalidate(webDaySchedulesProvider);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isCurrentlyPublished ? 'Day unpublished' : 'Day published'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   void _showCreateJobDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -240,6 +287,7 @@ class _DayCard extends StatelessWidget {
     required this.dayScheduleRepo,
     required this.dayNotesAsync,
     required this.daySchedulesAsync,
+    this.onTogglePublish,
   });
 
   final String date;
@@ -252,6 +300,7 @@ class _DayCard extends StatelessWidget {
   final dynamic dayScheduleRepo;
   final AsyncValue<Map<String, List<DayNote>>> dayNotesAsync;
   final AsyncValue<Map<String, DaySchedule>> daySchedulesAsync;
+  final VoidCallback? onTogglePublish;
 
   bool get _isToday => date == todayStr;
 
@@ -279,6 +328,7 @@ class _DayCard extends StatelessWidget {
     final notes = dayNotesAsync.valueOrNull?[date] ?? [];
     final activeNotes = notes.where((n) => n.isActive).toList();
     final schedule = daySchedulesAsync.valueOrNull?[date];
+    final isDraft = schedule == null || !schedule.isPublished;
 
     return Padding(
       padding: const EdgeInsets.only(top: 16),
@@ -316,6 +366,23 @@ class _DayCard extends StatelessWidget {
                               ?.copyWith(color: cs.onPrimary)),
                     ),
                   ],
+                  if (isDraft) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: cs.tertiaryContainer,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text('DRAFT',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: cs.onTertiaryContainer,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1,
+                          )),
+                    ),
+                  ],
                   if (activeNotes.isNotEmpty) ...[
                     const SizedBox(width: 8),
                     Chip(
@@ -324,6 +391,16 @@ class _DayCard extends StatelessWidget {
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                   ],
+                  const Spacer(),
+                  if (onTogglePublish != null)
+                    TextButton.icon(
+                      onPressed: onTogglePublish,
+                      icon: Icon(
+                        isDraft ? Icons.publish : Icons.unpublished_outlined,
+                        size: 18,
+                      ),
+                      label: Text(isDraft ? 'Publish' : 'Unpublish'),
+                    ),
                 ],
               ),
               // Schedule info
