@@ -586,7 +586,7 @@ Core capabilities complete:
 - web console: photo tap-to-retry gesture fix (was intercepted by parent InkWell)
 - web console: video URL resolution from Firebase Storage when cloudUrl missing in Firestore
 - day publishing: only published days visible to technicians (real-time DaySchedule sync)
-- overnight shift support: past dates with incomplete jobs stay in "Today" filter
+- overnight shift support: past dates with incomplete jobs stay in "Today" filter; actual today deferred to "Upcoming" until prior days complete
 - web console: Mark Complete / Reopen in job tile menu and job detail header
 
 Phase 4 completed steps:
@@ -721,6 +721,10 @@ Four fixes addressing issues found during field testing:
 **3. Day shifts from Today to Past after midnight:**
 - Overnight shifts (starting evening, ending 3-6 AM) caused the day to move from "Today" to "Past" at midnight. Now past dates with any incomplete jobs are treated as "Today" in the filter logic. Once all jobs for the day are marked complete, it moves to Past.
 - `isEffectiveToday(date)` helper added in both mobile `jobs_home.dart` and web `web_schedule_screen.dart`. `DayCard` accepts `isEffectiveToday` flag for the TODAY badge.
+- Sequential today logic: when past days have incomplete jobs, the actual calendar today is deferred to "Upcoming" (no TODAY badge or primary header). It becomes "Today" only after all prior days' jobs are marked complete. This prevents two days showing as "Today" simultaneously.
+
+**5. ListView bottom padding:**
+- Increased bottom padding from 80px to 140px on the Jobs Home ListView so the FAB (Create button) doesn't overlap the bottom job card's overflow menu button.
 
 **4. Mark Complete in web console:**
 - Job tile triple-dot menu in the schedule screen now has: Edit Job, Mark Complete / Reopen, Delete Job (matching mobile).

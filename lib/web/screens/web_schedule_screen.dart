@@ -111,23 +111,29 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
       }
     }
 
-    // Past dates with incomplete jobs are treated as "today" (overnight shifts).
+    // Actual today is deferred to "Upcoming" while earlier days still
+    // have incomplete jobs (overnight shifts that cross midnight).
+    final hasIncompletePastDays = allGrouped.keys.any((d) =>
+        d.compareTo(todayStr) < 0 &&
+        allGrouped[d] != null &&
+        allGrouped[d]!.any((j) => !j.isComplete));
+
     bool isEffectiveToday(String date) {
-      if (date == todayStr) return true;
       if (date.compareTo(todayStr) < 0) {
         final jobs = allGrouped[date];
         return jobs != null && jobs.any((j) => !j.isComplete);
       }
+      if (date == todayStr) return !hasIncompletePastDays;
       return false;
     }
 
-    // Filter scheduled dates using OR logic across active filters
     final filteredDates = allGrouped.keys.where((date) {
       if (_activeFilters.contains('today') && isEffectiveToday(date)) {
         return true;
       }
       if (_activeFilters.contains('upcoming') &&
-          date.compareTo(todayStr) > 0) {
+          (date.compareTo(todayStr) > 0 ||
+           (date == todayStr && hasIncompletePastDays))) {
         return true;
       }
       if (_activeFilters.contains('past') &&
@@ -338,7 +344,7 @@ class _DayCard extends StatelessWidget {
   final bool isEffectiveToday;
   final ValueChanged<Job>? onToggleJobCompletion;
 
-  bool get _isToday => isEffectiveToday || date == todayStr;
+  bool get _isToday => isEffectiveToday;
 
   String get _formattedDate {
     try {

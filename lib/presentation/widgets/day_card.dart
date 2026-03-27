@@ -44,7 +44,7 @@ class DayCard extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final allComplete =
         jobs.isNotEmpty && jobs.every((r) => r.job.isComplete);
-    final isToday = isEffectiveToday || date == toYyyyMmDd(DateTime.now());
+    final isToday = isEffectiveToday;
     final isDraft = daySchedule == null || !daySchedule!.isPublished;
 
     final Color headerColor;

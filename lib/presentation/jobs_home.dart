@@ -476,13 +476,19 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         final unscheduled = _unscheduledJobs(results);
         final todayStr = toYyyyMmDd(DateTime.now());
 
-        // Past dates with incomplete jobs are treated as "today" (overnight shifts).
+        // Actual today is deferred to "Upcoming" while earlier days still
+        // have incomplete jobs (overnight shifts that cross midnight).
+        final hasIncompletePastDays = sortedDates.any((d) =>
+            d.compareTo(todayStr) < 0 &&
+            scheduledByDate[d] != null &&
+            scheduledByDate[d]!.any((r) => !r.job.isComplete));
+
         bool isEffectiveToday(String date) {
-          if (date == todayStr) return true;
           if (date.compareTo(todayStr) < 0) {
             final jobs = scheduledByDate[date];
             return jobs != null && jobs.any((r) => !r.job.isComplete);
           }
+          if (date == todayStr) return !hasIncompletePastDays;
           return false;
         }
 
@@ -492,7 +498,8 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
             return true;
           }
           if (_activeFilters.contains(_JobFilter.upcoming) &&
-              date.compareTo(todayStr) > 0) {
+              (date.compareTo(todayStr) > 0 ||
+               (date == todayStr && hasIncompletePastDays))) {
             return true;
           }
           if (_activeFilters.contains(_JobFilter.past) &&
@@ -524,7 +531,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                   ref.read(uploadProgressProvider.notifier).triggerUpload();
                 },
                 child: ListView(
-                  padding: const EdgeInsets.only(top: 8, bottom: 80),
+                  padding: const EdgeInsets.only(top: 8, bottom: 140),
                   children: [
                     for (final date in filteredDates)
                       DayCard(
