@@ -111,14 +111,28 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
       }
     }
 
+    // Past dates with incomplete jobs are treated as "today" (overnight shifts).
+    bool isEffectiveToday(String date) {
+      if (date == todayStr) return true;
+      if (date.compareTo(todayStr) < 0) {
+        final jobs = allGrouped[date];
+        return jobs != null && jobs.any((j) => !j.isComplete);
+      }
+      return false;
+    }
+
     // Filter scheduled dates using OR logic across active filters
     final filteredDates = allGrouped.keys.where((date) {
-      if (_activeFilters.contains('today') && date == todayStr) return true;
+      if (_activeFilters.contains('today') && isEffectiveToday(date)) {
+        return true;
+      }
       if (_activeFilters.contains('upcoming') &&
           date.compareTo(todayStr) > 0) {
         return true;
       }
-      if (_activeFilters.contains('past') && date.compareTo(todayStr) < 0) {
+      if (_activeFilters.contains('past') &&
+          date.compareTo(todayStr) < 0 &&
+          !isEffectiveToday(date)) {
         return true;
       }
       return false;
@@ -164,6 +178,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             dayNotesAsync: ref.watch(webDayNotesProvider),
             daySchedulesAsync: ref.watch(webDaySchedulesProvider),
             onTogglePublish: () => _togglePublish(date),
+            isEffectiveToday: isEffectiveToday(date),
           ),
         if (showUnscheduled) ...[
           Padding(
@@ -294,6 +309,7 @@ class _DayCard extends StatelessWidget {
     required this.dayNotesAsync,
     required this.daySchedulesAsync,
     this.onTogglePublish,
+    this.isEffectiveToday = false,
   });
 
   final String date;
@@ -307,8 +323,9 @@ class _DayCard extends StatelessWidget {
   final AsyncValue<Map<String, List<DayNote>>> dayNotesAsync;
   final AsyncValue<Map<String, DaySchedule>> daySchedulesAsync;
   final VoidCallback? onTogglePublish;
+  final bool isEffectiveToday;
 
-  bool get _isToday => date == todayStr;
+  bool get _isToday => isEffectiveToday || date == todayStr;
 
   String get _formattedDate {
     try {

@@ -476,8 +476,19 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         final unscheduled = _unscheduledJobs(results);
         final todayStr = toYyyyMmDd(DateTime.now());
 
+        // Past dates with incomplete jobs are treated as "today" (overnight shifts).
+        bool isEffectiveToday(String date) {
+          if (date == todayStr) return true;
+          if (date.compareTo(todayStr) < 0) {
+            final jobs = scheduledByDate[date];
+            return jobs != null && jobs.any((r) => !r.job.isComplete);
+          }
+          return false;
+        }
+
         var filteredDates = sortedDates.where((date) {
-          if (_activeFilters.contains(_JobFilter.today) && date == todayStr) {
+          if (_activeFilters.contains(_JobFilter.today) &&
+              isEffectiveToday(date)) {
             return true;
           }
           if (_activeFilters.contains(_JobFilter.upcoming) &&
@@ -485,7 +496,8 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
             return true;
           }
           if (_activeFilters.contains(_JobFilter.past) &&
-              date.compareTo(todayStr) < 0) {
+              date.compareTo(todayStr) < 0 &&
+              !isEffectiveToday(date)) {
             return true;
           }
           return false;
@@ -521,6 +533,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                         shiftNotes: activeShiftNotes[date] ?? const [],
                         daySchedule: daySchedules[date],
                         isManager: currentRole.isManager,
+                        isEffectiveToday: isEffectiveToday(date),
                         onTogglePublish: currentRole.isManager
                             ? () => _togglePublish(date, daySchedules[date])
                             : null,

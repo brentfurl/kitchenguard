@@ -19,6 +19,7 @@ class DayCard extends StatelessWidget {
     required this.jobCardBuilder,
     this.isManager = false,
     this.onTogglePublish,
+    this.isEffectiveToday = false,
   });
 
   final String date;
@@ -33,13 +34,17 @@ class DayCard extends StatelessWidget {
   final bool isManager;
   final VoidCallback? onTogglePublish;
 
+  /// True when this day should be treated as "today" even if the calendar
+  /// date has passed midnight (overnight shifts with incomplete jobs).
+  final bool isEffectiveToday;
+
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final allComplete =
         jobs.isNotEmpty && jobs.every((r) => r.job.isComplete);
-    final isToday = date == toYyyyMmDd(DateTime.now());
+    final isToday = isEffectiveToday || date == toYyyyMmDd(DateTime.now());
     final isDraft = daySchedule == null || !daySchedule!.isPublished;
 
     final Color headerColor;
