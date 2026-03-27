@@ -1,13 +1,18 @@
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../domain/models/job.dart';
+import '../../domain/models/job_note.dart';
+import '../../domain/models/manager_job_note.dart';
 import '../../domain/models/photo_record.dart';
 import '../../domain/models/unit.dart';
 import '../../domain/models/video_record.dart';
 import '../web_export_service.dart';
+import '../web_job_repository.dart';
 import '../web_providers.dart';
+import '../widgets/web_notes_dialog.dart';
 
 /// Real-time single-job stream provider, keyed by jobId.
 final _webJobDetailProvider =
@@ -59,6 +64,7 @@ class WebJobDetailScreen extends ConsumerWidget {
           job: job,
           onBack: onBack,
           theme: theme,
+          webJobRepo: ref.read(webJobRepositoryProvider),
           onToggleCompletion: () async {
             final updated = job.copyWith(
               completedAt: job.isComplete
@@ -78,12 +84,14 @@ class _JobDetailBody extends StatefulWidget {
     required this.job,
     required this.onBack,
     required this.theme,
+    required this.webJobRepo,
     required this.onToggleCompletion,
   });
 
   final Job job;
   final VoidCallback onBack;
   final ThemeData theme;
+  final WebJobRepository webJobRepo;
   final VoidCallback onToggleCompletion;
 
   @override
@@ -130,6 +138,133 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
         });
       }
     }
+  }
+
+  void _openManagerNotes() {
+    final activeNotes = job.managerNotes.where((n) => n.isActive).toList();
+    showDialog(
+      context: context,
+      builder: (_) => WebNotesDialog(
+        title: 'Job Notes',
+        initialNotes:
+            activeNotes.map((n) => WebNoteItem(n.noteId, n.text)).toList(),
+        onAdd: (text) async {
+          final latest = await widget.webJobRepo.loadJob(job.jobId);
+          if (latest == null) return;
+          final updated = [
+            ...latest.managerNotes,
+            ManagerJobNote(
+              noteId: const Uuid().v4(),
+              text: text,
+              createdAt: DateTime.now().toUtc().toIso8601String(),
+              status: 'active',
+            ),
+          ];
+          await widget.webJobRepo
+              .saveJob(latest.copyWith(managerNotes: updated));
+        },
+        onEdit: (noteId, newText) async {
+          final latest = await widget.webJobRepo.loadJob(job.jobId);
+          if (latest == null) return;
+          final updated = latest.managerNotes.map((n) {
+            if (n.noteId == noteId) {
+              return n.copyWith(
+                text: newText,
+                updatedAt: DateTime.now().toUtc().toIso8601String(),
+              );
+            }
+            return n;
+          }).toList();
+          await widget.webJobRepo
+              .saveJob(latest.copyWith(managerNotes: updated));
+        },
+        onDelete: (noteId) async {
+          final latest = await widget.webJobRepo.loadJob(job.jobId);
+          if (latest == null) return;
+          final updated = latest.managerNotes.map((n) {
+            if (n.noteId == noteId) return n.copyWith(status: 'deleted');
+            return n;
+          }).toList();
+          await widget.webJobRepo
+              .saveJob(latest.copyWith(managerNotes: updated));
+        },
+        onRefresh: () async {
+          final latest = await widget.webJobRepo.loadJob(job.jobId);
+          if (latest == null) return [];
+          return latest.managerNotes
+              .where((n) => n.isActive)
+              .map((n) => WebNoteItem(n.noteId, n.text))
+              .toList();
+        },
+      ),
+    );
+  }
+
+  void _openFieldNotes() {
+    final activeNotes = job.notes.where((n) => n.isActive).toList();
+    showDialog(
+      context: context,
+      builder: (_) => WebNotesDialog(
+        title: 'Field Notes',
+        initialNotes:
+            activeNotes.map((n) => WebNoteItem(n.noteId, n.text)).toList(),
+        onAdd: (text) async {
+          final latest = await widget.webJobRepo.loadJob(job.jobId);
+          if (latest == null) return;
+          final updated = [
+            ...latest.notes,
+            JobNote(
+              noteId: const Uuid().v4(),
+              text: text,
+              createdAt: DateTime.now().toUtc().toIso8601String(),
+              status: 'active',
+            ),
+          ];
+          await widget.webJobRepo.saveJob(latest.copyWith(notes: updated));
+        },
+        onEdit: (noteId, newText) async {
+          final latest = await widget.webJobRepo.loadJob(job.jobId);
+          if (latest == null) return;
+          final updated = latest.notes.map((n) {
+            if (n.noteId == noteId) {
+              return n.copyWith(
+                text: newText,
+                updatedAt: DateTime.now().toUtc().toIso8601String(),
+              );
+            }
+            return n;
+          }).toList();
+          await widget.webJobRepo.saveJob(latest.copyWith(notes: updated));
+        },
+        onDelete: (noteId) async {
+          final latest = await widget.webJobRepo.loadJob(job.jobId);
+          if (latest == null) return;
+          final updated = latest.notes.map((n) {
+            if (n.noteId == noteId) return n.copyWith(status: 'deleted');
+            return n;
+          }).toList();
+          await widget.webJobRepo.saveJob(latest.copyWith(notes: updated));
+        },
+        onRefresh: () async {
+          final latest = await widget.webJobRepo.loadJob(job.jobId);
+          if (latest == null) return [];
+          return latest.notes
+              .where((n) => n.isActive)
+              .map((n) => WebNoteItem(n.noteId, n.text))
+              .toList();
+        },
+      ),
+    );
+  }
+
+  Widget _actionChip(IconData icon, String label, VoidCallback onPressed) {
+    return ActionChip(
+      avatar: Icon(icon, size: 16),
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      onPressed: onPressed,
+    );
   }
 
   @override
@@ -242,10 +377,20 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
                 _chip(Icons.vpn_key, job.accessType!),
               if (job.hasAlarm == true)
                 _chip(Icons.alarm, 'Alarm${job.alarmCode != null ? ': ${job.alarmCode}' : ''}'),
-              if (activeManagerNotes.isNotEmpty)
-                _chip(Icons.note, '${activeManagerNotes.length} job notes'),
-              if (activeNotes.isNotEmpty)
-                _chip(Icons.edit_note, '${activeNotes.length} field notes'),
+              _actionChip(
+                Icons.note,
+                activeManagerNotes.isEmpty
+                    ? 'Add job note'
+                    : '${activeManagerNotes.length} job notes',
+                _openManagerNotes,
+              ),
+              _actionChip(
+                Icons.edit_note,
+                activeNotes.isEmpty
+                    ? 'Add field note'
+                    : '${activeNotes.length} field notes',
+                _openFieldNotes,
+              ),
             ],
           ),
         ),

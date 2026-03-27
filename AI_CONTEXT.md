@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types).
 
 Core capabilities complete:
 
@@ -588,6 +588,7 @@ Core capabilities complete:
 - day publishing: only published days visible to technicians (real-time DaySchedule sync)
 - overnight shift support: past dates with incomplete jobs stay in "Today" filter; actual today deferred to "Upcoming" until prior days complete
 - web console: Mark Complete / Reopen in job tile menu and job detail header
+- web console: full note CRUD (shift notes on day cards, job notes on job tiles + detail, field notes in detail)
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
@@ -741,6 +742,44 @@ lib/presentation/jobs_home.dart                          — !isManager filter g
 lib/presentation/widgets/day_card.dart                   — isEffectiveToday parameter
 lib/web/screens/web_schedule_screen.dart                 — effective-today logic, Mark Complete in job tile menu
 lib/web/screens/web_job_detail_screen.dart               — Mark Complete / Reopen button in job detail header
+```
+
+### Web Console Notes (complete)
+
+Full CRUD for all three note types in the web management console, with cross-device sync to mobile.
+
+**1. Shift notes (DayNotes) on day cards:**
+- Day card header now always shows a clickable ActionChip for shift notes (shows "Add note" when empty, "N notes" when populated)
+- Clicking opens a `WebNotesDialog` with add, edit, and soft-delete for day notes
+- Notes saved via `CloudDayNoteRepository.saveAll()` → Firestore `dayNotes` collection
+- Mobile receives changes in real-time via existing `SyncNotifier` DayNotes stream subscription
+
+**2. Job notes (ManagerJobNotes) on job tiles:**
+- Each job tile in the schedule screen now shows a clickable notes counter ("Add note" / "N notes")
+- Clicking opens a `WebNotesDialog` for manager job notes
+- Notes saved as part of the job document via `WebJobRepository.saveJob()` → Firestore `jobs/{jobId}`
+- Mobile receives changes via real-time `jobs` collection listener + `JobMerger` append-only merge
+
+**3. Job notes + field notes in job detail:**
+- Note counter chips in the job detail header are now always visible (even when 0) and clickable
+- Clicking "job notes" opens manager notes CRUD dialog; clicking "field notes" opens field notes CRUD dialog
+- Both save to Firestore via `WebJobRepository.saveJob()` with the full job document
+
+**4. Reusable dialog widget:**
+- `WebNotesDialog` (`lib/web/widgets/web_notes_dialog.dart`) — generic, callback-driven dialog for any note type
+- Handles add (text input dialog), edit (pre-filled dialog), and soft-delete (confirmation dialog)
+- Refreshes from source after each mutation via `onRefresh` callback
+
+**Sync to mobile:**
+- All note writes go through Firestore (day notes via `CloudDayNoteRepository`, job notes via `WebJobRepository`)
+- Mobile's existing real-time listeners (`SyncNotifier` watches `jobs`, `dayNotes`, `daySchedules` collections) pick up changes automatically
+- `JobMerger` handles note union by `noteId` with last-write-wins on `updatedAt` for text content
+
+**Key files changed:**
+```
+lib/web/widgets/web_notes_dialog.dart           — NEW: reusable notes CRUD dialog (WebNotesDialog, WebNoteItem)
+lib/web/screens/web_schedule_screen.dart        — clickable shift notes chip on day cards, job notes chip on job tiles, CRUD dialog methods
+lib/web/screens/web_job_detail_screen.dart      — clickable note counter chips in header, manager notes + field notes CRUD dialog methods
 ```
 
 ### Device Testing Prep
@@ -1198,10 +1237,13 @@ Web App
   ├─ Manager-only access check (technicians see "Access Restricted")
   └─ WebDashboard (sidebar navigation)
        ├─ Schedule — jobs grouped by date, create/edit/delete, day notes/schedules
-       │    └─ Multi-select filter row (Today | Upcoming | Past | Unscheduled), default: Today + Upcoming
+       │    ├─ Multi-select filter row (Today | Upcoming | Past | Unscheduled), default: Today + Upcoming
+       │    ├─ Day card: clickable shift notes chip (add/edit/delete via WebNotesDialog)
+       │    └─ Job tile: clickable job notes chip (add/edit/delete via WebNotesDialog)
        ├─ Users — user list from Firestore `users` collection, role assignment
        └─ Job Detail (drill-in from schedule, filter state preserved via Offstage)
-            ├─ Job metadata (address, access info, notes)
+            ├─ Job metadata (address, access info)
+            ├─ Clickable note chips: "N job notes" + "N field notes" (always visible, open CRUD dialogs)
             ├─ Photo review (grid, Firebase Storage URLs via Image.network + status indicators)
             ├─ Video list (upload status, cloud URLs)
             └─ Download ZIP button (in-memory archive from cloud URLs, browser download)
@@ -1230,9 +1272,10 @@ lib/web/web_app.dart                             — web MaterialApp + auth gate
 lib/web/web_dashboard.dart                       — sidebar navigation shell
 lib/web/web_providers.dart                       — web-specific Riverpod providers
 lib/web/web_job_repository.dart                  — Firestore-only job CRUD + real-time streams
-lib/web/screens/web_schedule_screen.dart         — schedule management (job CRUD, day cards)
-lib/web/screens/web_job_detail_screen.dart       — photo review + job detail + ZIP download
+lib/web/screens/web_schedule_screen.dart         — schedule management (job CRUD, day cards, note dialogs)
+lib/web/screens/web_job_detail_screen.dart       — photo review + job detail + ZIP download + note CRUD
 lib/web/screens/web_users_screen.dart            — user management + role assignment
+lib/web/widgets/web_notes_dialog.dart            — reusable notes CRUD dialog (shared by schedule + detail)
 lib/web/web_export_service.dart                  — web ZIP export (HTTP download + in-memory archive + browser trigger)
 ```
 

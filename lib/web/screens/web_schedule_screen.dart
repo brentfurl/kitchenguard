@@ -6,8 +6,10 @@ import 'package:uuid/uuid.dart';
 import '../../domain/models/day_note.dart';
 import '../../domain/models/day_schedule.dart';
 import '../../domain/models/job.dart';
+import '../../domain/models/manager_job_note.dart';
 import '../../domain/models/videos.dart';
 import '../web_providers.dart';
+import '../widgets/web_notes_dialog.dart';
 
 /// Desktop-optimized schedule management screen.
 ///
@@ -186,6 +188,8 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             onTogglePublish: () => _togglePublish(date),
             isEffectiveToday: isEffectiveToday(date),
             onToggleJobCompletion: _toggleJobCompletion,
+            onShiftNotesTap: () => _openShiftNotes(context, date),
+            onJobNotesTap: (job) => _openJobNotes(context, job),
           ),
         if (showUnscheduled) ...[
           Padding(
@@ -202,6 +206,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
                 onDelete: () => _deleteJob(job.jobId),
                 onEdit: () => _showEditJobDialog(context, job),
                 onToggleCompletion: () => _toggleJobCompletion(job),
+                onJobNotesTap: () => _openJobNotes(context, job),
               )),
         ],
       ],
@@ -285,6 +290,127 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     }
   }
 
+  Future<void> _openShiftNotes(BuildContext context, String date) async {
+    final repo = ref.read(webDayNoteRepositoryProvider);
+    final allNotes = await repo.loadAll();
+    final notes = (allNotes[date] ?? []).where((n) => n.isActive).toList();
+    if (!mounted) return;
+
+    await showDialog(
+      context: context,
+      builder: (_) => WebNotesDialog(
+        title: 'Shift Notes',
+        initialNotes:
+            notes.map((n) => WebNoteItem(n.noteId, n.text)).toList(),
+        onAdd: (text) async {
+          final current = await repo.loadAll();
+          final list = current[date] ?? [];
+          list.add(DayNote(
+            noteId: const Uuid().v4(),
+            date: date,
+            text: text,
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+            status: 'active',
+          ));
+          current[date] = list;
+          await repo.saveAll(current);
+          ref.invalidate(webDayNotesProvider);
+        },
+        onEdit: (noteId, newText) async {
+          final current = await repo.loadAll();
+          final list = current[date] ?? [];
+          final idx = list.indexWhere((n) => n.noteId == noteId);
+          if (idx >= 0) {
+            list[idx] = list[idx].copyWith(
+              text: newText,
+              updatedAt: DateTime.now().toUtc().toIso8601String(),
+            );
+            current[date] = list;
+            await repo.saveAll(current);
+            ref.invalidate(webDayNotesProvider);
+          }
+        },
+        onDelete: (noteId) async {
+          final current = await repo.loadAll();
+          final list = current[date] ?? [];
+          final idx = list.indexWhere((n) => n.noteId == noteId);
+          if (idx >= 0) {
+            list[idx] = list[idx].copyWith(status: 'deleted');
+            current[date] = list;
+            await repo.saveAll(current);
+            ref.invalidate(webDayNotesProvider);
+          }
+        },
+        onRefresh: () async {
+          final current = await repo.loadAll();
+          return (current[date] ?? [])
+              .where((n) => n.isActive)
+              .map((n) => WebNoteItem(n.noteId, n.text))
+              .toList();
+        },
+      ),
+    );
+  }
+
+  Future<void> _openJobNotes(BuildContext context, Job job) async {
+    final webJobRepo = ref.read(webJobRepositoryProvider);
+    final activeNotes = job.managerNotes.where((n) => n.isActive).toList();
+
+    await showDialog(
+      context: context,
+      builder: (_) => WebNotesDialog(
+        title: 'Job Notes \u2014 ${job.restaurantName}',
+        initialNotes:
+            activeNotes.map((n) => WebNoteItem(n.noteId, n.text)).toList(),
+        onAdd: (text) async {
+          final latest = await webJobRepo.loadJob(job.jobId);
+          if (latest == null) return;
+          final updated = [
+            ...latest.managerNotes,
+            ManagerJobNote(
+              noteId: const Uuid().v4(),
+              text: text,
+              createdAt: DateTime.now().toUtc().toIso8601String(),
+              status: 'active',
+            ),
+          ];
+          await webJobRepo.saveJob(latest.copyWith(managerNotes: updated));
+        },
+        onEdit: (noteId, newText) async {
+          final latest = await webJobRepo.loadJob(job.jobId);
+          if (latest == null) return;
+          final updated = latest.managerNotes.map((n) {
+            if (n.noteId == noteId) {
+              return n.copyWith(
+                text: newText,
+                updatedAt: DateTime.now().toUtc().toIso8601String(),
+              );
+            }
+            return n;
+          }).toList();
+          await webJobRepo.saveJob(latest.copyWith(managerNotes: updated));
+        },
+        onDelete: (noteId) async {
+          final latest = await webJobRepo.loadJob(job.jobId);
+          if (latest == null) return;
+          final updated = latest.managerNotes.map((n) {
+            if (n.noteId == noteId) return n.copyWith(status: 'deleted');
+            return n;
+          }).toList();
+          await webJobRepo.saveJob(latest.copyWith(managerNotes: updated));
+        },
+        onRefresh: () async {
+          final latest = await webJobRepo.loadJob(job.jobId);
+          if (latest == null) return [];
+          return latest.managerNotes
+              .where((n) => n.isActive)
+              .map((n) => WebNoteItem(n.noteId, n.text))
+              .toList();
+        },
+      ),
+    );
+  }
+
   void _showCreateJobDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -328,6 +454,8 @@ class _DayCard extends StatelessWidget {
     this.onTogglePublish,
     this.isEffectiveToday = false,
     this.onToggleJobCompletion,
+    this.onShiftNotesTap,
+    this.onJobNotesTap,
   });
 
   final String date;
@@ -343,6 +471,8 @@ class _DayCard extends StatelessWidget {
   final VoidCallback? onTogglePublish;
   final bool isEffectiveToday;
   final ValueChanged<Job>? onToggleJobCompletion;
+  final VoidCallback? onShiftNotesTap;
+  final ValueChanged<Job>? onJobNotesTap;
 
   bool get _isToday => isEffectiveToday;
 
@@ -425,14 +555,16 @@ class _DayCard extends StatelessWidget {
                           )),
                     ),
                   ],
-                  if (activeNotes.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    Chip(
-                      label: Text('${activeNotes.length} notes'),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                  ],
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    avatar: const Icon(Icons.note_outlined, size: 16),
+                    label: Text(activeNotes.isEmpty
+                        ? 'Add note'
+                        : '${activeNotes.length} notes'),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    onPressed: onShiftNotesTap,
+                  ),
                   const Spacer(),
                   if (onTogglePublish != null)
                     TextButton.icon(
@@ -471,6 +603,9 @@ class _DayCard extends StatelessWidget {
                     onToggleCompletion: onToggleJobCompletion != null
                         ? () => onToggleJobCompletion!(job)
                         : null,
+                    onJobNotesTap: onJobNotesTap != null
+                        ? () => onJobNotesTap!(job)
+                        : null,
                   )),
             ],
           ),
@@ -502,6 +637,7 @@ class _JobTile extends StatelessWidget {
     required this.onDelete,
     required this.onEdit,
     this.onToggleCompletion,
+    this.onJobNotesTap,
   });
 
   final Job job;
@@ -509,6 +645,7 @@ class _JobTile extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onEdit;
   final VoidCallback? onToggleCompletion;
+  final VoidCallback? onJobNotesTap;
 
   @override
   Widget build(BuildContext context) {
@@ -562,6 +699,7 @@ class _JobTile extends StatelessWidget {
                   const SizedBox(height: 4),
                   Wrap(
                     spacing: 12,
+                    runSpacing: 4,
                     children: [
                       if (hoodCount > 0)
                         _metaChip('$hoodCount hoods'),
@@ -571,6 +709,7 @@ class _JobTile extends StatelessWidget {
                         _metaChip('$totalPhotos photos'),
                       if (job.accessType != null)
                         _metaChip(job.accessType!),
+                      _jobNotesChip(),
                     ],
                   ),
                 ],
@@ -600,6 +739,28 @@ class _JobTile extends StatelessWidget {
   Widget _metaChip(String text) {
     return Text(text,
         style: TextStyle(fontSize: 12, color: Colors.grey[600]));
+  }
+
+  Widget _jobNotesChip() {
+    final count = job.managerNotes.where((n) => n.isActive).length;
+    return InkWell(
+      onTap: onJobNotesTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.note_outlined, size: 14, color: Colors.grey[600]),
+            const SizedBox(width: 3),
+            Text(
+              count > 0 ? '$count notes' : 'Add note',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
