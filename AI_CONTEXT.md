@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete).
 
 Core capabilities complete:
 
@@ -585,6 +585,9 @@ Core capabilities complete:
 - web console: CORS deployed to Firebase Storage bucket for cross-origin image loading
 - web console: photo tap-to-retry gesture fix (was intercepted by parent InkWell)
 - web console: video URL resolution from Firebase Storage when cloudUrl missing in Firestore
+- day publishing: only published days visible to technicians (real-time DaySchedule sync)
+- overnight shift support: past dates with incomplete jobs stay in "Today" filter
+- web console: Mark Complete / Reopen in job tile menu and job detail header
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.
@@ -701,6 +704,39 @@ lib/data/repositories/cloud_day_note_repository.dart — watchAll() Firestore st
 lib/data/repositories/local_day_note_repository.dart — watchAll() returns null
 lib/providers/sync_provider.dart                 — DayNotes real-time subscription
 test/domain/merge/job_merger_test.dart           — 6 LWW tests
+```
+
+### Bug Fix Round 2 (complete)
+
+Four fixes addressing issues found during field testing:
+
+**1. Draft days visible to technicians:**
+- Root cause: tech filter used `currentRole.isTechnician` (null bypasses filter), and `dayScheduleProvider` was never refreshed after cloud changes.
+- Fix: changed filter guard to `!currentRole.isManager` (defensive — unknown roles also get filtered). Added real-time DaySchedule sync via Firestore `.snapshots()` stream (mirrors existing DayNote pattern). `dayScheduleProvider` is now invalidated after cloud pulls and real-time merges.
+- `DayScheduleRepository` gains `watchAll()` interface method (returns `Stream?`, null for local repo). `CloudDayScheduleRepository.watchAll()` provides the Firestore stream. `SyncNotifier._subscribeToDaySchedules()` listens and invalidates `dayScheduleProvider` on each snapshot.
+
+**2. Android filter row "Unscheduled" button cutoff:**
+- The filter chips (Today | Upcoming | Past | Unscheduled) were clipped on narrower Android screens. Reduced chip `padding` to `EdgeInsets.zero`, `labelPadding` to `horizontal: 6`, font size to 13, spacing to 4, and outer padding to 8. Still uses `SingleChildScrollView` as fallback.
+
+**3. Day shifts from Today to Past after midnight:**
+- Overnight shifts (starting evening, ending 3-6 AM) caused the day to move from "Today" to "Past" at midnight. Now past dates with any incomplete jobs are treated as "Today" in the filter logic. Once all jobs for the day are marked complete, it moves to Past.
+- `isEffectiveToday(date)` helper added in both mobile `jobs_home.dart` and web `web_schedule_screen.dart`. `DayCard` accepts `isEffectiveToday` flag for the TODAY badge.
+
+**4. Mark Complete in web console:**
+- Job tile triple-dot menu in the schedule screen now has: Edit Job, Mark Complete / Reopen, Delete Job (matching mobile).
+- Web job detail header has a new Mark Complete / Reopen button next to Download ZIP.
+- Completion toggles `completedAt` on the Firestore job document via `WebJobRepository.saveJob`.
+
+**Key files changed:**
+```
+lib/data/repositories/day_schedule_repository.dart       — watchAll() interface
+lib/data/repositories/cloud_day_schedule_repository.dart — watchAll() Firestore stream
+lib/data/repositories/local_day_schedule_repository.dart — watchAll() returns null
+lib/providers/sync_provider.dart                         — DaySchedules real-time subscription + invalidation
+lib/presentation/jobs_home.dart                          — !isManager filter guard, effective-today logic, compact filter chips
+lib/presentation/widgets/day_card.dart                   — isEffectiveToday parameter
+lib/web/screens/web_schedule_screen.dart                 — effective-today logic, Mark Complete in job tile menu
+lib/web/screens/web_job_detail_screen.dart               — Mark Complete / Reopen button in job detail header
 ```
 
 ### Device Testing Prep
