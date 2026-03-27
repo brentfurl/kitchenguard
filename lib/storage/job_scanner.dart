@@ -374,7 +374,8 @@ class JobScanner {
 
       final status = (entry['status'] ?? '').toString();
       final hasCloudUrl = (entry['cloudUrl'] ?? '').toString().isNotEmpty;
-      if (!existsOnDisk && !hasCloudUrl) {
+      final hasSync = (entry['syncStatus'] ?? '').toString().isNotEmpty;
+      if (!existsOnDisk && !hasCloudUrl && !hasSync) {
         if (status != 'missing_local' || entry['missingLocal'] != true) {
           entry['status'] = 'missing_local';
           entry['missingLocal'] = true;

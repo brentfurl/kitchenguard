@@ -962,6 +962,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     final notesAsync = ref.watch(dayNotesProvider);
     final schedulesAsync = ref.watch(dayScheduleProvider);
     final currentRole = ref.watch(appRoleProvider);
+    final syncState = ref.watch(syncProvider);
 
     Widget body;
 
@@ -976,7 +977,12 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       final daySchedules =
           schedulesAsync.valueOrNull ?? const <String, DaySchedule>{};
 
-      if (results.isEmpty) {
+      final stillLoadingFromCloud =
+          results.isEmpty && syncState.lastPullTime == null;
+
+      if (stillLoadingFromCloud) {
+        body = const Center(child: CircularProgressIndicator());
+      } else if (results.isEmpty) {
         body = const Center(child: Text('No jobs found.'));
       } else {
         final scheduledByDate = _scheduledByDate(results);
@@ -1036,8 +1042,6 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 
     final isLoading = jobsAsync is AsyncLoading;
 
-    final syncState = ref.watch(syncProvider);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('KitchenGuard Jobs'),
@@ -1096,10 +1100,13 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       child: Row(
         children: [
           for (final filter in _JobFilter.values) ...[
-            if (filter != _JobFilter.values.first) const SizedBox(width: 8),
+            if (filter != _JobFilter.values.first) const SizedBox(width: 6),
             FilterChip(
               label: Text(_filterLabel(filter)),
               selected: _activeFilters.contains(filter),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
               onSelected: (selected) {
                 setState(() {
                   if (selected) {
