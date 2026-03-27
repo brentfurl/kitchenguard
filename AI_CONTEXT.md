@@ -641,6 +641,18 @@ lib/presentation/screens/pre_clean_layout_screen.dart   — onBrokenCloudUrl wir
 lib/presentation/job_detail.dart                    — passes callbacks to both screens
 ```
 
+### Post-Phase 7: UX Polish
+
+1. **Fast unit card counters** — `JobScanner._markMissingLocal()` now also checks `syncStatus`: photos with any `syncStatus` set (meaning they came through cloud sync) are preserved as `isActive` even without a local file or `cloudUrl`. Unit card counters now update as fast as pre-clean counters (immediately when the PhotoRecord arrives, before Storage upload completes).
+
+2. **"No jobs found" flash eliminated** — Jobs Home now shows a loading spinner instead of "No jobs found." when the initial cloud pull hasn't completed yet (`syncState.lastPullTime == null` and results are empty). Only shows empty state after at least one pull has finished.
+
+3. **Filter row overflow on Android** — Filter chips (Today / Upcoming / Past / Unscheduled) use `VisualDensity.compact`, `MaterialTapTargetSize.shrinkWrap`, and reduced padding so all four fit on narrower Android screens without clipping.
+
+### Planned: Note Editing + Sync
+
+Manager job notes can be edited but edits don't sync across devices (merge is append-only by noteId, ignoring text changes). Field notes and shift notes don't support editing in the UI at all. Planned fix: add `updatedAt` timestamp to `JobNote`, `ManagerJobNote`, and `DayNote` models; use LWW for text content in merge; add edit UI for field notes and shift notes.
+
 ### Device Testing Prep
 
 Firebase backend fully deployed to `kitchenguard-8e288`:
