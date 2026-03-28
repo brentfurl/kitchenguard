@@ -57,7 +57,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDyC3-EJFx69wdtftOPNHlCbtnkQsp8RDQ',
-    appId: '1:82695156984:android:99963a2270a7f729fbf70d',
+    appId: '1:82695156984:android:dcfc89a216792162fbf70d',
     messagingSenderId: '82695156984',
     projectId: 'kitchenguard-8e288',
     storageBucket: 'kitchenguard-8e288.firebasestorage.app',
@@ -65,10 +65,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyCfYVaOHsCkU5qwrRoCYoQvi8QgaGPfLng',
-    appId: '1:82695156984:ios:f7741ab7b891fe51fbf70d',
+    appId: '1:82695156984:ios:698255f9cea307f3fbf70d',
     messagingSenderId: '82695156984',
     projectId: 'kitchenguard-8e288',
     storageBucket: 'kitchenguard-8e288.firebasestorage.app',
-    iosBundleId: 'com.example.kitchenguardPhotoOrganizer',
+    iosBundleId: 'com.kitchenguard.app',
   );
+
 }
