@@ -550,7 +550,7 @@ Smaller images:
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes). **Store Readiness (in progress)** (bundle IDs, app icon, splash, Crashlytics, signing).
 
 Core capabilities complete:
 
@@ -1507,3 +1507,63 @@ Existing jobs without UUIDs on photos/videos get IDs backfilled on load via `Job
 - Version 3 (Phase 3): adds `subPhase` on photos, `completedAt` on jobs
 
 `JobScanner` detects missing `schemaVersion` and treats it as version 1. The `Job.fromJson` factory handles migration by generating missing IDs on load. Existing photos without `subPhase` are treated as uncategorized (null).
+
+---
+
+# Store Readiness (in progress)
+
+Preparing for TestFlight and Google Play Console submission.
+
+### Completed
+
+**1. Bundle / application IDs:**
+- Android applicationId + namespace: `com.kitchenguard.app` (was `com.example.kitchenguard_photo_organizer`)
+- iOS bundle ID: `com.kitchenguard.app` (was `com.example.kitchenguardPhotoOrganizer`)
+- Kotlin source path moved to `com/kitchenguard/app/`
+
+**2. App display name:**
+- Android `android:label` → "KitchenGuard"
+- iOS `CFBundleDisplayName` / `CFBundleName` → "KitchenGuard"
+
+**3. App icon:**
+- Custom icon: shield + camera shutter + checkmark on primary green (`#2F7A2F`) background
+- Generated via `flutter_launcher_icons` (adaptive icons on Android, standard on iOS)
+- Source image: `assets/icon/app_icon.png`
+
+**4. Splash screen:**
+- Solid primary green (`#2F7A2F`) via `flutter_native_splash`
+- Android 12+ splash support included
+
+**5. Firebase Crashlytics:**
+- `firebase_crashlytics` added to dependencies
+- `FlutterError.onError` → `FirebaseCrashlytics.instance.recordFlutterFatalError`
+- `PlatformDispatcher.instance.onError` → `FirebaseCrashlytics.instance.recordError`
+- Guarded with `!kIsWeb` (Crashlytics not available on web)
+
+**6. iOS background task identifiers:**
+- Replaced workmanager example IDs (`be.tramckrijte.workmanagerExample.*`) with `com.kitchenguard.app.iOSBackgroundAppRefresh` / `com.kitchenguard.app.iOSBackgroundProcessing`
+
+**7. Android INTERNET permission:**
+- Added `<uses-permission android:name="android.permission.INTERNET" />` to main `AndroidManifest.xml` (was only in debug/profile variants)
+
+**8. Dependency upgrade:**
+- `archive` upgraded from `^3.4.10` to `^4.0.9` (required by `flutter_native_splash`)
+
+### Remaining (manual steps)
+
+- **Firebase reconfiguration:** Run `flutterfire configure --project=kitchenguard-8e288` to register new bundle IDs and regenerate `google-services.json`, `GoogleService-Info.plist`, and `firebase_options.dart`
+- **Android release signing:** Generate a release keystore and configure `signingConfig` in `android/app/build.gradle.kts`
+- **Privacy policy:** Host a privacy policy page and add the URL to App Store Connect and Google Play Console listings
+
+### Key files changed
+
+```
+pubspec.yaml                                                    — firebase_crashlytics, flutter_launcher_icons, flutter_native_splash, archive upgrade
+lib/main.dart                                                   — Crashlytics error handlers
+android/app/build.gradle.kts                                    — applicationId + namespace → com.kitchenguard.app
+android/app/src/main/AndroidManifest.xml                        — label → KitchenGuard, INTERNET permission
+android/app/src/main/kotlin/com/kitchenguard/app/MainActivity.kt — new package path (old com/example/ removed)
+ios/Runner.xcodeproj/project.pbxproj                            — PRODUCT_BUNDLE_IDENTIFIER → com.kitchenguard.app
+ios/Runner/Info.plist                                           — display name, bundle name, BGTaskScheduler IDs
+assets/icon/app_icon.png                                        — NEW: source icon image
+```

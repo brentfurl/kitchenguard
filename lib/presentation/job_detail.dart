@@ -1438,13 +1438,13 @@ class _SubPhaseRow extends StatelessWidget {
     return Row(
       children: [
         SizedBox(
-          width: 40,
-          height: 40,
+          width: 48,
+          height: 48,
           child: IconButton(
             onPressed: isBusy ? null : onTap,
             icon: Icon(
               Icons.camera_alt,
-              size: 30,
+              size: 40,
               color: isBusy ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.primary,
             ),
             padding: EdgeInsets.zero,
@@ -1500,7 +1500,7 @@ class _SimpleUnitBody extends StatelessWidget {
                   ? null
                   : () => onCapture(phase: 'before'),
               tooltip: 'Capture Before Photos',
-              icon: const Icon(Icons.camera_alt, size: 30),
+              icon: const Icon(Icons.camera_alt, size: 40),
               visualDensity: VisualDensity.compact,
             ),
             const SizedBox(width: 2),
@@ -1524,7 +1524,7 @@ class _SimpleUnitBody extends StatelessWidget {
                   ? null
                   : () => onCapture(phase: 'after'),
               tooltip: 'Capture After Photos',
-              icon: const Icon(Icons.camera_alt, size: 30),
+              icon: const Icon(Icons.camera_alt, size: 40),
               visualDensity: VisualDensity.compact,
             ),
             const SizedBox(width: 2),
