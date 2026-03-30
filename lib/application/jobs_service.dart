@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:archive/archive_io.dart';
+import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -920,109 +920,67 @@ class JobsService {
     final zipFile = File(
       p.join(exportDir.path, 'KitchenGuard_${safeBase}_$timestamp.zip'),
     );
-    final encoder = ZipFileEncoder();
-    encoder.create(zipFile.path);
-    File? tempNotesFile;
-    File? tempExportJobJsonFile;
+    final archive = Archive();
 
-    try {
-      final exportJob = await _buildSortedExportJob(jobDir);
-      final exportJobJson = exportJob?.toJson();
-      final sortedUnits = exportJob?.units ?? const <Unit>[];
-      final liveUnitPhotoPaths = _collectLiveUnitPhotoPaths(sortedUnits);
+    final exportJob = await _buildSortedExportJob(jobDir);
+    final exportJobJson = exportJob?.toJson();
+    final sortedUnits = exportJob?.units ?? const <Unit>[];
+    final liveUnitPhotoPaths = _collectLiveUnitPhotoPaths(sortedUnits);
 
-      if (exportJobJson != null) {
-        tempExportJobJsonFile = File(
-          p.join(
-            exportDir.path,
-            '.job_${DateTime.now().microsecondsSinceEpoch}.json',
-          ),
-        );
-        await tempExportJobJsonFile.writeAsString(
-          jsonEncode(exportJobJson),
-          flush: true,
-        );
-        encoder.addFile(tempExportJobJsonFile, 'job.json');
+    if (exportJobJson != null) {
+      final jsonBytes = utf8.encode(jsonEncode(exportJobJson));
+      archive.addFile(ArchiveFile('job.json', jsonBytes.length, jsonBytes));
+    }
+
+    final notesText = await _buildExportNotesText(jobDir);
+    if (notesText != null) {
+      final notesBytes = utf8.encode(notesText);
+      archive.addFile(
+        ArchiveFile('notes.txt', notesBytes.length, notesBytes),
+      );
+    }
+
+    final filesForExport = <Map<String, dynamic>>[];
+    await for (final entity in jobDir.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File) continue;
+      final relativePath = p
+          .relative(entity.path, from: jobDir.path)
+          .replaceAll('\\', '/');
+      if (_isExcludedFromExport(relativePath)) continue;
+      if (_isUnitGalleryPhotoPath(relativePath) &&
+          !liveUnitPhotoPaths.contains(relativePath)) {
+        continue;
       }
-
-      final notesText = await _buildExportNotesText(jobDir);
-      if (notesText != null) {
-        tempNotesFile = File(
-          p.join(
-            exportDir.path,
-            '.notes_${DateTime.now().microsecondsSinceEpoch}.txt',
-          ),
-        );
-        await tempNotesFile.writeAsString(notesText, flush: true);
-        encoder.addFile(tempNotesFile, 'notes.txt');
-      }
-
-      final filesForExport = <Map<String, dynamic>>[];
-      await for (final entity in jobDir.list(
-        recursive: true,
-        followLinks: false,
-      )) {
-        if (entity is! File) {
-          continue;
-        }
-        final relativePath = p
-            .relative(entity.path, from: jobDir.path)
-            .replaceAll('\\', '/');
-        if (_isExcludedFromExport(relativePath)) {
-          continue;
-        }
-        if (_isUnitGalleryPhotoPath(relativePath) &&
-            !liveUnitPhotoPaths.contains(relativePath)) {
-          continue;
-        }
-        if (tempExportJobJsonFile != null && relativePath == 'job.json') {
-          continue;
-        }
-        filesForExport.add(<String, dynamic>{
-          'file': entity,
-          'relativePath': relativePath,
-        });
-      }
-
-      filesForExport.sort((a, b) {
-        final left = (a['relativePath'] ?? '').toString();
-        final right = (b['relativePath'] ?? '').toString();
-        return _compareExportPaths(left, right, sortedUnits);
+      if (relativePath == 'job.json') continue;
+      filesForExport.add(<String, dynamic>{
+        'file': entity,
+        'relativePath': relativePath,
       });
+    }
 
-      for (final item in filesForExport) {
-        final entity = item['file'] as File;
-        final relativePath = (item['relativePath'] ?? '').toString();
-        try {
-          if (!await entity.exists()) {
-            continue;
-          }
-          encoder.addFile(entity, relativePath);
-        } on FileSystemException {
-          // Skip files that disappear mid-export.
-        }
-      }
-    } finally {
-      encoder.close();
-      if (tempNotesFile != null) {
-        try {
-          if (await tempNotesFile.exists()) {
-            await tempNotesFile.delete();
-          }
-        } on FileSystemException {
-          // Best effort cleanup only.
-        }
-      }
-      if (tempExportJobJsonFile != null) {
-        try {
-          if (await tempExportJobJsonFile.exists()) {
-            await tempExportJobJsonFile.delete();
-          }
-        } on FileSystemException {
-          // Best effort cleanup only.
-        }
+    filesForExport.sort((a, b) {
+      final left = (a['relativePath'] ?? '').toString();
+      final right = (b['relativePath'] ?? '').toString();
+      return _compareExportPaths(left, right, sortedUnits);
+    });
+
+    for (final item in filesForExport) {
+      final entity = item['file'] as File;
+      final relativePath = (item['relativePath'] ?? '').toString();
+      try {
+        if (!await entity.exists()) continue;
+        final bytes = await entity.readAsBytes();
+        archive.addFile(ArchiveFile(relativePath, bytes.length, bytes));
+      } on FileSystemException {
+        // Skip files that disappear mid-export.
       }
     }
+
+    final zipBytes = ZipEncoder().encode(archive);
+    await zipFile.writeAsBytes(zipBytes, flush: true);
 
     await _cleanupOlderExportZips(exportDir: exportDir, keepFile: zipFile);
     return zipFile;
