@@ -353,6 +353,19 @@ class JobDetailController {
     await loadJob();
   }
 
+  Future<void> captureVideoFromFile({
+    required String kind,
+    required File sourceVideoFile,
+  }) async {
+    final normalized = kind.trim().toLowerCase();
+    await jobs.persistAndRecordVideo(
+      jobDir: jobDir,
+      kind: normalized,
+      sourceVideoFile: sourceVideoFile,
+    );
+    await loadJob();
+  }
+
   Future<void> softDeleteVideo({
     required String kind,
     required String relativePath,

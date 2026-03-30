@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../application/jobs_service.dart';
@@ -18,6 +17,7 @@ import 'screens/pre_clean_layout_screen.dart';
 import 'screens/photo_viewer_screen.dart';
 import 'screens/rapid_photo_capture_screen.dart';
 import 'screens/unit_photo_bucket_screen.dart';
+import 'screens/video_capture_screen.dart';
 import 'screens/videos_screen.dart';
 import '../storage/job_scanner.dart';
 
@@ -35,7 +35,6 @@ class _JobDetailState extends ConsumerState<JobDetail> {
   bool _isExporting = false;
   late final JobDetailController _controller;
   bool _isBusy = false;
-  final ImagePicker _picker = ImagePicker();
 
   String get _jobDirPath => widget.job.jobDir.path;
 
@@ -446,7 +445,24 @@ class _JobDetailState extends ConsumerState<JobDetail> {
           kind: 'exit',
           loadVideos: () => _controller.loadVideos(kind: 'exit'),
           captureVideo: () async {
-            await _controller.captureVideo(kind: 'exit', picker: _picker);
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => VideoCaptureScreen(
+                  title: 'Exit Video',
+                  loadVideoCount: () async {
+                    final videos =
+                        await _controller.loadVideos(kind: 'exit');
+                    return videos.length;
+                  },
+                  onCaptureFile: (file) async {
+                    await _controller.captureVideoFromFile(
+                      kind: 'exit',
+                      sourceVideoFile: file,
+                    );
+                  },
+                ),
+              ),
+            );
             _reloadJob();
           },
           softDelete: (relativePath) async {
@@ -475,7 +491,24 @@ class _JobDetailState extends ConsumerState<JobDetail> {
           kind: 'other',
           loadVideos: () => _controller.loadVideos(kind: 'other'),
           captureVideo: () async {
-            await _controller.captureVideo(kind: 'other', picker: _picker);
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => VideoCaptureScreen(
+                  title: 'Other Video',
+                  loadVideoCount: () async {
+                    final videos =
+                        await _controller.loadVideos(kind: 'other');
+                    return videos.length;
+                  },
+                  onCaptureFile: (file) async {
+                    await _controller.captureVideoFromFile(
+                      kind: 'other',
+                      sourceVideoFile: file,
+                    );
+                  },
+                ),
+              ),
+            );
             _reloadJob();
           },
           softDelete: (relativePath) async {

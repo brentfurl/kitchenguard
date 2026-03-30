@@ -548,13 +548,60 @@ Smaller images:
 
 ---
 
+# Video Capture Screen
+
+KitchenGuard includes a **persistent video capture screen** using the `camera` package directly (not `ImagePicker`).
+
+Video capture behavior:
+
+```
+open camera
+↓
+tap record (red circle)
+↓
+recording starts (live duration timer)
+↓
+tap stop (red rounded square)
+↓
+video saved, camera stays open
+↓
+repeat or navigate back
+```
+
+This is used for:
+
+- Exit videos
+- Other videos
+
+Design goals:
+
+- `ResolutionPreset.high` with `enableAudio: true`
+- Clear start/stop recording controls (red circle → red square)
+- Live recording duration display (MM:SS in red)
+- "Saved" inline status after each recording
+- `PopScope` prevents accidental back navigation while recording or saving
+- Camera stays open for multiple recordings
+
+The screen follows the same layout pattern as `RapidPhotoCaptureScreen`: empty AppBar, title + count header, expanded camera preview, bottom controls.
+
+Key files:
+
+```
+lib/presentation/screens/video_capture_screen.dart              — VideoCaptureScreen widget
+lib/presentation/controllers/job_detail_controller.dart         — captureVideoFromFile() method
+lib/presentation/job_detail.dart                                — wiring (exit + other video flows)
+```
+
+---
+
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes). **Store Readiness (in progress)** (bundle IDs, app icon, splash, Crashlytics, signing).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes). **Store Readiness (in progress)** (bundle IDs, app icon, splash, Crashlytics, signing). **Video Capture Screen complete** (camera-based recording replaces ImagePicker for exit/other videos).
 
 Core capabilities complete:
 
 - rapid photo capture
+- persistent video capture (camera package, start/stop recording)
 - structured job storage
 - job-level tools
 - smart unit naming
