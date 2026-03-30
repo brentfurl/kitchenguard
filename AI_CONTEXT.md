@@ -395,7 +395,7 @@ Pre-clean layout photos are **excluded**. Manager job notes are **excluded** fro
 
 Export uses in-memory `Archive` + `ZipEncoder` (not `ZipFileEncoder`, which has a silent data-loss bug in archive 4.x). Files are read as bytes and added to an `Archive` object, then the complete archive is encoded and written to disk in one shot.
 
-**Current limitation:** export only includes media files physically on the local filesystem. Photos and videos that exist only in Firebase Storage (captured by another device, or local files lost after app reinstall) are omitted. A cloud download fallback is planned to make export include all active media regardless of local availability.
+**Cloud download fallback:** after adding local files to the archive, the export iterates all active unit photos and videos from `job.json`. Any whose `relativePath` was not found on disk are downloaded from Firebase Storage via `FirebaseStorage.instance.ref('jobs/{jobId}/{relativePath}').getData()` and added to the archive. Download failures are skipped silently. This ensures the export includes all media regardless of which device captured it.
 
 ---
 
@@ -877,7 +877,7 @@ lib/presentation/controllers/job_detail_controller.dart — chronological sort f
 
 The fix also simplifies the export code by removing the temp-file dance (previously wrote `job.json` and `notes.txt` to temp files before adding to the encoder; now adds raw bytes directly to the `Archive`).
 
-**Pending — cloud download fallback:** The export currently only includes media files physically on the local filesystem. Photos/videos that exist only in Firebase Storage (captured by another device, or local files lost) are omitted from the ZIP even though they appear in the gallery via `CloudAwareImage`. A cloud download fallback should be added to download missing media from Firebase Storage during export, similar to how `WebExportService` downloads all media from cloud URLs.
+**Cloud download fallback (complete):** After adding local files, the export now downloads cloud-only media from Firebase Storage for any active photo/video whose `relativePath` was not found on disk. Uses `FirebaseStorage.instance.ref('jobs/{jobId}/{relativePath}').getData()` with 10MB/100MB limits (matching `storage.rules`). Fails silently per-item. This mirrors the web console's `WebExportService` approach and ensures ZIPs include all media regardless of which device captured it.
 
 **Key files changed:**
 ```

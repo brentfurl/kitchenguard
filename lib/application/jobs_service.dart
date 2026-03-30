@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
@@ -967,6 +968,8 @@ class JobsService {
       return _compareExportPaths(left, right, sortedUnits);
     });
 
+    final addedPaths = <String>{};
+
     for (final item in filesForExport) {
       final entity = item['file'] as File;
       final relativePath = (item['relativePath'] ?? '').toString();
@@ -974,9 +977,14 @@ class JobsService {
         if (!await entity.exists()) continue;
         final bytes = await entity.readAsBytes();
         archive.addFile(ArchiveFile(relativePath, bytes.length, bytes));
+        addedPaths.add(relativePath);
       } on FileSystemException {
         // Skip files that disappear mid-export.
       }
+    }
+
+    if (exportJob != null) {
+      await _addCloudOnlyMedia(archive, exportJob, addedPaths);
     }
 
     final zipBytes = ZipEncoder().encode(archive);
@@ -1193,6 +1201,76 @@ class JobsService {
       buffer.writeln('- ${note['text'] ?? ''}');
     }
     return buffer.toString();
+  }
+
+  /// Downloads active photos and videos that are missing from the local
+  /// filesystem but available in Firebase Storage, and adds them to [archive].
+  Future<void> _addCloudOnlyMedia(
+    Archive archive,
+    Job job,
+    Set<String> addedPaths,
+  ) async {
+    final FirebaseStorage storage;
+    try {
+      storage = FirebaseStorage.instance;
+    } catch (_) {
+      return;
+    }
+
+    const photoMaxBytes = 10 * 1024 * 1024; // 10 MB (matches storage.rules)
+    const videoMaxBytes = 100 * 1024 * 1024; // 100 MB (matches storage.rules)
+
+    for (final unit in job.units) {
+      for (final photo in unit.photosBefore) {
+        if (!photo.isActive) continue;
+        final rp = photo.relativePath.replaceAll('\\', '/');
+        if (addedPaths.contains(rp)) continue;
+        await _downloadToArchive(
+            archive, storage, job.jobId, rp, photoMaxBytes);
+      }
+      for (final photo in unit.photosAfter) {
+        if (!photo.isActive) continue;
+        final rp = photo.relativePath.replaceAll('\\', '/');
+        if (addedPaths.contains(rp)) continue;
+        await _downloadToArchive(
+            archive, storage, job.jobId, rp, photoMaxBytes);
+      }
+    }
+
+    for (final video in job.videos.exit) {
+      if (!video.isActive) continue;
+      final rp = video.relativePath.replaceAll('\\', '/');
+      if (addedPaths.contains(rp)) continue;
+      await _downloadToArchive(
+          archive, storage, job.jobId, rp, videoMaxBytes);
+    }
+    for (final video in job.videos.other) {
+      if (!video.isActive) continue;
+      final rp = video.relativePath.replaceAll('\\', '/');
+      if (addedPaths.contains(rp)) continue;
+      await _downloadToArchive(
+          archive, storage, job.jobId, rp, videoMaxBytes);
+    }
+  }
+
+  /// Downloads a single file from Firebase Storage and adds it to [archive].
+  /// Fails silently if the file doesn't exist or the download errors.
+  Future<void> _downloadToArchive(
+    Archive archive,
+    FirebaseStorage storage,
+    String jobId,
+    String relativePath,
+    int maxBytes,
+  ) async {
+    try {
+      final ref = storage.ref('jobs/$jobId/$relativePath');
+      final bytes = await ref.getData(maxBytes);
+      if (bytes != null) {
+        archive.addFile(ArchiveFile(relativePath, bytes.length, bytes));
+      }
+    } catch (_) {
+      // Skip silently — file may not exist in Storage.
+    }
   }
 
   Future<String> _resolveUnitFolderNameForPhoto({
