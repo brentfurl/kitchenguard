@@ -146,7 +146,10 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
       filteredDates = allGrouped.keys
           .where((date) {
             final schedule = daySchedules[date];
-            return schedule != null && schedule.isPublished;
+            if (schedule == null || !schedule.isPublished) return false;
+            return isEffectiveToday(date) ||
+                date.compareTo(todayStr) > 0 ||
+                (date == todayStr && hasIncompletePastDays);
           })
           .toList()
         ..sort();

@@ -397,6 +397,30 @@ Export uses in-memory `Archive` + `ZipEncoder` (not `ZipFileEncoder`, which has 
 
 **Cloud download fallback:** after adding local files to the archive, the export iterates all active unit photos and videos from `job.json`. Any whose `relativePath` was not found on disk are downloaded from Firebase Storage via `FirebaseStorage.instance.ref('jobs/{jobId}/{relativePath}').getData()` and added to the archive. Download failures are skipped silently. This ensures the export includes all media regardless of which device captured it.
 
+### PDF Photo Report (web console)
+
+The web console also offers a **Download PDF** option that generates a structured photo report.
+
+PDF structure:
+- **Cover page**: "KitchenGuard", restaurant name, address (if entered), shift date
+- **Section pages**: one section per unit + phase (e.g., "Hood 1: Before", "Hood 1: After")
+- **Layout**: Letter portrait, 2 columns x 3 rows (6 photos per page)
+- Sections start on a new page; if >6 photos, the section continues on the next page with the title repeated
+- Photos are same size regardless of how many per page (empty cells left blank)
+- Pre-clean layout photos excluded (same as ZIP)
+- Videos excluded (photos only)
+- Unit ordering matches ZIP export (Hoods, Fans, Misc via `UnitSorter`)
+- Cloud-only photos downloaded from Firebase Storage (same fallback as ZIP)
+
+Implementation uses the `pdf` package (pure Dart, platform-independent). The builder (`PdfExportBuilder`) is shared and can be reused for mobile PDF export later.
+
+**Key files:**
+```
+lib/services/pdf_export_builder.dart           — shared PDF builder (cover + 2x3 grid sections)
+lib/web/web_pdf_export_service.dart            — web: download images from Storage, build PDF, trigger browser download
+lib/web/screens/web_job_detail_screen.dart     — Download PDF button alongside Download ZIP
+```
+
 ---
 
 # Planned Improvements
@@ -600,7 +624,7 @@ lib/presentation/job_detail.dart                                — wiring (exit
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes). **Store Readiness (in progress)** (bundle IDs, app icon, splash, Crashlytics, signing). **Video Capture Screen complete** (camera-based recording replaces ImagePicker for exit/other videos). **Export ZIP fix complete** (archive 4.x ZipFileEncoder bug).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes). **Store Readiness (in progress)** (bundle IDs, app icon, splash, Crashlytics, signing). **Video Capture Screen complete** (camera-based recording replaces ImagePicker for exit/other videos). **Export ZIP fix complete** (archive 4.x ZipFileEncoder bug). **PDF Photo Report complete** (web console structured photo report with cover page + 2x3 grid sections). **Auth UX improvements** (forgot password, iOS share fix).
 
 Core capabilities complete:
 
@@ -644,6 +668,10 @@ Core capabilities complete:
 - web console: drag-to-reorder jobs within dates (ReorderableListView, persists sortOrder to Firestore)
 - unit card redesign: camera icon (leading) + label+count opens gallery (swapped roles for intuitiveness)
 - chronological note ordering: field notes and job notes sorted oldest-to-newest on mobile
+- web console: PDF photo report download (cover page + 2x3 grid sections per unit/phase)
+- web console: Published filter further restricted to Today + Upcoming only
+- auth screen: "Forgot password?" link triggers Firebase password reset email
+- iOS share fix: `sharePositionOrigin` passed to `share_plus` to prevent `PlatformException` on iOS share sheet
 
 Phase 4 completed steps:
 - Step 0: Repository plumbing — `JobsService` migrated from raw stores (`JobStore`, `ImageFileStore`, `VideoFileStore`, `DayNoteStore`, `DayScheduleStore`) to repository interfaces (`JobRepository`, `DayNoteRepository`, `DayScheduleRepository`). All data access flows through abstract interfaces, making cloud swap transparent.

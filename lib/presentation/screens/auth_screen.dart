@@ -81,6 +81,36 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     }
   }
 
+  Future<void> _resetPassword() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _errorMessage = 'Enter your email address first.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Password reset email sent to $email'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      setState(() => _errorMessage = _friendlyError(e.code));
+    } catch (_) {
+      setState(() => _errorMessage = 'Failed to send reset email.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   void _toggleMode() {
     setState(() {
       _isRegisterMode = !_isRegisterMode;
@@ -217,7 +247,17 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                             ),
                           ),
                         ],
-                        const SizedBox(height: 24),
+                        if (!_isRegisterMode) ...[
+                          const SizedBox(height: 4),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _isLoading ? null : _resetPassword,
+                              child: const Text('Forgot password?'),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
                         FilledButton(
                           onPressed: _isLoading ? null : _submit,
                           style: FilledButton.styleFrom(

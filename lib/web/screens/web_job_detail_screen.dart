@@ -11,6 +11,7 @@ import '../../domain/models/unit.dart';
 import '../../domain/models/video_record.dart';
 import '../web_export_service.dart';
 import '../web_job_repository.dart';
+import '../web_pdf_export_service.dart';
 import '../web_providers.dart';
 import '../widgets/web_notes_dialog.dart';
 
@@ -99,21 +100,24 @@ class _JobDetailBody extends StatefulWidget {
 }
 
 class _JobDetailBodyState extends State<_JobDetailBody> {
-  WebExportProgress? _exportProgress;
-  bool _isExporting = false;
+  WebExportProgress? _zipProgress;
+  bool _isExportingZip = false;
+
+  WebExportProgress? _pdfProgress;
+  bool _isExportingPdf = false;
 
   Job get job => widget.job;
   ThemeData get theme => widget.theme;
 
-  Future<void> _startExport() async {
-    if (_isExporting) return;
-    setState(() => _isExporting = true);
+  Future<void> _startZipExport() async {
+    if (_isExportingZip) return;
+    setState(() => _isExportingZip = true);
 
     try {
       final result = await WebExportService.exportJobZip(
         job: job,
         onProgress: (p) {
-          if (mounted) setState(() => _exportProgress = p);
+          if (mounted) setState(() => _zipProgress = p);
         },
       );
 
@@ -127,17 +131,83 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e')),
+          SnackBar(content: Text('ZIP export failed: $e')),
         );
       }
     } finally {
       if (mounted) {
         setState(() {
-          _isExporting = false;
-          _exportProgress = null;
+          _isExportingZip = false;
+          _zipProgress = null;
         });
       }
     }
+  }
+
+  Future<void> _startPdfExport() async {
+    if (_isExportingPdf) return;
+    setState(() => _isExportingPdf = true);
+
+    try {
+      final result = await WebPdfExportService.exportJobPdf(
+        job: job,
+        onProgress: (p) {
+          if (mounted) setState(() => _pdfProgress = p);
+        },
+      );
+
+      if (!mounted) return;
+      final msg = result.skipped > 0
+          ? 'PDF downloaded (${result.skipped} photo${result.skipped == 1 ? '' : 's'} skipped — not yet uploaded)'
+          : 'PDF downloaded';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('PDF export failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isExportingPdf = false;
+          _pdfProgress = null;
+        });
+      }
+    }
+  }
+
+  Widget _buildExportButton({
+    required bool isExporting,
+    required WebExportProgress? progress,
+    required String label,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    if (isExporting) {
+      return SizedBox(
+        width: 160,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            LinearProgressIndicator(value: progress?.fraction),
+            const SizedBox(height: 4),
+            Text(
+              progress?.currentFile ?? 'Preparing…',
+              style: theme.textTheme.labelSmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      );
+    }
+    return FilledButton.tonalIcon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+    );
   }
 
   void _openManagerNotes() {
@@ -340,29 +410,21 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
                 label: Text(job.isComplete ? 'Reopen' : 'Mark Complete'),
               ),
               const SizedBox(width: 8),
-              _isExporting
-                  ? SizedBox(
-                      width: 160,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          LinearProgressIndicator(
-                            value: _exportProgress?.fraction,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _exportProgress?.currentFile ?? 'Preparing…',
-                            style: theme.textTheme.labelSmall,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    )
-                  : FilledButton.tonalIcon(
-                      onPressed: _startExport,
-                      icon: const Icon(Icons.download, size: 18),
-                      label: const Text('Download ZIP'),
-                    ),
+              _buildExportButton(
+                isExporting: _isExportingPdf,
+                progress: _pdfProgress,
+                label: 'Download PDF',
+                icon: Icons.picture_as_pdf,
+                onPressed: _startPdfExport,
+              ),
+              const SizedBox(width: 8),
+              _buildExportButton(
+                isExporting: _isExportingZip,
+                progress: _zipProgress,
+                label: 'Download ZIP',
+                icon: Icons.download,
+                onPressed: _startZipExport,
+              ),
             ],
           ),
         ),

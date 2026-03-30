@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'dart:typed_data';
+
 import 'package:archive/archive.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path/path.dart' as p;
@@ -18,6 +20,7 @@ import '../domain/models/videos.dart';
 import '../data/repositories/day_note_repository.dart';
 import '../data/repositories/day_schedule_repository.dart';
 import '../data/repositories/job_repository.dart';
+import '../services/pdf_export_builder.dart';
 import '../services/upload_queue.dart';
 import '../storage/app_paths.dart';
 import '../utils/unit_sorter.dart';
@@ -992,6 +995,104 @@ class JobsService {
 
     await _cleanupOlderExportZips(exportDir: exportDir, keepFile: zipFile);
     return zipFile;
+  }
+
+  Future<File> exportJobPdf({
+    required Directory jobDir,
+    required String pdfBaseName,
+  }) async {
+    if (!await jobDir.exists()) {
+      throw StateError('Job directory missing: ${jobDir.path}');
+    }
+
+    final job = await _buildSortedExportJob(jobDir);
+    if (job == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final sections = <PdfSection>[];
+    for (final unit in job.units) {
+      final beforePhotos = unit.photosBefore.where((p) => p.isActive).toList();
+      final afterPhotos = unit.photosAfter.where((p) => p.isActive).toList();
+
+      if (beforePhotos.isNotEmpty) {
+        final bytes = await _collectPhotoBytes(jobDir, job.jobId, beforePhotos);
+        if (bytes.isNotEmpty) {
+          sections.add(PdfSection(
+            title: '${unit.name}: Before',
+            imageBytes: bytes,
+          ));
+        }
+      }
+      if (afterPhotos.isNotEmpty) {
+        final bytes = await _collectPhotoBytes(jobDir, job.jobId, afterPhotos);
+        if (bytes.isNotEmpty) {
+          sections.add(PdfSection(
+            title: '${unit.name}: After',
+            imageBytes: bytes,
+          ));
+        }
+      }
+    }
+
+    final address = [job.address, job.city]
+        .where((s) => s != null && s.isNotEmpty)
+        .join(', ');
+
+    final pdfBytes = await PdfExportBuilder.build(
+      cover: PdfCoverInfo(
+        restaurantName: job.restaurantName,
+        address: address.isNotEmpty ? address : null,
+        shiftDate: job.shiftStartDate,
+      ),
+      sections: sections,
+    );
+
+    final safeBase = _sanitizeZipBaseName(pdfBaseName);
+    final timestamp = _formatExportTimestamp(DateTime.now());
+    final exportDir = Directory(
+      p.join(Directory.systemTemp.path, 'KitchenGuardExports'),
+    );
+    await exportDir.create(recursive: true);
+
+    final pdfFile = File(
+      p.join(exportDir.path, 'KitchenGuard_${safeBase}_$timestamp.pdf'),
+    );
+    await pdfFile.writeAsBytes(pdfBytes, flush: true);
+    return pdfFile;
+  }
+
+  /// Reads photo bytes from disk, falling back to Firebase Storage for
+  /// cloud-only photos.
+  Future<List<Uint8List>> _collectPhotoBytes(
+    Directory jobDir,
+    String jobId,
+    List<PhotoRecord> photos,
+  ) async {
+    const maxBytes = 10 * 1024 * 1024; // 10 MB
+    final result = <Uint8List>[];
+
+    for (final photo in photos) {
+      final localFile = File(p.join(jobDir.path, photo.relativePath));
+      if (await localFile.exists()) {
+        try {
+          result.add(await localFile.readAsBytes());
+          continue;
+        } on FileSystemException {
+          // Fall through to cloud.
+        }
+      }
+
+      try {
+        final rp = photo.relativePath.replaceAll('\\', '/');
+        final ref = FirebaseStorage.instance.ref('jobs/$jobId/$rp');
+        final bytes = await ref.getData(maxBytes);
+        if (bytes != null) result.add(bytes);
+      } catch (_) {
+        // Skip photos that can't be loaded.
+      }
+    }
+    return result;
   }
 
   Future<void> _cleanupOlderExportZips({

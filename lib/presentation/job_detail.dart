@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
@@ -32,7 +34,8 @@ class JobDetail extends ConsumerStatefulWidget {
 }
 
 class _JobDetailState extends ConsumerState<JobDetail> {
-  bool _isExporting = false;
+  bool _isExportingZip = false;
+  bool _isExportingPdf = false;
   late final JobDetailController _controller;
   bool _isBusy = false;
 
@@ -615,25 +618,56 @@ class _JobDetailState extends ConsumerState<JobDetail> {
     }
   }
 
-  Future<void> _exportJob() async {
-    if (_isExporting) return;
-    setState(() => _isExporting = true);
+  Future<void> _exportZip() async {
+    await _exportAndShare(
+      label: 'ZIP',
+      dialogText: 'Creating ZIP...',
+      export: () => _controller.exportJob(),
+      isExporting: () => _isExportingZip,
+      setExporting: (v) => _isExportingZip = v,
+    );
+  }
+
+  Future<void> _exportPdf() async {
+    await _exportAndShare(
+      label: 'PDF',
+      dialogText: 'Creating PDF...',
+      export: () => _controller.exportPdf(),
+      isExporting: () => _isExportingPdf,
+      setExporting: (v) => _isExportingPdf = v,
+    );
+  }
+
+  Future<void> _exportAndShare({
+    required String label,
+    required String dialogText,
+    required Future<File> Function() export,
+    required bool Function() isExporting,
+    required void Function(bool) setExporting,
+  }) async {
+    if (isExporting()) return;
+    setState(() => setExporting(true));
+
+    final box = context.findRenderObject() as RenderBox?;
+    final shareOrigin = box != null
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
 
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const PopScope(
+      builder: (_) => PopScope(
         canPop: false,
         child: AlertDialog(
           content: Row(
             children: [
-              SizedBox(
+              const SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(strokeWidth: 2.5),
               ),
-              SizedBox(width: 16),
-              Expanded(child: Text('Exporting job...')),
+              const SizedBox(width: 16),
+              Expanded(child: Text(dialogText)),
             ],
           ),
         ),
@@ -643,7 +677,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
     var dialogClosed = false;
 
     try {
-      final zipFile = await _controller.exportJob();
+      final file = await export();
       if (!mounted) return;
 
       Navigator.of(context, rootNavigator: true).pop();
@@ -652,9 +686,11 @@ class _JobDetailState extends ConsumerState<JobDetail> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Future.microtask(() async {
           try {
-            await Share.shareXFiles([
-              XFile(zipFile.path),
-            ], text: 'KitchenGuard job export');
+            await Share.shareXFiles(
+              [XFile(file.path)],
+              text: 'KitchenGuard job export',
+              sharePositionOrigin: shareOrigin,
+            );
           } catch (error) {
             if (!mounted) return;
             ScaffoldMessenger.of(
@@ -676,14 +712,16 @@ class _JobDetailState extends ConsumerState<JobDetail> {
       );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(message.isEmpty ? 'Failed to export job' : message),
+          content: Text(
+            message.isEmpty ? '$label export failed' : message,
+          ),
         ),
       );
     } finally {
       if (mounted) {
-        setState(() => _isExporting = false);
+        setState(() => setExporting(false));
       } else {
-        _isExporting = false;
+        setExporting(false);
       }
     }
   }
@@ -864,9 +902,14 @@ class _JobDetailState extends ConsumerState<JobDetail> {
         title: const Text(''),
         actions: [
           IconButton(
-            onPressed: _isExporting ? null : _exportJob,
-            icon: const Icon(Icons.share_outlined),
-            tooltip: 'Export Job',
+            onPressed: (_isExportingZip || _isExportingPdf) ? null : _exportZip,
+            icon: const Icon(Icons.folder_zip_outlined),
+            tooltip: 'Export ZIP',
+          ),
+          IconButton(
+            onPressed: (_isExportingZip || _isExportingPdf) ? null : _exportPdf,
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            tooltip: 'Export PDF',
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.handyman_outlined),

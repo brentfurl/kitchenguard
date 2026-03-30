@@ -430,6 +430,11 @@ class JobDetailController {
     return await jobs.exportJobZip(jobDir: jobDir, zipBaseName: jobName);
   }
 
+  Future<File> exportPdf() async {
+    final jobName = _job?.restaurantName ?? 'Job';
+    return await jobs.exportJobPdf(jobDir: jobDir, pdfBaseName: jobName);
+  }
+
   /// Returns active [DayNote]s for this job's [Job.scheduledDate].
   /// Returns an empty list if [scheduledDate] is null or unset.
   Future<List<DayNote>> loadShiftNotes() async {
