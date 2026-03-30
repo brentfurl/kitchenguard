@@ -393,6 +393,10 @@ notes.txt (optional — field notes only)
 
 Pre-clean layout photos are **excluded**. Manager job notes are **excluded** from export (only field notes appear in `notes.txt`).
 
+Export uses in-memory `Archive` + `ZipEncoder` (not `ZipFileEncoder`, which has a silent data-loss bug in archive 4.x). Files are read as bytes and added to an `Archive` object, then the complete archive is encoded and written to disk in one shot.
+
+**Current limitation:** export only includes media files physically on the local filesystem. Photos and videos that exist only in Firebase Storage (captured by another device, or local files lost after app reinstall) are omitted. A cloud download fallback is planned to make export include all active media regardless of local availability.
+
 ---
 
 # Planned Improvements
@@ -596,7 +600,7 @@ lib/presentation/job_detail.dart                                — wiring (exit
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes). **Store Readiness (in progress)** (bundle IDs, app icon, splash, Crashlytics, signing). **Video Capture Screen complete** (camera-based recording replaces ImagePicker for exit/other videos).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes). **Store Readiness (in progress)** (bundle IDs, app icon, splash, Crashlytics, signing). **Video Capture Screen complete** (camera-based recording replaces ImagePicker for exit/other videos). **Export ZIP fix complete** (archive 4.x ZipFileEncoder bug).
 
 Core capabilities complete:
 
@@ -863,6 +867,21 @@ Four improvements across web console and mobile unit cards:
 lib/web/screens/web_schedule_screen.dart                — Published filter, mutual exclusion, ReorderableListView, _reorderJobs
 lib/presentation/job_detail.dart                        — _SubPhaseRow redesign, _SimpleUnitBody redesign
 lib/presentation/controllers/job_detail_controller.dart — chronological sort for activeNotes and activeManagerNotes
+```
+
+### Export ZIP Fix (complete)
+
+`ZipFileEncoder` from `archive` 4.0.9 (`package:archive/archive_io.dart`) has a silent data-loss bug: `addFile()` completes without error but fails to write file data into the archive. Exported ZIPs contained only `job.json` while photos and videos were silently dropped.
+
+**Fix:** Replaced `ZipFileEncoder` (streaming file-based encoder) with in-memory `Archive` + `ZipEncoder.encode()` (`package:archive/archive.dart`). Each file's bytes are read into memory, added to an `Archive` object, then the complete archive is encoded and written in one shot. This is the same pattern already used by `WebExportService` for the web console's ZIP download.
+
+The fix also simplifies the export code by removing the temp-file dance (previously wrote `job.json` and `notes.txt` to temp files before adding to the encoder; now adds raw bytes directly to the `Archive`).
+
+**Pending — cloud download fallback:** The export currently only includes media files physically on the local filesystem. Photos/videos that exist only in Firebase Storage (captured by another device, or local files lost) are omitted from the ZIP even though they appear in the gallery via `CloudAwareImage`. A cloud download fallback should be added to download missing media from Firebase Storage during export, similar to how `WebExportService` downloads all media from cloud URLs.
+
+**Key files changed:**
+```
+lib/application/jobs_service.dart — exportJobZip rewritten to use Archive + ZipEncoder
 ```
 
 ### Device Testing Prep
