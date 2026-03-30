@@ -99,14 +99,16 @@ VideoRecord _video({
 Unit _unit({
   required String id,
   String type = 'hood',
+  String name = 'Hood 1',
+  String? unitFolderName,
   List<PhotoRecord>? before,
   List<PhotoRecord>? after,
 }) {
   return Unit(
     unitId: id,
     type: type,
-    name: 'Hood 1',
-    unitFolderName: 'hood_1',
+    name: name,
+    unitFolderName: unitFolderName ?? 'hood_1',
     isComplete: false,
     photosBefore: before ?? const [],
     photosAfter: after ?? const [],
@@ -405,6 +407,46 @@ void main() {
 
       final merged = JobMerger.merge(local: local, cloud: cloud);
       expect(merged.units.first.photosAfter, hasLength(2));
+    });
+
+    test('concurrent hood creation resolves duplicate names deterministically', () {
+      final localA = _baseJob(units: [
+        _unit(id: 'u-b', type: 'hood', name: 'hood 1', unitFolderName: 'hood_b'),
+      ]);
+      final cloudA = _baseJob(units: [
+        _unit(id: 'u-a', type: 'hood', name: 'hood 1', unitFolderName: 'hood_a'),
+      ]);
+      final mergedA = JobMerger.merge(local: localA, cloud: cloudA);
+
+      final localB = _baseJob(units: [
+        _unit(id: 'u-a', type: 'hood', name: 'hood 1', unitFolderName: 'hood_a'),
+      ]);
+      final cloudB = _baseJob(units: [
+        _unit(id: 'u-b', type: 'hood', name: 'hood 1', unitFolderName: 'hood_b'),
+      ]);
+      final mergedB = JobMerger.merge(local: localB, cloud: cloudB);
+
+      final namesByIdA = {for (final u in mergedA.units) u.unitId: u.name.toLowerCase()};
+      final namesByIdB = {for (final u in mergedB.units) u.unitId: u.name.toLowerCase()};
+
+      expect(namesByIdA, namesByIdB);
+      expect(namesByIdA['u-a'], 'hood 1');
+      expect(namesByIdA['u-b'], 'hood 2');
+    });
+
+    test('concurrent misc creation resolves duplicate names with suffix', () {
+      final local = _baseJob(units: [
+        _unit(id: 'm2', type: 'misc', name: 'Fryer'),
+      ]);
+      final cloud = _baseJob(units: [
+        _unit(id: 'm1', type: 'misc', name: 'Fryer'),
+      ]);
+
+      final merged = JobMerger.merge(local: local, cloud: cloud);
+      final names = merged.units.map((u) => u.name).toList();
+
+      expect(names, contains('Fryer'));
+      expect(names, contains('Fryer (2)'));
     });
   });
 

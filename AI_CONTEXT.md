@@ -743,6 +743,30 @@ lib/presentation/job_detail.dart                    — passes callbacks to both
 
 3. **Filter row overflow on Android** — Filter chips (Today / Upcoming / Past / Unscheduled) use `VisualDensity.compact`, `MaterialTapTargetSize.shrinkWrap`, and reduced padding so all four fit on narrower Android screens without clipping.
 
+### Post-Phase 7: Cross-Device Capture Race Fixes (complete)
+
+Field stress testing with simultaneous Android + iPhone capture exposed three race-condition issues, all fixed:
+
+1. **Rapid capture filename collision** — Unit photo filenames used second-level timestamps. Multiple captures in the same second could overwrite the same file path while appending multiple `PhotoRecord` entries, producing apparent duplicates and sub-phase confusion. Fix: `ImageFileStore.persistPhoto()` now uses millisecond + microsecond timestamp precision plus collision fallback suffix (`_1`, `_2`, ...) before writing.
+
+2. **Legacy duplicate record repair** — Existing jobs could contain multiple photo records pointing to the same `relativePath`. Fix: `JobScanner` now deduplicates phase photo lists by `relativePath` during scan/reconcile, keeps the best record deterministically (active/synced/newer preferred), merges useful metadata (`syncStatus`, `cloudUrl`, `uploadedBy`, `subPhase`) into the winner, removes duplicates, and saves `job.json`.
+
+3. **Concurrent unit creation name conflict** — Two devices creating the same unit label (e.g., both create "hood 1") produced duplicate names after merge because units are ID-based and both units are valid. Fix: `JobMerger` now runs deterministic same-type name conflict resolution post-merge. Hood/fan conflicts are renumbered (`hood 1`, `hood 2`, ...); misc conflicts get suffixes (`Fryer`, `Fryer (2)`). Ordering is deterministic by `unitId`, so both devices converge to the same names.
+
+4. **Cross-unit move sync metadata loss** — `JobsService.movePhotos()` rebuilt moved `PhotoRecord`s manually and dropped cloud sync fields (`syncStatus`, `cloudUrl`, `uploadedBy`). Fix: switched to `copyWith` so sync metadata survives cross-unit moves.
+
+**Test coverage:**
+- Added `JobMerger` tests for deterministic concurrent unit-name conflict resolution (hood + misc cases).
+
+**Key files changed:**
+```
+lib/storage/image_file_store.dart              — unique filenames + collision fallback
+lib/storage/job_scanner.dart                   — legacy duplicate photo-record repair by relativePath
+lib/domain/merge/job_merger.dart               — deterministic unit-name conflict resolution
+lib/application/jobs_service.dart              — preserve sync metadata in movePhotos()
+test/domain/merge/job_merger_test.dart         — concurrent unit creation conflict tests
+```
+
 ### Note Editing + Sync (complete)
 
 All three note types now support editing with cross-device sync:

@@ -1579,17 +1579,12 @@ class JobsService {
             .relative(destFile.path, from: jobDir.path)
             .replaceAll('\\', '/');
 
-        updatedMoved.add(PhotoRecord(
-          photoId: rec.photoId,
-          fileName: rec.fileName,
-          relativePath: newRelativePath,
-          capturedAt: rec.capturedAt,
-          status: rec.status,
-          missingLocal: rec.missingLocal,
-          recovered: rec.recovered,
-          deletedAt: rec.deletedAt,
-          subPhase: destSubPhase,
-        ));
+        updatedMoved.add(
+          rec.copyWith(
+            relativePath: newRelativePath,
+            subPhase: destSubPhase,
+          ),
+        );
       }
     }
 

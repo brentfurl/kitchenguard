@@ -28,10 +28,18 @@ class ImageFileStore {
 
     final now = DateTime.now().toLocal();
     final phaseName = phaseFolder; // "Before" or "After"
-    final fileName =
-        '${unitFolderName}_${phaseName}_${_formatTimestamp(now)}.jpg';
-    final finalFile = File(p.join(destinationDir.path, fileName));
-    final tempFile = File(p.join(destinationDir.path, '.tmp_$fileName'));
+    final baseName =
+        '${unitFolderName}_${phaseName}_${_formatTimestamp(now)}';
+    var fileName = '$baseName.jpg';
+    var finalFile = File(p.join(destinationDir.path, fileName));
+    var tempFile = File(p.join(destinationDir.path, '.tmp_$fileName'));
+    var collision = 1;
+    while (await finalFile.exists() || await tempFile.exists()) {
+      fileName = '${baseName}_$collision.jpg';
+      finalFile = File(p.join(destinationDir.path, fileName));
+      tempFile = File(p.join(destinationDir.path, '.tmp_$fileName'));
+      collision += 1;
+    }
 
     if (!await sourceImageFile.exists()) {
       throw StateError(
@@ -88,6 +96,8 @@ class ImageFileStore {
     final hh = dateTime.hour.toString().padLeft(2, '0');
     final mm = dateTime.minute.toString().padLeft(2, '0');
     final ss = dateTime.second.toString().padLeft(2, '0');
-    return '$y-$m-${d}_$hh-$mm-$ss';
+    final ms = dateTime.millisecond.toString().padLeft(3, '0');
+    final us = dateTime.microsecond.toString().padLeft(3, '0');
+    return '$y-$m-${d}_$hh-$mm-$ss-$ms-$us';
   }
 }
