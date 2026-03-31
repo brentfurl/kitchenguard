@@ -381,7 +381,10 @@ void main() {
 
     test('cloud-only unit appended', () {
       final local = _baseJob(units: [_unit(id: 'u1')]);
-      final cloud = _baseJob(units: [_unit(id: 'u1'), _unit(id: 'u2')]);
+      final cloud = _baseJob(units: [
+        _unit(id: 'u1', name: 'Hood 1', unitFolderName: 'hood_1'),
+        _unit(id: 'u2', name: 'Hood 2', unitFolderName: 'hood_2'),
+      ]);
 
       final merged = JobMerger.merge(local: local, cloud: cloud);
       expect(merged.units, hasLength(2));
@@ -389,8 +392,13 @@ void main() {
     });
 
     test('local-only unit kept', () {
-      final local = _baseJob(units: [_unit(id: 'u1'), _unit(id: 'u3')]);
-      final cloud = _baseJob(units: [_unit(id: 'u1')]);
+      final local = _baseJob(units: [
+        _unit(id: 'u1', name: 'Hood 1', unitFolderName: 'hood_1'),
+        _unit(id: 'u3', name: 'Hood 3', unitFolderName: 'hood_3'),
+      ]);
+      final cloud = _baseJob(units: [
+        _unit(id: 'u1', name: 'Hood 1', unitFolderName: 'hood_1'),
+      ]);
 
       final merged = JobMerger.merge(local: local, cloud: cloud);
       expect(merged.units, hasLength(2));
@@ -409,32 +417,38 @@ void main() {
       expect(merged.units.first.photosAfter, hasLength(2));
     });
 
-    test('concurrent hood creation resolves duplicate names deterministically', () {
+    test('concurrent same-name hood creation coalesces into one unit', () {
       final localA = _baseJob(units: [
-        _unit(id: 'u-b', type: 'hood', name: 'hood 1', unitFolderName: 'hood_b'),
+        _unit(id: 'u-b', type: 'hood', name: 'hood 2', unitFolderName: 'hood_b'),
       ]);
       final cloudA = _baseJob(units: [
-        _unit(id: 'u-a', type: 'hood', name: 'hood 1', unitFolderName: 'hood_a'),
+        _unit(id: 'u-a', type: 'hood', name: 'hood 2', unitFolderName: 'hood_a'),
       ]);
       final mergedA = JobMerger.merge(local: localA, cloud: cloudA);
 
       final localB = _baseJob(units: [
-        _unit(id: 'u-a', type: 'hood', name: 'hood 1', unitFolderName: 'hood_a'),
+        _unit(id: 'u-a', type: 'hood', name: 'hood 2', unitFolderName: 'hood_a'),
       ]);
       final cloudB = _baseJob(units: [
-        _unit(id: 'u-b', type: 'hood', name: 'hood 1', unitFolderName: 'hood_b'),
+        _unit(id: 'u-b', type: 'hood', name: 'hood 2', unitFolderName: 'hood_b'),
       ]);
       final mergedB = JobMerger.merge(local: localB, cloud: cloudB);
 
-      final namesByIdA = {for (final u in mergedA.units) u.unitId: u.name.toLowerCase()};
-      final namesByIdB = {for (final u in mergedB.units) u.unitId: u.name.toLowerCase()};
+      expect(mergedA.units, hasLength(1));
+      expect(mergedB.units, hasLength(1));
 
-      expect(namesByIdA, namesByIdB);
-      expect(namesByIdA['u-a'], 'hood 1');
-      expect(namesByIdA['u-b'], 'hood 2');
+      final unitA = mergedA.units.single;
+      final unitB = mergedB.units.single;
+
+      expect(unitA.name.toLowerCase(), 'hood 2');
+      expect(unitB.name.toLowerCase(), 'hood 2');
+      expect(unitA.unitId, 'u-a');
+      expect(unitB.unitId, 'u-a');
+      expect(unitA.photosBefore, isEmpty);
+      expect(unitB.photosBefore, isEmpty);
     });
 
-    test('concurrent misc creation resolves duplicate names with suffix', () {
+    test('concurrent same-name misc creation coalesces into one unit', () {
       final local = _baseJob(units: [
         _unit(id: 'm2', type: 'misc', name: 'Fryer'),
       ]);
@@ -443,10 +457,10 @@ void main() {
       ]);
 
       final merged = JobMerger.merge(local: local, cloud: cloud);
-      final names = merged.units.map((u) => u.name).toList();
-
-      expect(names, contains('Fryer'));
-      expect(names, contains('Fryer (2)'));
+      expect(merged.units, hasLength(1));
+      expect(merged.units.single.name, 'Fryer');
+      expect(merged.units.single.unitId, 'm1');
+      expect(merged.units.single.photosAfter, isEmpty);
     });
   });
 
@@ -629,6 +643,8 @@ void main() {
         units: [
           _unit(
             id: 'u1',
+            name: 'Hood 1',
+            unitFolderName: 'hood_1',
             before: [_photo(id: 'p1')],
             after: [_photo(id: 'a1')],
           ),
@@ -644,12 +660,14 @@ void main() {
         units: [
           _unit(
             id: 'u1',
+            name: 'Hood 1',
+            unitFolderName: 'hood_1',
             before: [
               _photo(id: 'p1', syncStatus: 'synced', cloudUrl: 'https://p1'),
               _photo(id: 'p2', uploadedBy: 'user-b'),
             ],
           ),
-          _unit(id: 'u2'),
+          _unit(id: 'u2', name: 'Hood 2', unitFolderName: 'hood_2'),
         ],
         notes: [
           _note(id: 'n1', text: 'cloud note'),

@@ -118,7 +118,86 @@ class JobMerger {
       }
     }
 
-    return _resolveDuplicateUnitNames(merged);
+    final coalesced = _coalesceSemanticallyDuplicateUnits(merged);
+    return _resolveDuplicateUnitNames(coalesced);
+  }
+
+  static List<Unit> _coalesceSemanticallyDuplicateUnits(List<Unit> units) {
+    if (units.length < 2) return units;
+
+    final indexed = <_IndexedUnit>[];
+    for (var i = 0; i < units.length; i++) {
+      indexed.add(_IndexedUnit(index: i, unit: units[i]));
+    }
+
+    final bySemanticKey = <String, List<_IndexedUnit>>{};
+    for (final item in indexed) {
+      final typeKey = item.unit.type.trim().toLowerCase();
+      final normalizedName = _normalizeUnitName(item.unit.name);
+      if (typeKey.isEmpty || normalizedName.isEmpty) {
+        continue;
+      }
+      if (!_isLikelyConcurrentCreateDuplicate(item.unit)) {
+        continue;
+      }
+      final key = '$typeKey::$normalizedName';
+      bySemanticKey.putIfAbsent(key, () => []).add(item);
+    }
+
+    if (bySemanticKey.values.every((group) => group.length <= 1)) {
+      return units;
+    }
+
+    final removeIndexes = <int>{};
+    final replacementByIndex = <int, Unit>{};
+    var coalescedCount = 0;
+
+    for (final group in bySemanticKey.values) {
+      if (group.length <= 1) continue;
+
+      final sorted = [...group]..sort((a, b) => a.unit.unitId.compareTo(b.unit.unitId));
+      final canonical = sorted.first;
+      var mergedBefore = [...canonical.unit.photosBefore];
+      var mergedAfter = [...canonical.unit.photosAfter];
+      var isComplete = canonical.unit.isComplete;
+      String? completedAt = canonical.unit.completedAt;
+      var unitFolderName = canonical.unit.unitFolderName;
+
+      for (final other in sorted.skip(1)) {
+        mergedBefore = _mergePhotos(mergedBefore, other.unit.photosBefore);
+        mergedAfter = _mergePhotos(mergedAfter, other.unit.photosAfter);
+        isComplete = isComplete || other.unit.isComplete;
+        completedAt = _latestIsoTimestamp(completedAt, other.unit.completedAt);
+        if (unitFolderName.isEmpty && other.unit.unitFolderName.isNotEmpty) {
+          unitFolderName = other.unit.unitFolderName;
+        }
+        removeIndexes.add(other.index);
+      }
+
+      final mergedUnit = canonical.unit.copyWith(
+        unitFolderName: unitFolderName,
+        isComplete: isComplete,
+        completedAt: completedAt,
+        photosBefore: mergedBefore,
+        photosAfter: mergedAfter,
+      );
+      replacementByIndex[canonical.index] = mergedUnit;
+      coalescedCount += sorted.length - 1;
+    }
+
+    if (coalescedCount == 0) return units;
+
+    final out = <Unit>[];
+    for (var i = 0; i < units.length; i++) {
+      if (removeIndexes.contains(i)) continue;
+      out.add(replacementByIndex[i] ?? units[i]);
+    }
+
+    developer.log(
+      'Coalesced $coalescedCount duplicate unit(s) by semantic key',
+      name: 'JobMerger',
+    );
+    return out;
   }
 
   static List<Unit> _resolveDuplicateUnitNames(List<Unit> units) {
@@ -454,6 +533,20 @@ class JobMerger {
       candidate = '$base ($suffix)';
     }
     return _GeneratedUnitName(name: candidate, nextNumericHint: nextNumericHint);
+  }
+
+  static String? _latestIsoTimestamp(String? a, String? b) {
+    final ta = DateTime.tryParse(a ?? '');
+    final tb = DateTime.tryParse(b ?? '');
+    if (ta == null) return b;
+    if (tb == null) return a;
+    return tb.isAfter(ta) ? b : a;
+  }
+
+  static bool _isLikelyConcurrentCreateDuplicate(Unit unit) {
+    return !unit.isComplete &&
+        unit.photosBefore.isEmpty &&
+        unit.photosAfter.isEmpty;
   }
 }
 

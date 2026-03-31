@@ -745,26 +745,51 @@ lib/presentation/job_detail.dart                    — passes callbacks to both
 
 ### Post-Phase 7: Cross-Device Capture Race Fixes (complete)
 
-Field stress testing with simultaneous Android + iPhone capture exposed three race-condition issues, all fixed:
+Field stress testing with simultaneous Android + iPhone capture exposed four race-condition issues, all fixed:
 
 1. **Rapid capture filename collision** — Unit photo filenames used second-level timestamps. Multiple captures in the same second could overwrite the same file path while appending multiple `PhotoRecord` entries, producing apparent duplicates and sub-phase confusion. Fix: `ImageFileStore.persistPhoto()` now uses millisecond + microsecond timestamp precision plus collision fallback suffix (`_1`, `_2`, ...) before writing.
 
 2. **Legacy duplicate record repair** — Existing jobs could contain multiple photo records pointing to the same `relativePath`. Fix: `JobScanner` now deduplicates phase photo lists by `relativePath` during scan/reconcile, keeps the best record deterministically (active/synced/newer preferred), merges useful metadata (`syncStatus`, `cloudUrl`, `uploadedBy`, `subPhase`) into the winner, removes duplicates, and saves `job.json`.
 
-3. **Concurrent unit creation name conflict** — Two devices creating the same unit label (e.g., both create "hood 1") produced duplicate names after merge because units are ID-based and both units are valid. Fix: `JobMerger` now runs deterministic same-type name conflict resolution post-merge. Hood/fan conflicts are renumbered (`hood 1`, `hood 2`, ...); misc conflicts get suffixes (`Fryer`, `Fryer (2)`). Ordering is deterministic by `unitId`, so both devices converge to the same names.
+3. **Concurrent unit creation duplicates** — Two devices creating the same new unit label at the same time (e.g., both create `hood 2`) produced duplicate units on merge (`hood 2`, `hood 3`). Fix: `JobMerger` now coalesces semantically duplicate *fresh* units (same normalized name + type, both incomplete and empty) into a single canonical unit (deterministic by `unitId`), so both devices converge to one unit instead of two.
 
 4. **Cross-unit move sync metadata loss** — `JobsService.movePhotos()` rebuilt moved `PhotoRecord`s manually and dropped cloud sync fields (`syncStatus`, `cloudUrl`, `uploadedBy`). Fix: switched to `copyWith` so sync metadata survives cross-unit moves.
 
 **Test coverage:**
-- Added `JobMerger` tests for deterministic concurrent unit-name conflict resolution (hood + misc cases).
+- Added `JobMerger` tests for concurrent same-name unit coalescing (hood + misc cases), plus fixture updates for unit-name uniqueness in append-only tests.
 
 **Key files changed:**
 ```
 lib/storage/image_file_store.dart              — unique filenames + collision fallback
 lib/storage/job_scanner.dart                   — legacy duplicate photo-record repair by relativePath
-lib/domain/merge/job_merger.dart               — deterministic unit-name conflict resolution
+lib/domain/merge/job_merger.dart               — concurrent unit coalescing + deterministic conflict handling
 lib/application/jobs_service.dart              — preserve sync metadata in movePhotos()
-test/domain/merge/job_merger_test.dart         — concurrent unit creation conflict tests
+test/domain/merge/job_merger_test.dart         — concurrent unit coalescing tests + fixture updates
+```
+
+### Post-Phase 7: Deletion + Gallery Sync UX Fixes (complete)
+
+Three additional cross-device sync UX issues were fixed:
+
+1. **Delete job did not propagate to other devices** — `CloudJobRepository.mergeCloudJobs()` merged/added cloud jobs but never removed local jobs that were deleted in Firestore. Fix: after merge, local jobs whose `jobId` is missing from the cloud snapshot are pruned locally. Deletions now propagate cross-device in real time.
+
+2. **Persistent pending badge near cloud icon** — Upload badge used queue `pendingCount` that included failed/retry entries, so a badge could linger even when no immediate uploads were pending. Fix: `UploadQueue.pendingCount` now counts only `pending` entries (failed entries still retry via backoff, but no longer keep the badge stuck).
+
+3. **Remote in-flight photos briefly showed as "Missing"** — Cloud-only records arriving before URL publication had neither local file nor `cloudUrl`, causing a broken-image placeholder during upload. Fixes:
+   - New captures now initialize `PhotoRecord.syncStatus = 'pending'`.
+   - `CloudAwareImage` accepts `syncStatus` and shows spinner for `pending/uploading`, sync-error placeholder for `error`, and missing placeholder only when truly unresolved.
+   - Gallery screens now pass `syncStatus` into `CloudAwareImage`.
+
+4. **Open gallery didn't live-refresh on incoming sync** — Unit and pre-clean galleries required navigating out/back to show new photos from other devices. Fix: both screens now listen to `pullVersionProvider` and call local reload when cloud merge completes, so synced photos appear while viewing the gallery.
+
+**Key files changed:**
+```
+lib/data/repositories/cloud_job_repository.dart      — prune local jobs missing from cloud snapshot
+lib/services/upload_queue.dart                       — pending badge count uses pending-only entries
+lib/application/jobs_service.dart                    — initialize new photos with syncStatus='pending'
+lib/presentation/widgets/cloud_aware_image.dart      — syncing/error placeholders using syncStatus
+lib/presentation/screens/unit_photo_bucket_screen.dart — live refresh + syncStatus wiring
+lib/presentation/screens/pre_clean_layout_screen.dart  — live refresh + syncStatus wiring
 ```
 
 ### Note Editing + Sync (complete)

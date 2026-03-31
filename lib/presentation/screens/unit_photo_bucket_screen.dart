@@ -1,14 +1,16 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/photo_record.dart';
 import '../../domain/models/unit.dart';
+import '../../providers/sync_provider.dart';
 import '../widgets/cloud_aware_image.dart';
 import '../widgets/move_destination_sheet.dart';
 
-class UnitPhotoBucketScreen extends StatefulWidget {
+class UnitPhotoBucketScreen extends ConsumerStatefulWidget {
   const UnitPhotoBucketScreen({
     super.key,
     required this.title,
@@ -54,10 +56,11 @@ class UnitPhotoBucketScreen extends StatefulWidget {
   final Future<void> Function(String photoId)? onBrokenCloudUrl;
 
   @override
-  State<UnitPhotoBucketScreen> createState() => _UnitPhotoBucketScreenState();
+  ConsumerState<UnitPhotoBucketScreen> createState() =>
+      _UnitPhotoBucketScreenState();
 }
 
-class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
+class _UnitPhotoBucketScreenState extends ConsumerState<UnitPhotoBucketScreen> {
   bool _isLoading = true;
   List<PhotoRecord> _photos = const [];
   int? _pressedTileIndex;
@@ -273,6 +276,11 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(pullVersionProvider, (_, __) {
+      if (!mounted || _isLoading) return;
+      _reloadPhotos();
+    });
+
     final theme = Theme.of(context);
     final currentPhotosList = _visiblePhotos;
 
@@ -352,6 +360,7 @@ class _UnitPhotoBucketScreenState extends State<UnitPhotoBucketScreen> {
                             child: CloudAwareImage(
                               localFile: file,
                               cloudUrl: photo.cloudUrl,
+                              syncStatus: photo.syncStatus,
                               showCloudBadge: true,
                               onCloudUrlBroken: widget.onBrokenCloudUrl != null
                                   ? () => widget.onBrokenCloudUrl!(photo.photoId)

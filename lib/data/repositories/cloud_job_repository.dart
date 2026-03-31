@@ -177,14 +177,13 @@ class CloudJobRepository implements JobRepository {
   /// Firestore to avoid write loops).
   @override
   Future<int> mergeCloudJobs(List<Job> cloudJobs) async {
-    if (cloudJobs.isEmpty) return 0;
-
     try {
       final localResults = await _local.loadAllJobs();
       final localMap = <String, JobScanResult>{};
       for (final result in localResults) {
         localMap[result.job.jobId] = result;
       }
+      final cloudIds = cloudJobs.map((j) => j.jobId).toSet();
 
       var mergedCount = 0;
       for (final cloudJob in cloudJobs) {
@@ -203,7 +202,35 @@ class CloudJobRepository implements JobRepository {
         mergedCount++;
       }
 
-      return mergedCount;
+      // Prune local jobs deleted in cloud so deletions propagate cross-device.
+      var prunedCount = 0;
+      for (final localResult in localResults) {
+        if (cloudIds.contains(localResult.job.jobId)) continue;
+        try {
+          await _local.deleteJob(localResult.jobDir);
+          prunedCount++;
+          developer.log(
+            'Pruned local job missing from cloud: ${localResult.job.restaurantName} (${localResult.job.jobId})',
+            name: 'CloudJobRepository',
+          );
+        } catch (e, st) {
+          developer.log(
+            'Failed to prune local job ${localResult.job.jobId}: $e',
+            name: 'CloudJobRepository',
+            error: e,
+            stackTrace: st,
+          );
+        }
+      }
+
+      if (prunedCount > 0) {
+        developer.log(
+          'Pruned $prunedCount local job(s) deleted from cloud',
+          name: 'CloudJobRepository',
+        );
+      }
+
+      return mergedCount + prunedCount;
     } catch (e, st) {
       developer.log(
         'mergeCloudJobs failed: $e',

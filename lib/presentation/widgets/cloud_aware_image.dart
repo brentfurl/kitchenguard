@@ -23,6 +23,7 @@ class CloudAwareImage extends StatefulWidget {
     this.height,
     this.showCloudBadge = false,
     this.onCloudUrlBroken,
+    this.syncStatus,
   });
 
   final File? localFile;
@@ -41,6 +42,10 @@ class CloudAwareImage extends StatefulWidget {
   /// Callers can use this to reset the photo's sync state and re-queue
   /// the upload from the device that has the local file.
   final VoidCallback? onCloudUrlBroken;
+
+  /// Optional media sync status used to distinguish "not yet uploaded"
+  /// from truly missing files when neither local nor cloud URL is available.
+  final String? syncStatus;
 
   @override
   State<CloudAwareImage> createState() => _CloudAwareImageState();
@@ -132,6 +137,13 @@ class _CloudAwareImageState extends State<CloudAwareImage> {
       );
     }
 
+    if (widget.syncStatus == 'pending' || widget.syncStatus == 'uploading') {
+      return _syncingPlaceholder();
+    }
+    if (widget.syncStatus == 'error') {
+      return _errorPlaceholder();
+    }
+
     return _missingPlaceholder();
   }
 
@@ -145,6 +157,35 @@ class _CloudAwareImageState extends State<CloudAwareImage> {
             Icon(Icons.broken_image_outlined),
             SizedBox(height: 6),
             Text('Missing'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _syncingPlaceholder() {
+    return Container(
+      color: Colors.grey.shade100,
+      child: const Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    );
+  }
+
+  static Widget _errorPlaceholder() {
+    return Container(
+      color: Colors.grey.shade200,
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_outlined),
+            SizedBox(height: 6),
+            Text('Sync error'),
           ],
         ),
       ),

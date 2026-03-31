@@ -396,6 +396,7 @@ class JobsService {
       missingLocal: false,
       recovered: false,
       subPhase: subPhase,
+      syncStatus: 'pending',
     );
 
     final normalizedPhase = phase.trim().toLowerCase();
@@ -859,6 +860,7 @@ class JobsService {
       status: 'local',
       missingLocal: false,
       recovered: false,
+      syncStatus: 'pending',
     );
 
     await jobRepository.saveJob(

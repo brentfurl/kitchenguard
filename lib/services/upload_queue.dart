@@ -33,9 +33,11 @@ class UploadQueue {
   static const int maxRetries = 10;
   static const String _fileName = 'upload_queue.json';
 
-  /// Entries that are eligible for processing (pending, or failed with
-  /// retries remaining).
-  int get pendingCount => _entries.where(_isProcessable).length;
+  /// Entries waiting to be uploaded right now.
+  ///
+  /// Failed entries are retried in background with backoff, but are not
+  /// counted here to avoid a "stuck" pending badge in the UI.
+  int get pendingCount => _entries.where((e) => e.isPending).length;
 
   /// Total entries in the queue (all statuses).
   int get totalCount => _entries.length;

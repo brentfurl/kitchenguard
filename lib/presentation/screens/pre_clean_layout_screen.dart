@@ -1,14 +1,16 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../domain/models/photo_record.dart';
+import '../../providers/sync_provider.dart';
 import '../widgets/cloud_aware_image.dart';
 import 'photo_viewer_screen.dart';
 import 'rapid_photo_capture_screen.dart';
 
-class PreCleanLayoutScreen extends StatefulWidget {
+class PreCleanLayoutScreen extends ConsumerStatefulWidget {
   const PreCleanLayoutScreen({
     super.key,
     required this.jobDir,
@@ -29,10 +31,11 @@ class PreCleanLayoutScreen extends StatefulWidget {
   final Future<void> Function(String photoId)? onBrokenCloudUrl;
 
   @override
-  State<PreCleanLayoutScreen> createState() => _PreCleanLayoutScreenState();
+  ConsumerState<PreCleanLayoutScreen> createState() =>
+      _PreCleanLayoutScreenState();
 }
 
-class _PreCleanLayoutScreenState extends State<PreCleanLayoutScreen> {
+class _PreCleanLayoutScreenState extends ConsumerState<PreCleanLayoutScreen> {
   bool _isLoading = true;
   List<PhotoRecord> _photos = const [];
 
@@ -125,6 +128,11 @@ class _PreCleanLayoutScreenState extends State<PreCleanLayoutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(pullVersionProvider, (_, __) {
+      if (!mounted || _isLoading) return;
+      _reload();
+    });
+
     return Scaffold(
       appBar: AppBar(title: const Text('Pre-clean Layout')),
       body: _isLoading
@@ -217,6 +225,7 @@ class _PreCleanLayoutScreenState extends State<PreCleanLayoutScreen> {
                             child: CloudAwareImage(
                               localFile: file,
                               cloudUrl: photo.cloudUrl,
+                              syncStatus: photo.syncStatus,
                               showCloudBadge: true,
                               onCloudUrlBroken: widget.onBrokenCloudUrl != null
                                   ? () => widget.onBrokenCloudUrl!(photo.photoId)
