@@ -65,6 +65,7 @@ class PdfExportBuilder {
     Uint8List? logoBytes,
   }) {
     final address = cover.address?.trim() ?? '';
+    final shiftDateYmd = _toYyyyMmDd(cover.shiftDate);
     return pw.Page(
       pageFormat: PdfPageFormat.letter,
       margin: pw.EdgeInsets.zero,
@@ -73,7 +74,7 @@ class PdfExportBuilder {
           children: [
             pw.Expanded(
               child: pw.Padding(
-                padding: const pw.EdgeInsets.fromLTRB(40, 38, 40, 24),
+                padding: const pw.EdgeInsets.fromLTRB(20, 20, 20, 24),
                 child: pw.Row(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
@@ -82,15 +83,15 @@ class PdfExportBuilder {
                         crossAxisAlignment: pw.CrossAxisAlignment.start,
                         children: [
                           pw.Text(
-                            'Shift date: ${cover.shiftDate}',
-                            style: const pw.TextStyle(fontSize: 14),
+                            shiftDateYmd,
+                            style: const pw.TextStyle(fontSize: 10.5),
                           ),
-                          pw.SizedBox(height: 12),
+                          pw.SizedBox(height: 10),
                           pw.RichText(
                             text: pw.TextSpan(
                               text: 'Prepared for: ',
                               style: const pw.TextStyle(
-                                fontSize: 14,
+                                fontSize: 10.5,
                                 color: PdfColors.black,
                               ),
                               children: [
@@ -103,17 +104,18 @@ class PdfExportBuilder {
                               ],
                             ),
                           ),
-                          pw.SizedBox(height: 8),
-                          pw.Text(
-                            address.isEmpty ? 'Address: ' : address,
-                            style: const pw.TextStyle(fontSize: 14),
-                          ),
+                          pw.SizedBox(height: 10),
+                          if (address.isNotEmpty)
+                            pw.Text(
+                              address,
+                              style: const pw.TextStyle(fontSize: 10.5),
+                            ),
                         ],
                       ),
                     ),
                     pw.SizedBox(width: 20),
                     pw.SizedBox(
-                      width: 230,
+                      width: 161,
                       child: logoBytes == null
                           ? pw.Align(
                               alignment: pw.Alignment.topRight,
@@ -286,5 +288,17 @@ class PdfExportBuilder {
         .map((w) =>
             w.isEmpty ? '' : '${w[0].toUpperCase()}${w.substring(1)}')
         .join(' ');
+  }
+
+  static String _toYyyyMmDd(String input) {
+    final trimmed = input.trim();
+    final parsed = DateTime.tryParse(trimmed);
+    if (parsed != null) {
+      final month = parsed.month.toString().padLeft(2, '0');
+      final day = parsed.day.toString().padLeft(2, '0');
+      return '${parsed.year}-$month-$day';
+    }
+    final match = RegExp(r'^(\d{4}-\d{2}-\d{2})').firstMatch(trimmed);
+    return match?.group(1) ?? trimmed;
   }
 }
