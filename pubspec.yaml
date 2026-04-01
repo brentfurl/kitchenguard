@@ -79,3 +79,5 @@ flutter_native_splash:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/pdf/kg_logo_transparent.png

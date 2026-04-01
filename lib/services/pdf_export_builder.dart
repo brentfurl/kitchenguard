@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:flutter/services.dart' show rootBundle;
 
 /// Metadata for the PDF cover page.
 class PdfCoverInfo {
@@ -40,14 +41,16 @@ class PdfExportBuilder {
   static const _cellGap = 10.0;
   static const _titleHeight = 28.0;
   static const _titleBottomGap = 10.0;
+  static const _footerGreen = PdfColor.fromInt(0xFF689523);
 
   static Future<Uint8List> build({
     required PdfCoverInfo cover,
     required List<PdfSection> sections,
   }) async {
     final doc = pw.Document();
+    final logoBytes = await _loadCoverLogoBytes();
 
-    doc.addPage(_buildCoverPage(cover));
+    doc.addPage(_buildCoverPage(cover, logoBytes: logoBytes));
 
     for (final section in sections) {
       if (section.imageBytes.isEmpty) continue;
@@ -57,46 +60,109 @@ class PdfExportBuilder {
     return await doc.save();
   }
 
-  static pw.Page _buildCoverPage(PdfCoverInfo cover) {
+  static pw.Page _buildCoverPage(
+    PdfCoverInfo cover, {
+    Uint8List? logoBytes,
+  }) {
+    final address = cover.address?.trim() ?? '';
     return pw.Page(
       pageFormat: PdfPageFormat.letter,
-      margin: pw.EdgeInsets.all(_margin),
+      margin: pw.EdgeInsets.zero,
       build: (ctx) {
-        return pw.Center(
-          child: pw.Column(
-            mainAxisSize: pw.MainAxisSize.min,
-            children: [
-              pw.Text(
-                'KitchenGuard',
-                style: pw.TextStyle(
-                  fontSize: 36,
-                  fontWeight: pw.FontWeight.bold,
+        return pw.Column(
+          children: [
+            pw.Expanded(
+              child: pw.Padding(
+                padding: const pw.EdgeInsets.fromLTRB(40, 38, 40, 24),
+                child: pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Expanded(
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text(
+                            'Shift date: ${cover.shiftDate}',
+                            style: const pw.TextStyle(fontSize: 14),
+                          ),
+                          pw.SizedBox(height: 12),
+                          pw.RichText(
+                            text: pw.TextSpan(
+                              text: 'Prepared for: ',
+                              style: const pw.TextStyle(
+                                fontSize: 14,
+                                color: PdfColors.black,
+                              ),
+                              children: [
+                                pw.TextSpan(
+                                  text: _titleCase(cover.restaurantName),
+                                  style: pw.TextStyle(
+                                    fontWeight: pw.FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          pw.SizedBox(height: 8),
+                          pw.Text(
+                            address.isEmpty ? 'Address: ' : address,
+                            style: const pw.TextStyle(fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    ),
+                    pw.SizedBox(width: 20),
+                    pw.SizedBox(
+                      width: 230,
+                      child: logoBytes == null
+                          ? pw.Align(
+                              alignment: pw.Alignment.topRight,
+                              child: pw.Text(
+                                'KitchenGuard',
+                                style: pw.TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: pw.FontWeight.bold,
+                                ),
+                              ),
+                            )
+                          : pw.Image(
+                              pw.MemoryImage(logoBytes),
+                              fit: pw.BoxFit.contain,
+                              alignment: pw.Alignment.topRight,
+                            ),
+                    ),
+                  ],
                 ),
               ),
-              pw.SizedBox(height: 24),
-              pw.Text(
-                _titleCase(cover.restaurantName),
-                style: const pw.TextStyle(fontSize: 22),
-                textAlign: pw.TextAlign.center,
+            ),
+            pw.Container(
+              width: double.infinity,
+              color: _footerGreen,
+              padding: const pw.EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 10,
               ),
-              if (cover.address != null && cover.address!.isNotEmpty) ...[
-                pw.SizedBox(height: 10),
-                pw.Text(
-                  cover.address!,
-                  style: const pw.TextStyle(fontSize: 14),
-                  textAlign: pw.TextAlign.center,
+              child: pw.Text(
+                'www.kitchenguard.com/centex/ | 395 Enterprise Blvd Ste. A, Waco, TX 76643',
+                style: const pw.TextStyle(
+                  fontSize: 11,
+                  color: PdfColors.white,
                 ),
-              ],
-              pw.SizedBox(height: 10),
-              pw.Text(
-                cover.shiftDate,
-                style: const pw.TextStyle(fontSize: 14),
               ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
+  }
+
+  static Future<Uint8List?> _loadCoverLogoBytes() async {
+    try {
+      final data = await rootBundle.load('assets/pdf/kg_logo_transparent.png');
+      return data.buffer.asUint8List();
+    } catch (_) {
+      return null;
+    }
   }
 
   static void _addSectionPages(pw.Document doc, PdfSection section) {
