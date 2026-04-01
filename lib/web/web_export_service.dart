@@ -112,9 +112,7 @@ class WebExportService {
       var url = item.cloudUrl;
 
       // Resolve missing cloudUrl from Firebase Storage directly.
-      if (url == null) {
-        url = await _resolveStorageUrl(item.storagePath);
-      }
+      url ??= await _resolveStorageUrl(item.storagePath);
 
       if (url == null) {
         skipped++;
@@ -146,7 +144,6 @@ class WebExportService {
     onProgress(finalProgress);
 
     final zipBytes = ZipEncoder().encode(archive);
-    if (zipBytes == null) throw StateError('ZIP encoding failed');
 
     final safeName =
         job.restaurantName.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');

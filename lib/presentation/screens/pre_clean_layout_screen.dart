@@ -128,7 +128,7 @@ class _PreCleanLayoutScreenState extends ConsumerState<PreCleanLayoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<int>(pullVersionProvider, (_, __) {
+    ref.listen<int>(pullVersionProvider, (previous, next) {
       if (!mounted || _isLoading) return;
       _reload();
     });

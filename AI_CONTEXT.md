@@ -1661,7 +1661,7 @@ Preparing for TestFlight and Google Play Console submission.
 
 **1. Bundle / application IDs:**
 - Android applicationId + namespace: `com.kitchenguard.app` (was `com.example.kitchenguard_photo_organizer`)
-- iOS bundle ID: `com.kitchenguard.app` (was `com.example.kitchenguardPhotoOrganizer`)
+- iOS bundle ID: `com.brentfurl.kitchenguard` (was `com.kitchenguard.app`, previously `com.example.kitchenguardPhotoOrganizer`)
 - Kotlin source path moved to `com/kitchenguard/app/`
 
 **2. App display name:**
@@ -1694,9 +1694,8 @@ Preparing for TestFlight and Google Play Console submission.
 
 ### Remaining (manual steps)
 
-- **Firebase reconfiguration:** Run `flutterfire configure --project=kitchenguard-8e288` to register new bundle IDs and regenerate `google-services.json`, `GoogleService-Info.plist`, and `firebase_options.dart`
-- **Android release signing:** Generate a release keystore and configure `signingConfig` in `android/app/build.gradle.kts`
 - **Privacy policy:** Host a privacy policy page and add the URL to App Store Connect and Google Play Console listings
+- **TestFlight internal testers:** Add crew Apple ID emails to an internal testing group and assign build `1.0.0 (2)`
 
 ### Key files changed
 
@@ -1706,7 +1705,19 @@ lib/main.dart                                                   — Crashlytics 
 android/app/build.gradle.kts                                    — applicationId + namespace → com.kitchenguard.app
 android/app/src/main/AndroidManifest.xml                        — label → KitchenGuard, INTERNET permission
 android/app/src/main/kotlin/com/kitchenguard/app/MainActivity.kt — new package path (old com/example/ removed)
-ios/Runner.xcodeproj/project.pbxproj                            — PRODUCT_BUNDLE_IDENTIFIER → com.kitchenguard.app
+ios/Runner.xcodeproj/project.pbxproj                            — PRODUCT_BUNDLE_IDENTIFIER → com.brentfurl.kitchenguard
 ios/Runner/Info.plist                                           — display name, bundle name, BGTaskScheduler IDs
 assets/icon/app_icon.png                                        — NEW: source icon image
 ```
+
+### Latest store-upload status (2026-04-01)
+
+- iOS archive and App Store Connect upload succeeded under bundle ID `com.brentfurl.kitchenguard`
+- App Store Connect app record created as **KitchenGuard Field**
+- TestFlight build `1.0.0 (2)` processed successfully (status: Complete / Ready to Submit)
+- Export compliance completed in App Store Connect
+- Upload finished with warning: missing dSYM for `objective_c.framework` (non-blocking for internal TestFlight rollout)
+- Firebase reconfigured for new iOS app ID (`1:82695156984:ios:5cb6268b24eabe0bfbf70d`) and regenerated:
+  - `ios/Runner/GoogleService-Info.plist`
+  - `lib/firebase_options.dart`
+  - `firebase.json`

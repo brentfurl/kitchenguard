@@ -276,7 +276,7 @@ class _UnitPhotoBucketScreenState extends ConsumerState<UnitPhotoBucketScreen> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<int>(pullVersionProvider, (_, __) {
+    ref.listen<int>(pullVersionProvider, (previous, next) {
       if (!mounted || _isLoading) return;
       _reloadPhotos();
     });

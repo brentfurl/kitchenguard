@@ -24,6 +24,7 @@ class _VideoCaptureScreenState extends State<VideoCaptureScreen> {
   CameraController? _cameraController;
   bool _isInitializing = true;
   bool _isRecording = false;
+  bool _isPaused = false;
   bool _isSaving = false;
   int _videoCount = 0;
   String? _initError;
@@ -95,15 +96,11 @@ class _VideoCaptureScreenState extends State<VideoCaptureScreen> {
       if (!mounted) return;
       setState(() {
         _isRecording = true;
+        _isPaused = false;
         _recordingDuration = Duration.zero;
         _inlineStatus = null;
       });
-      _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted) return;
-        setState(() {
-          _recordingDuration += const Duration(seconds: 1);
-        });
-      });
+      _startDurationTimer();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -121,6 +118,7 @@ class _VideoCaptureScreenState extends State<VideoCaptureScreen> {
     _durationTimer?.cancel();
     setState(() {
       _isRecording = false;
+      _isPaused = false;
       _isSaving = true;
     });
 
@@ -146,12 +144,53 @@ class _VideoCaptureScreenState extends State<VideoCaptureScreen> {
       if (!mounted) return;
       setState(() {
         _isSaving = false;
+        _isPaused = false;
         _recordingDuration = Duration.zero;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to save video: $error')),
       );
     }
+  }
+
+  Future<void> _togglePauseRecording() async {
+    final camera = _cameraController;
+    if (!_isRecording || _isSaving || camera == null) {
+      return;
+    }
+
+    try {
+      if (_isPaused) {
+        await camera.resumeVideoRecording();
+        if (!mounted) return;
+        setState(() {
+          _isPaused = false;
+        });
+        _startDurationTimer();
+      } else {
+        await camera.pauseVideoRecording();
+        if (!mounted) return;
+        _durationTimer?.cancel();
+        setState(() {
+          _isPaused = true;
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Pause/resume is unavailable: $error')),
+      );
+    }
+  }
+
+  void _startDurationTimer() {
+    _durationTimer?.cancel();
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || !_isRecording || _isPaused) return;
+      setState(() {
+        _recordingDuration += const Duration(seconds: 1);
+      });
+    });
   }
 
   String _formatDuration(Duration d) {
@@ -221,7 +260,7 @@ class _VideoCaptureScreenState extends State<VideoCaptureScreen> {
                               height: 18,
                               child: _isRecording
                                   ? Text(
-                                      _formatDuration(_recordingDuration),
+                                      '${_formatDuration(_recordingDuration)}${_isPaused ? ' (Paused)' : ''}',
                                       style:
                                           theme.textTheme.bodySmall?.copyWith(
                                         color: Colors.red,
@@ -245,7 +284,7 @@ class _VideoCaptureScreenState extends State<VideoCaptureScreen> {
                             const SizedBox(height: 8),
                             Center(
                               child: SizedBox(
-                                width: 84,
+                                width: _isRecording ? 208 : 84,
                                 height: 84,
                                 child: _isSaving
                                     ? const Center(
@@ -258,8 +297,19 @@ class _VideoCaptureScreenState extends State<VideoCaptureScreen> {
                                         ),
                                       )
                                     : _isRecording
-                                        ? _StopRecordButton(
-                                            onPressed: _stopRecording,
+                                        ? Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              _PauseRecordButton(
+                                                isPaused: _isPaused,
+                                                onPressed:
+                                                    _togglePauseRecording,
+                                              ),
+                                              _StopRecordButton(
+                                                onPressed: _stopRecording,
+                                              ),
+                                            ],
                                           )
                                         : _StartRecordButton(
                                             onPressed: _startRecording,
@@ -329,6 +379,38 @@ class _StopRecordButton extends StatelessWidget {
               color: Colors.red,
               borderRadius: BorderRadius.circular(6),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PauseRecordButton extends StatelessWidget {
+  const _PauseRecordButton({
+    required this.isPaused,
+    required this.onPressed,
+  });
+
+  final bool isPaused;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        width: 84,
+        height: 84,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 4),
+        ),
+        child: Center(
+          child: Icon(
+            isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+            color: Colors.white,
+            size: 44,
           ),
         ),
       ),
