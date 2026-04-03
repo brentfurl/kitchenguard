@@ -1684,7 +1684,8 @@ Preparing for TestFlight and Google Play Console submission.
 - Guarded with `!kIsWeb` (Crashlytics not available on web)
 
 **6. iOS background task identifiers:**
-- Replaced workmanager example IDs (`be.tramckrijte.workmanagerExample.*`) with `com.kitchenguard.app.iOSBackgroundAppRefresh` / `com.kitchenguard.app.iOSBackgroundProcessing`
+- iOS Workmanager background upload task now uses a single identifier: `com.kitchenguard.uploadQueue`
+- `Info.plist` (`BGTaskSchedulerPermittedIdentifiers`) and `AppDelegate.swift` (`WorkmanagerPlugin.registerPeriodicTask`) must match this exact identifier
 
 **7. Android INTERNET permission:**
 - Added `<uses-permission android:name="android.permission.INTERNET" />` to main `AndroidManifest.xml` (was only in debug/profile variants)
@@ -1725,3 +1726,12 @@ assets/icon/app_icon.png                                        — NEW: source 
   - `lib/firebase_options.dart`
   - `firebase.json`
 - Jobs Home now shows an in-app build label (`v<version>+<build>`) for quick build verification
+
+### TestFlight Crash Hotfix (2026-04-02)
+
+- Crash observed on iOS launch in TestFlight (`1.0.0+2`) with native stack centered in `libswift_Concurrency` during startup.
+- Hotfix aligns iOS Workmanager setup to current plugin requirements:
+  - `ios/Runner/AppDelegate.swift`: `import workmanager_apple` and `WorkmanagerPlugin.registerPeriodicTask(withIdentifier: "com.kitchenguard.uploadQueue", frequency: NSNumber(value: 20 * 60))`
+  - `ios/Runner/Info.plist`: `BGTaskSchedulerPermittedIdentifiers` now includes `com.kitchenguard.uploadQueue`
+  - `lib/main_mobile.dart`: iOS-specific `registerPeriodicTask` call uses `uploadQueueTaskName` as both unique name and task name at 20-minute frequency; Android path remains unchanged (15-minute interval + connected-network constraint)
+- Impact: launch stability preserved while keeping iOS background upload scheduling enabled.

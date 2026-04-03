@@ -4,8 +4,7 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.kitchenguard.app.iOSBackgroundAppRefresh</string>
-		<string>com.kitchenguard.app.iOSBackgroundProcessing</string>
+		<string>com.kitchenguard.uploadQueue</string>
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
