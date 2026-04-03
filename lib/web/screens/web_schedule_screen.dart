@@ -214,7 +214,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             onTogglePublish: () => _togglePublish(date),
             isEffectiveToday: isEffectiveToday(date),
             onToggleJobCompletion: _toggleJobCompletion,
-            onShiftNotesTap: () => _openShiftNotes(context, date),
+            onShiftNotesTap: () => _openShiftNotes(date),
             onJobNotesTap: (job) => _openJobNotes(context, job),
             onReorder: (oldIndex, newIndex) =>
                 _reorderJobs(date, allGrouped[date]!, oldIndex, newIndex),
@@ -330,11 +330,12 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     }
   }
 
-  Future<void> _openShiftNotes(BuildContext context, String date) async {
+  Future<void> _openShiftNotes(String date) async {
     final repo = ref.read(webDayNoteRepositoryProvider);
-    final allNotes = await repo.loadAll();
+    final allNotes =
+        ref.read(webDayNotesProvider).valueOrNull ??
+            const <String, List<DayNote>>{};
     final notes = (allNotes[date] ?? []).where((n) => n.isActive).toList();
-    if (!mounted) return;
 
     await showDialog(
       context: context,
@@ -1035,7 +1036,7 @@ class _JobFormDialogState extends State<_JobFormDialog> {
                         ?.copyWith(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: _accessType,
+                  initialValue: _accessType,
                   decoration:
                       const InputDecoration(labelText: 'Access Type'),
                   items: const [

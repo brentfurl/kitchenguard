@@ -169,8 +169,9 @@ class _WebNotesDialogState extends State<WebNotesDialog> {
                   )
                 : ListView.separated(
                     itemCount: _notes.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (_, i) {
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 1),
+                    itemBuilder: (context, i) {
                       final note = _notes[i];
                       return ListTile(
                         title: Text(note.text),

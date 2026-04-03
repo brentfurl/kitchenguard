@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../application/jobs_service.dart';
 import '../domain/models/day_note.dart';
@@ -33,9 +34,31 @@ class JobsHome extends ConsumerStatefulWidget {
 enum _JobFilter { today, upcoming, past, unscheduled }
 
 class _JobsHomeState extends ConsumerState<JobsHome> {
-  final Set<_JobFilter> _activeFilters = {_JobFilter.today, _JobFilter.upcoming};
+  final Set<_JobFilter> _activeFilters = {
+    _JobFilter.today,
+    _JobFilter.upcoming,
+  };
+  String? _buildLabel;
 
   JobsService get _jobs => ref.read(jobsServiceProvider);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBuildLabel();
+  }
+
+  Future<void> _loadBuildLabel() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() {
+        _buildLabel = 'v${info.version}+${info.buildNumber}';
+      });
+    } catch (_) {
+      // Keep the build label hidden if platform info is unavailable.
+    }
+  }
 
   Future<void> _signOut() async {
     final confirmed = await showDialog<bool>(
@@ -131,9 +154,9 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 
     final restaurantName = result.name.trim();
     if (restaurantName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Restaurant name required')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Restaurant name required')));
       return;
     }
 
@@ -202,9 +225,9 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 
     final name = edit.name.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Restaurant name required')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Restaurant name required')));
       return;
     }
 
@@ -242,12 +265,18 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
             activeNotes[i].text != newContactTexts[i]) {
           if (i >= newContactTexts.length) {
             await _jobs.softDeleteManagerNote(
-                jobDir: result.jobDir, noteId: activeNotes[i].noteId);
+              jobDir: result.jobDir,
+              noteId: activeNotes[i].noteId,
+            );
           }
         }
       }
 
-      for (var i = 0; i < activeNotes.length && i < newContactTexts.length; i++) {
+      for (
+        var i = 0;
+        i < activeNotes.length && i < newContactTexts.length;
+        i++
+      ) {
         if (activeNotes[i].text != newContactTexts[i]) {
           await _jobs.editManagerNote(
             jobDir: result.jobDir,
@@ -258,7 +287,10 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       }
 
       for (var i = activeNotes.length; i < newContactTexts.length; i++) {
-        await _jobs.addManagerNote(jobDir: result.jobDir, text: newContactTexts[i]);
+        await _jobs.addManagerNote(
+          jobDir: result.jobDir,
+          text: newContactTexts[i],
+        );
       }
 
       ref.invalidate(jobListProvider);
@@ -292,9 +324,8 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         builder: (_) => ManagerNotesScreen(
           loadNotes: () async {
             final job = await _jobs.jobRepository.loadJob(result.jobDir);
-            final notes = job?.managerNotes
-                    .where((n) => n.isActive)
-                    .toList() ??
+            final notes =
+                job?.managerNotes.where((n) => n.isActive).toList() ??
                 <ManagerJobNote>[];
             notes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
             return notes;
@@ -306,10 +337,8 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
             noteId: noteId,
             newText: newText,
           ),
-          softDeleteNote: (id) => _jobs.softDeleteManagerNote(
-            jobDir: result.jobDir,
-            noteId: id,
-          ),
+          softDeleteNote: (id) =>
+              _jobs.softDeleteManagerNote(jobDir: result.jobDir, noteId: id),
           onMutated: () async {
             ref.invalidate(jobListProvider);
             ref.invalidate(jobDetailProvider(result.jobDir.path));
@@ -341,9 +370,20 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     }
   }
 
-  Future<void> _editShiftNote(String date, String noteId, String currentText) async {
-    final newText = await showShiftNoteDialog(context, initialText: currentText);
-    if (newText == null || newText.isEmpty || newText == currentText || !mounted) return;
+  Future<void> _editShiftNote(
+    String date,
+    String noteId,
+    String currentText,
+  ) async {
+    final newText = await showShiftNoteDialog(
+      context,
+      initialText: currentText,
+    );
+    if (newText == null ||
+        newText.isEmpty ||
+        newText == currentText ||
+        !mounted)
+      return;
     try {
       await _jobs.editDayNote(date, noteId, newText);
       ref.invalidate(dayNotesProvider);
@@ -355,7 +395,11 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
     }
   }
 
-  Future<void> _deleteShiftNote(String date, String noteId, String noteText) async {
+  Future<void> _deleteShiftNote(
+    String date,
+    String noteId,
+    String noteText,
+  ) async {
     final confirmed = await confirmDeleteShiftNote(context, noteText);
     if (!confirmed || !mounted) return;
     try {
@@ -478,10 +522,12 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 
         // Actual today is deferred to "Upcoming" while earlier days still
         // have incomplete jobs (overnight shifts that cross midnight).
-        final hasIncompletePastDays = sortedDates.any((d) =>
-            d.compareTo(todayStr) < 0 &&
-            scheduledByDate[d] != null &&
-            scheduledByDate[d]!.any((r) => !r.job.isComplete));
+        final hasIncompletePastDays = sortedDates.any(
+          (d) =>
+              d.compareTo(todayStr) < 0 &&
+              scheduledByDate[d] != null &&
+              scheduledByDate[d]!.any((r) => !r.job.isComplete),
+        );
 
         bool isEffectiveToday(String date) {
           if (date.compareTo(todayStr) < 0) {
@@ -499,7 +545,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
           }
           if (_activeFilters.contains(_JobFilter.upcoming) &&
               (date.compareTo(todayStr) > 0 ||
-               (date == todayStr && hasIncompletePastDays))) {
+                  (date == todayStr && hasIncompletePastDays))) {
             return true;
           }
           if (_activeFilters.contains(_JobFilter.past) &&
@@ -519,7 +565,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 
         final showUnscheduled =
             _activeFilters.contains(_JobFilter.unscheduled) &&
-                unscheduled.isNotEmpty;
+            unscheduled.isNotEmpty;
 
         body = Column(
           children: [
@@ -544,12 +590,18 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                         onTogglePublish: currentRole.isManager
                             ? () => _togglePublish(date, daySchedules[date])
                             : null,
-                        onReorder: (oldIndex, newIndex) =>
-                            _reorderJobs(date, scheduledByDate[date]!, oldIndex, newIndex),
+                        onReorder: (oldIndex, newIndex) => _reorderJobs(
+                          date,
+                          scheduledByDate[date]!,
+                          oldIndex,
+                          newIndex,
+                        ),
                         onArrivalTimesTap: () => _handleArrivalTimesTap(
                           date,
                           daySchedules[date],
-                          scheduledByDate[date]!.isNotEmpty ? scheduledByDate[date]!.first : null,
+                          scheduledByDate[date]!.isNotEmpty
+                              ? scheduledByDate[date]!.first
+                              : null,
                         ),
                         onShiftNotesTap: () => _openShiftNotesScreen(
                           date,
@@ -611,6 +663,16 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
                 side: BorderSide.none,
               ),
             ),
+          if (_buildLabel != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Text(
+                _buildLabel!,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',
@@ -624,7 +686,9 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
             MaterialBanner(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               leading: const Icon(Icons.cloud_off, size: 20),
-              content: const Text('You are offline. Changes will sync when reconnected.'),
+              content: const Text(
+                'You are offline. Changes will sync when reconnected.',
+              ),
               actions: const [SizedBox.shrink()],
               backgroundColor: Theme.of(context).colorScheme.errorContainer,
               forceActionsBelow: true,
@@ -713,7 +777,9 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         final name = result.restaurantName;
         await _jobs.setDaySchedule(
           date: date,
-          firstArrivalTime: arrival != null && arrival.isNotEmpty ? arrival : null,
+          firstArrivalTime: arrival != null && arrival.isNotEmpty
+              ? arrival
+              : null,
           clearFirstArrivalTime: arrival != null && arrival.isEmpty,
           shopMeetupTime: shop != null && shop.isNotEmpty ? shop : null,
           clearShopMeetupTime: shop != null && shop.isEmpty,
@@ -724,8 +790,9 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       ref.invalidate(dayScheduleProvider);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 
@@ -734,7 +801,8 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
       context,
       notes: notes,
       onAdd: () => _addShiftNote(date),
-      onEdit: (noteId, currentText) => _editShiftNote(date, noteId, currentText),
+      onEdit: (noteId, currentText) =>
+          _editShiftNote(date, noteId, currentText),
       onDelete: (noteId, noteText) => _deleteShiftNote(date, noteId, noteText),
     );
   }
@@ -745,7 +813,10 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         await _jobs.unpublishDay(date);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Day unpublished'), duration: Duration(seconds: 2)),
+            const SnackBar(
+              content: Text('Day unpublished'),
+              duration: Duration(seconds: 2),
+            ),
           );
         }
       } else {
@@ -753,15 +824,19 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
         await _jobs.publishDay(date, uid);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Day published'), duration: Duration(seconds: 2)),
+            const SnackBar(
+              content: Text('Day published'),
+              duration: Duration(seconds: 2),
+            ),
           );
         }
       }
       ref.invalidate(dayScheduleProvider);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(error.toString())));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
     }
   }
 
@@ -787,10 +862,7 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 /// Shows activity (pulling/uploading), pending upload count, or a
 /// fully-synced check. Tapping triggers a manual sync attempt.
 class _SyncIndicator extends StatelessWidget {
-  const _SyncIndicator({
-    required this.syncState,
-    this.onTap,
-  });
+  const _SyncIndicator({required this.syncState, this.onTap});
 
   final SyncState syncState;
   final VoidCallback? onTap;

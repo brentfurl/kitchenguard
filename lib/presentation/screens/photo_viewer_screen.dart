@@ -164,10 +164,10 @@ class _PhotoViewerScreenState extends State<PhotoViewerScreen> {
                     child: CachedNetworkImage(
                       imageUrl: cloudUrl,
                       fit: BoxFit.contain,
-                      placeholder: (_, __) => const Center(
+                      placeholder: (context, url) => const Center(
                         child: CircularProgressIndicator(),
                       ),
-                      errorWidget: (_, __, ___) => const Column(
+                      errorWidget: (context, url, error) => const Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.cloud_off_outlined, size: 40),

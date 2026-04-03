@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/models/app_role.dart';
-import '../../services/auth_service.dart';
 import '../web_providers.dart';
 
 /// User management screen for the web dashboard.

@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import org.gradle.api.GradleException
 
 plugins {
     id("com.android.application")
@@ -16,6 +17,26 @@ val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+val requiredSigningKeys = listOf(
+    "keyAlias",
+    "keyPassword",
+    "storeFile",
+    "storePassword",
+)
+val hasReleaseSigningConfig = keystorePropertiesFile.exists() &&
+    requiredSigningKeys.all { key ->
+        (keystoreProperties[key] as String?)?.isNotBlank() == true
+    }
+
+val isReleaseBuildRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.contains("Release", ignoreCase = true)
+}
+if (isReleaseBuildRequested && !hasReleaseSigningConfig) {
+    throw GradleException(
+        "Release signing is not configured. Add android/key.properties " +
+            "with keyAlias, keyPassword, storeFile, and storePassword.",
+    )
 }
 
 android {
@@ -41,7 +62,7 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
+        if (hasReleaseSigningConfig) {
             create("release") {
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String
@@ -53,10 +74,8 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            if (hasReleaseSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }

@@ -140,8 +140,6 @@ class WebPdfExportService {
       }
     }
 
-    if (url == null) return null;
-
     try {
       return await _downloadBytes(url);
     } catch (_) {

@@ -95,7 +95,7 @@ class _CloudAwareImageState extends State<CloudAwareImage> {
         fit: widget.fit,
         width: widget.width,
         height: widget.height,
-        placeholder: (_, __) => Container(
+        placeholder: (context, url) => Container(
           color: Colors.grey.shade100,
           child: const Center(
             child: SizedBox(
@@ -105,7 +105,7 @@ class _CloudAwareImageState extends State<CloudAwareImage> {
             ),
           ),
         ),
-        errorWidget: (_, __, ___) {
+        errorWidget: (context, url, error) {
           _handleCloudError();
           return _missingPlaceholder();
         },

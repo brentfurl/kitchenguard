@@ -65,11 +65,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyCfYVaOHsCkU5qwrRoCYoQvi8QgaGPfLng',
-    appId: '1:82695156984:ios:698255f9cea307f3fbf70d',
+    appId: '1:82695156984:ios:5cb6268b24eabe0bfbf70d',
     messagingSenderId: '82695156984',
     projectId: 'kitchenguard-8e288',
     storageBucket: 'kitchenguard-8e288.firebasestorage.app',
-    iosBundleId: 'com.kitchenguard.app',
+    iosBundleId: 'com.brentfurl.kitchenguard',
   );
 
 }
