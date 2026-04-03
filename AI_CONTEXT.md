@@ -1692,6 +1692,9 @@ Preparing for TestFlight and Google Play Console submission.
 **8. Dependency upgrade:**
 - `archive` upgraded from `^3.4.10` to `^4.0.9` (required by `flutter_native_splash`)
 
+**9. Build provenance label (mobile):**
+- Added `package_info_plus` and a small Jobs Home AppBar label showing runtime version/build (e.g., `v1.0.0+2`) to quickly verify installed build provenance during field testing.
+
 ### Remaining (manual steps)
 
 - **Privacy policy:** Host a privacy policy page and add the URL to App Store Connect and Google Play Console listings
@@ -1721,3 +1724,4 @@ assets/icon/app_icon.png                                        — NEW: source 
   - `ios/Runner/GoogleService-Info.plist`
   - `lib/firebase_options.dart`
   - `firebase.json`
+- Jobs Home now shows an in-app build label (`v<version>+<build>`) for quick build verification

@@ -55,6 +55,7 @@ dependencies:
   firebase_crashlytics: ^4.3.2
   pdf: ^3.11.5
   web: ^1.1.1
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:
