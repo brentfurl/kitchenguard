@@ -16,7 +16,6 @@ initializeApp();
 const VALID_ROLES = ["manager", "technician"];
 const DEFAULT_TARGET_MB = 10;
 const ONE_MB_BYTES = 1024 * 1024;
-const SIGNED_URL_TTL_MS = 15 * 60 * 1000;
 
 /**
  * Callable Cloud Function to set a user's role via custom claims.
@@ -99,7 +98,8 @@ exports.setUserRole = onCall(async (request) => {
  *
  * Returns:
  * {
- *   downloadUrl: string,
+ *   downloadUrl: string?,
+ *   storagePath: string,
  *   fileName: string,
  *   sourceBytes: number,
  *   outputBytes: number,
@@ -151,12 +151,12 @@ exports.prepareCompressedVideoDownload = onCall(
     const [sourceMetadata] = await sourceFile.getMetadata();
     const sourceBytes = Number(sourceMetadata.size || 0);
     const originalName = fileName || path.posix.basename(relativePath);
-    const fallbackUrl = await _createSignedReadUrl(sourceFile);
 
     // If already under target, avoid unnecessary quality loss.
     if (sourceBytes > 0 && sourceBytes <= targetBytes) {
       return {
-        downloadUrl: fallbackUrl,
+        downloadUrl: null,
+        storagePath: sourcePath,
         fileName: originalName,
         sourceBytes,
         outputBytes: sourceBytes,
@@ -211,7 +211,8 @@ exports.prepareCompressedVideoDownload = onCall(
 
       if (!Number.isFinite(bestBytes) || bestBytes <= 0) {
         return {
-          downloadUrl: fallbackUrl,
+          downloadUrl: null,
+          storagePath: sourcePath,
           fileName: originalName,
           sourceBytes,
           outputBytes: sourceBytes,
@@ -242,7 +243,6 @@ exports.prepareCompressedVideoDownload = onCall(
         },
       });
 
-      const compressedUrl = await _createSignedReadUrl(outputFile);
       const compressedName = _compressedFileName(originalName, targetMb);
       const note =
         bestBytes <= targetBytes
@@ -250,7 +250,8 @@ exports.prepareCompressedVideoDownload = onCall(
           : `Best effort complete (${_bytesToMb(bestBytes)} MB; target ${targetMb} MB).`;
 
       return {
-        downloadUrl: compressedUrl,
+        downloadUrl: null,
+        storagePath: outputStoragePath,
         fileName: compressedName,
         sourceBytes,
         outputBytes: bestBytes,
@@ -261,7 +262,8 @@ exports.prepareCompressedVideoDownload = onCall(
     } catch (e) {
       console.error("prepareCompressedVideoDownload failed:", e);
       return {
-        downloadUrl: fallbackUrl,
+        downloadUrl: null,
+        storagePath: sourcePath,
         fileName: originalName,
         sourceBytes,
         outputBytes: sourceBytes,
@@ -313,15 +315,6 @@ function _compressedStoragePath({ jobId, relativePath, videoId, targetMb }) {
 
 function _bytesToMb(bytes) {
   return (bytes / ONE_MB_BYTES).toFixed(1);
-}
-
-async function _createSignedReadUrl(file) {
-  const [url] = await file.getSignedUrl({
-    version: "v4",
-    action: "read",
-    expires: Date.now() + SIGNED_URL_TTL_MS,
-  });
-  return url;
 }
 
 async function _probeDurationSeconds(inputPath) {

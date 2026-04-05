@@ -1160,7 +1160,12 @@ class _VideoListState extends State<_VideoList> {
         'targetMb': 10,
       });
       final data = Map<String, dynamic>.from(response.data);
-      final downloadUrl = data['downloadUrl'] as String? ?? fallbackUrl;
+      final returnedUrl = data['downloadUrl'] as String?;
+      final storagePath = data['storagePath'] as String?;
+      final resolvedStorageUrl = storagePath != null
+          ? await _resolveStorageDownloadUrl(storagePath)
+          : null;
+      final downloadUrl = returnedUrl ?? resolvedStorageUrl ?? fallbackUrl;
       final outFileName = data['fileName'] as String? ?? video.fileName;
       final note = data['note'] as String?;
 
@@ -1190,6 +1195,14 @@ class _VideoListState extends State<_VideoList> {
           content: Text('Compression unavailable; downloaded original video.'),
         ),
       );
+    }
+  }
+
+  Future<String?> _resolveStorageDownloadUrl(String storagePath) async {
+    try {
+      return await FirebaseStorage.instance.ref(storagePath).getDownloadURL();
+    } on FirebaseException {
+      return null;
     }
   }
 
