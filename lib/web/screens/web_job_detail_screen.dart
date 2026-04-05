@@ -111,7 +111,7 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
 
   WebExportProgress? _pdfProgress;
   bool _isExportingPdf = false;
-  PdfExportPreset _selectedPdfPreset = PdfExportPreset.original;
+  PdfExportPreset _selectedPdfPreset = PdfExportPreset.emailFast;
 
   Job get job => widget.job;
   ThemeData get theme => widget.theme;

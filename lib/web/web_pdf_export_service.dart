@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
@@ -17,6 +18,8 @@ import 'web_export_service.dart';
 /// Downloads photos from Firebase Storage, groups them by unit + phase,
 /// and generates a structured PDF via [PdfExportBuilder].
 class WebPdfExportService {
+  static const _downloadConcurrency = 8;
+
   static Future<WebExportProgress> exportJobPdf({
     required Job job,
     required PdfExportPreset preset,
@@ -72,28 +75,30 @@ class WebPdfExportService {
     var completed = 0;
     var skipped = 0;
 
-    // Download all photos and build PdfSections.
+    // Download all photos (concurrently) and build PdfSections.
     final pdfSections = <PdfSection>[];
     for (final def in sectionDefs) {
-      final imageBytes = <Uint8List>[];
-      for (final item in def.items) {
-        onProgress(
-          WebExportProgress(
-            total: totalPhotos,
-            completed: completed,
-            currentFile: item.fileName,
-            skipped: skipped,
-          ),
-        );
-
-        final bytes = await _downloadPhoto(item);
-        if (bytes != null) {
-          imageBytes.add(bytes);
-        } else {
-          skipped++;
-        }
-        completed++;
-      }
+      final bytesByItem = await _downloadSectionBytes(
+        items: def.items,
+        concurrency: _downloadConcurrency,
+        onItemFinished: (item, bytes) {
+          if (bytes == null) {
+            skipped++;
+          }
+          completed++;
+          onProgress(
+            WebExportProgress(
+              total: totalPhotos,
+              completed: completed,
+              currentFile: item.fileName,
+              skipped: skipped,
+            ),
+          );
+        },
+      );
+      final imageBytes = bytesByItem.whereType<Uint8List>().toList(
+        growable: false,
+      );
       if (imageBytes.isNotEmpty) {
         pdfSections.add(PdfSection(title: def.title, imageBytes: imageBytes));
       }
@@ -121,6 +126,16 @@ class WebPdfExportService {
       ),
       preset: preset,
       sections: pdfSections,
+      onProgress: (message) {
+        onProgress(
+          WebExportProgress(
+            total: totalPhotos,
+            completed: totalPhotos,
+            currentFile: message,
+            skipped: skipped,
+          ),
+        );
+      },
     );
 
     final safeName = job.restaurantName.replaceAll(
@@ -134,7 +149,7 @@ class WebPdfExportService {
         .first;
     _triggerDownload(pdfResult.bytes, 'KitchenGuard_${safeName}_$ts.pdf');
 
-    final note = (!pdfResult.targetMet && preset.targetMaxBytes != null)
+    final note = (!pdfResult.targetMet && preset.enforceStrictTarget)
         ? 'Could not reach 5 MB without excessive quality loss. Downloaded smallest possible PDF.'
         : null;
 
@@ -171,6 +186,39 @@ class WebPdfExportService {
     } catch (_) {
       return null;
     }
+  }
+
+  static Future<List<Uint8List?>> _downloadSectionBytes({
+    required List<_PhotoItem> items,
+    required int concurrency,
+    required void Function(_PhotoItem item, Uint8List? bytes) onItemFinished,
+  }) async {
+    if (items.isEmpty) return const [];
+
+    final results = List<Uint8List?>.filled(
+      items.length,
+      null,
+      growable: false,
+    );
+    var nextIndex = 0;
+    final workerCount = math.min(concurrency, items.length);
+
+    Future<void> worker() async {
+      while (true) {
+        final current = nextIndex;
+        if (current >= items.length) break;
+        nextIndex++;
+        final item = items[current];
+        final bytes = await _downloadPhoto(item);
+        results[current] = bytes;
+        onItemFinished(item, bytes);
+      }
+    }
+
+    await Future.wait(
+      List.generate(workerCount, (_) => worker(), growable: false),
+    );
+    return results;
   }
 
   static Future<Uint8List?> _downloadBytes(String url) {

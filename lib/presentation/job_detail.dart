@@ -646,6 +646,12 @@ class _JobDetailState extends ConsumerState<JobDetail> {
               ),
               ListTile(
                 leading: const Icon(Icons.mail_outline),
+                title: const Text('Email-friendly PDF (fast)'),
+                subtitle: Text(PdfExportPreset.emailFast.label),
+                onTap: () => Navigator.of(ctx).pop(PdfExportPreset.emailFast),
+              ),
+              ListTile(
+                leading: const Icon(Icons.mark_email_read_outlined),
                 title: const Text('Email-friendly PDF'),
                 subtitle: Text(PdfExportPreset.emailFriendly5mb.label),
                 onTap: () =>
@@ -683,11 +689,13 @@ class _JobDetailState extends ConsumerState<JobDetail> {
               ),
               const SizedBox(width: 16),
               Expanded(
-                child: Text(
-                  preset == PdfExportPreset.original
-                      ? 'Creating PDF...'
-                      : 'Creating email-friendly PDF...',
-                ),
+                child: Text(switch (preset) {
+                  PdfExportPreset.original => 'Creating PDF...',
+                  PdfExportPreset.emailFast =>
+                    'Creating email-friendly PDF (fast)...',
+                  PdfExportPreset.emailFriendly5mb =>
+                    'Creating email-friendly PDF (5 MB target)...',
+                }),
               ),
             ],
           ),
@@ -712,8 +720,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
               sharePositionOrigin: shareOrigin,
             );
             if (!mounted) return;
-            if (preset == PdfExportPreset.emailFriendly5mb &&
-                !result.targetMet) {
+            if (preset.enforceStrictTarget && !result.targetMet) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text(

@@ -10,11 +10,13 @@ class PdfBuildResult {
     required this.bytes,
     required this.targetMet,
     this.targetBytes,
+    required this.preset,
   });
 
   final Uint8List bytes;
   final bool targetMet;
   final int? targetBytes;
+  final PdfExportPreset preset;
 }
 
 class PdfImageOptimizer {
@@ -33,19 +35,76 @@ class PdfImageOptimizer {
     required PdfCoverInfo cover,
     required List<PdfSection> sections,
     required PdfExportPreset preset,
+    void Function(String message)? onProgress,
   }) async {
     final targetBytes = preset.targetMaxBytes;
     if (targetBytes == null) {
+      onProgress?.call('Building PDF...');
       final bytes = await PdfExportBuilder.build(
         cover: cover,
         sections: sections,
       );
-      return PdfBuildResult(bytes: bytes, targetMet: true);
+      return PdfBuildResult(bytes: bytes, targetMet: true, preset: preset);
     }
 
+    switch (preset) {
+      case PdfExportPreset.emailFast:
+        return _buildFastEmailPdf(
+          cover: cover,
+          sections: sections,
+          targetBytes: targetBytes,
+          onProgress: onProgress,
+        );
+      case PdfExportPreset.emailFriendly5mb:
+        return _buildStrictEmailPdf(
+          cover: cover,
+          sections: sections,
+          targetBytes: targetBytes,
+          onProgress: onProgress,
+        );
+      case PdfExportPreset.original:
+        throw StateError('Unhandled original preset.');
+    }
+  }
+
+  static Future<PdfBuildResult> _buildFastEmailPdf({
+    required PdfCoverInfo cover,
+    required List<PdfSection> sections,
+    required int targetBytes,
+    void Function(String message)? onProgress,
+  }) async {
+    // Single-pass best effort preset for speed.
+    final pass = _emailFriendlyPasses[3];
+    onProgress?.call('Compressing images (fast pass)...');
+    final compressed = _compressSections(sections, pass);
+    onProgress?.call('Building PDF...');
+    final pdfBytes = await PdfExportBuilder.build(
+      cover: cover,
+      sections: compressed,
+    );
+    return PdfBuildResult(
+      bytes: pdfBytes,
+      targetMet: pdfBytes.length <= targetBytes,
+      targetBytes: targetBytes,
+      preset: PdfExportPreset.emailFast,
+    );
+  }
+
+  static Future<PdfBuildResult> _buildStrictEmailPdf({
+    required PdfCoverInfo cover,
+    required List<PdfSection> sections,
+    required int targetBytes,
+    void Function(String message)? onProgress,
+  }) async {
+    const maxAttempts = 2;
     Uint8List? smallest;
-    for (final pass in _emailFriendlyPasses) {
+    var passIndex = 2;
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      final pass = _emailFriendlyPasses[passIndex];
+      onProgress?.call('Compressing images ($attempt/$maxAttempts)...');
       final compressed = _compressSections(sections, pass);
+      onProgress?.call('Building PDF ($attempt/$maxAttempts)...');
       final pdfBytes = await PdfExportBuilder.build(
         cover: cover,
         sections: compressed,
@@ -59,8 +118,16 @@ class PdfImageOptimizer {
           bytes: pdfBytes,
           targetMet: true,
           targetBytes: targetBytes,
+          preset: PdfExportPreset.emailFriendly5mb,
         );
       }
+
+      if (attempt == maxAttempts) break;
+      passIndex = _nextAdaptivePassIndex(
+        currentPassIndex: passIndex,
+        currentBytes: pdfBytes.length,
+        targetBytes: targetBytes,
+      );
     }
 
     return PdfBuildResult(
@@ -69,7 +136,29 @@ class PdfImageOptimizer {
           (await PdfExportBuilder.build(cover: cover, sections: sections)),
       targetMet: false,
       targetBytes: targetBytes,
+      preset: PdfExportPreset.emailFriendly5mb,
     );
+  }
+
+  static int _nextAdaptivePassIndex({
+    required int currentPassIndex,
+    required int currentBytes,
+    required int targetBytes,
+  }) {
+    final ratio = currentBytes / targetBytes;
+    var step = 1;
+    if (ratio > 2.4) {
+      step = 3;
+    } else if (ratio > 1.8) {
+      step = 2;
+    } else if (ratio > 1.3) {
+      step = 1;
+    }
+    final next = currentPassIndex + step;
+    if (next >= _emailFriendlyPasses.length) {
+      return _emailFriendlyPasses.length - 1;
+    }
+    return next;
   }
 
   static List<PdfSection> _compressSections(
