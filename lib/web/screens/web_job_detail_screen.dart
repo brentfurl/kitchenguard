@@ -3,6 +3,7 @@ import 'dart:js_interop';
 import 'dart:typed_data';
 import 'dart:ui_web' as ui_web;
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -901,9 +902,12 @@ class _VideoList extends StatefulWidget {
   State<_VideoList> createState() => _VideoListState();
 }
 
+enum _VideoDownloadMode { compressed, original }
+
 class _VideoListState extends State<_VideoList> {
   final Map<String, String?> _resolvedUrls = {};
   final Set<String> _resolving = {};
+  final Set<String> _downloadingVideoIds = {};
 
   @override
   void initState() {
@@ -1007,11 +1011,33 @@ class _VideoListState extends State<_VideoList> {
                       onPressed: () =>
                           _openVideoPlayer(context, url, v.fileName),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.download),
-                      tooltip: 'Download video',
-                      onPressed: () => _downloadVideo(url, v.fileName),
-                    ),
+                    _downloadingVideoIds.contains(v.videoId)
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : PopupMenuButton<_VideoDownloadMode>(
+                            icon: const Icon(Icons.download),
+                            tooltip: 'Download video',
+                            onSelected: (mode) {
+                              _downloadVideo(
+                                mode: mode,
+                                video: v,
+                                fallbackUrl: url,
+                              );
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: _VideoDownloadMode.compressed,
+                                child: Text('Download (~10 MB)'),
+                              ),
+                              PopupMenuItem(
+                                value: _VideoDownloadMode.original,
+                                child: Text('Download original'),
+                              ),
+                            ],
+                          ),
                   ],
                 )
               : null,
@@ -1074,7 +1100,32 @@ class _VideoListState extends State<_VideoList> {
     );
   }
 
-  Future<void> _downloadVideo(String url, String fileName) async {
+  Future<void> _downloadVideo({
+    required _VideoDownloadMode mode,
+    required VideoRecord video,
+    required String fallbackUrl,
+  }) async {
+    if (_downloadingVideoIds.contains(video.videoId)) return;
+    setState(() => _downloadingVideoIds.add(video.videoId));
+
+    try {
+      if (mode == _VideoDownloadMode.original) {
+        await _downloadOriginal(url: fallbackUrl, fileName: video.fileName);
+        return;
+      }
+
+      await _downloadCompressed(video: video, fallbackUrl: fallbackUrl);
+    } finally {
+      if (mounted) {
+        setState(() => _downloadingVideoIds.remove(video.videoId));
+      }
+    }
+  }
+
+  Future<void> _downloadOriginal({
+    required String url,
+    required String fileName,
+  }) async {
     try {
       final bytes = await _downloadBytes(url);
       if (bytes == null) {
@@ -1090,6 +1141,55 @@ class _VideoListState extends State<_VideoList> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Video download failed')));
+    }
+  }
+
+  Future<void> _downloadCompressed({
+    required VideoRecord video,
+    required String fallbackUrl,
+  }) async {
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'prepareCompressedVideoDownload',
+      );
+      final response = await callable.call<Map<String, dynamic>>({
+        'jobId': widget.jobId,
+        'videoId': video.videoId,
+        'relativePath': video.relativePath,
+        'fileName': video.fileName,
+        'targetMb': 10,
+      });
+      final data = Map<String, dynamic>.from(response.data);
+      final downloadUrl = data['downloadUrl'] as String? ?? fallbackUrl;
+      final outFileName = data['fileName'] as String? ?? video.fileName;
+      final note = data['note'] as String?;
+
+      final bytes = await _downloadBytes(downloadUrl);
+      if (bytes == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Video download failed')));
+        return;
+      }
+
+      _triggerDownload(bytes, outFileName);
+
+      if (!mounted) return;
+      if (note != null && note.isNotEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(note)));
+      }
+    } catch (_) {
+      // If compression pipeline fails, fall back to original download.
+      await _downloadOriginal(url: fallbackUrl, fileName: video.fileName);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Compression unavailable; downloaded original video.'),
+        ),
+      );
     }
   }
 
