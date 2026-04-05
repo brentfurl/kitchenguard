@@ -11,6 +11,7 @@ import '../domain/models/unit.dart';
 import '../domain/models/unit_phase_config.dart';
 import '../providers/job_detail_provider.dart';
 import '../providers/job_list_provider.dart';
+import '../services/pdf_export_preset.dart';
 import '../utils/unit_sorter.dart';
 import 'controllers/job_detail_controller.dart';
 import 'screens/manager_notes_screen.dart';
@@ -122,18 +123,18 @@ class _JobDetailState extends ConsumerState<JobDetail> {
     final job = await _controller.loadJob();
     try {
       final unit = job.units.firstWhere((u) => u.unitId == unitId);
-      final photos =
-          phase == 'before' ? unit.photosBefore : unit.photosAfter;
+      final photos = phase == 'before' ? unit.photosBefore : unit.photosAfter;
       if (subPhase == null) {
         return photos.where((p) => p.isActive).toList(growable: false);
       }
       final isDefault =
           UnitPhaseConfig.defaultSubPhaseKey(unit.type, phase) == subPhase;
       return photos
-          .where((p) =>
-              p.isActive &&
-              (p.subPhase == subPhase ||
-                  (isDefault && p.subPhase == null)))
+          .where(
+            (p) =>
+                p.isActive &&
+                (p.subPhase == subPhase || (isDefault && p.subPhase == null)),
+          )
           .toList(growable: false);
     } on StateError {
       return const <PhotoRecord>[];
@@ -202,11 +203,8 @@ class _JobDetailState extends ConsumerState<JobDetail> {
         builder: (_) => UnitPhotoBucketScreen(
           title: galleryTitle,
           jobDir: widget.job.jobDir,
-          loadPhotos: () => _loadUnitPhotos(
-            unitId: unitId,
-            phase: phase,
-            subPhase: subPhase,
-          ),
+          loadPhotos: () =>
+              _loadUnitPhotos(unitId: unitId, phase: phase, subPhase: subPhase),
           onCapture: () async {
             await _openRapidCapture(
               unitId: unitId,
@@ -256,19 +254,20 @@ class _JobDetailState extends ConsumerState<JobDetail> {
           currentUnitId: unitId,
           currentPhase: phase,
           currentSubPhase: subPhase,
-          onMovePhotos: ({
-            required List<String> photoIds,
-            required String destUnitId,
-            required String? destSubPhase,
-          }) async {
-            await _controller.movePhotos(
-              sourceUnitId: unitId,
-              sourcePhase: phase,
-              photoIds: photoIds,
-              destUnitId: destUnitId,
-              destSubPhase: destSubPhase,
-            );
-          },
+          onMovePhotos:
+              ({
+                required List<String> photoIds,
+                required String destUnitId,
+                required String? destSubPhase,
+              }) async {
+                await _controller.movePhotos(
+                  sourceUnitId: unitId,
+                  sourcePhase: phase,
+                  photoIds: photoIds,
+                  destUnitId: destUnitId,
+                  destSubPhase: destSubPhase,
+                );
+              },
           onBrokenCloudUrl: (photoId) => widget.jobs.requeueBrokenPhoto(
             jobDir: widget.job.jobDir,
             photoId: photoId,
@@ -453,8 +452,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                 builder: (_) => VideoCaptureScreen(
                   title: 'Exit Video',
                   loadVideoCount: () async {
-                    final videos =
-                        await _controller.loadVideos(kind: 'exit');
+                    final videos = await _controller.loadVideos(kind: 'exit');
                     return videos.length;
                   },
                   onCaptureFile: (file) async {
@@ -499,8 +497,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                 builder: (_) => VideoCaptureScreen(
                   title: 'Other Video',
                   loadVideoCount: () async {
-                    final videos =
-                        await _controller.loadVideos(kind: 'other');
+                    final videos = await _controller.loadVideos(kind: 'other');
                     return videos.length;
                   },
                   onCaptureFile: (file) async {
@@ -569,8 +566,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             return _controller.activeNotes;
           },
           addNote: (text) => _controller.addNote(text),
-          editNote: (noteId, newText) =>
-              _controller.editNote(noteId, newText),
+          editNote: (noteId, newText) => _controller.editNote(noteId, newText),
           softDeleteNote: (noteId) => _controller.softDeleteNote(noteId),
           onMutated: _reloadJob,
         ),
@@ -591,8 +587,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
           addNote: (text) => _controller.addManagerNote(text),
           editNote: (noteId, newText) =>
               _controller.editManagerNote(noteId, newText),
-          softDeleteNote: (noteId) =>
-              _controller.softDeleteManagerNote(noteId),
+          softDeleteNote: (noteId) => _controller.softDeleteManagerNote(noteId),
           onMutated: _reloadJob,
         ),
       ),
@@ -629,13 +624,133 @@ class _JobDetailState extends ConsumerState<JobDetail> {
   }
 
   Future<void> _exportPdf() async {
-    await _exportAndShare(
-      label: 'PDF',
-      dialogText: 'Creating PDF...',
-      export: () => _controller.exportPdf(),
-      isExporting: () => _isExportingPdf,
-      setExporting: (v) => _isExportingPdf = v,
+    final preset = await _pickPdfPreset();
+    if (preset == null) return;
+    await _exportAndSharePdf(preset);
+  }
+
+  Future<PdfExportPreset?> _pickPdfPreset() async {
+    return showModalBottomSheet<PdfExportPreset>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.picture_as_pdf_outlined),
+                title: const Text('Standard PDF'),
+                subtitle: Text(PdfExportPreset.original.label),
+                onTap: () => Navigator.of(ctx).pop(PdfExportPreset.original),
+              ),
+              ListTile(
+                leading: const Icon(Icons.mail_outline),
+                title: const Text('Email-friendly PDF'),
+                subtitle: Text(PdfExportPreset.emailFriendly5mb.label),
+                onTap: () =>
+                    Navigator.of(ctx).pop(PdfExportPreset.emailFriendly5mb),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
+  }
+
+  Future<void> _exportAndSharePdf(PdfExportPreset preset) async {
+    if (_isExportingPdf) return;
+    setState(() => _isExportingPdf = true);
+
+    final box = context.findRenderObject() as RenderBox?;
+    final shareOrigin = box != null
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  preset == PdfExportPreset.original
+                      ? 'Creating PDF...'
+                      : 'Creating email-friendly PDF...',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    var dialogClosed = false;
+    try {
+      final result = await _controller.exportPdf(preset: preset);
+      if (!mounted) return;
+
+      Navigator.of(context, rootNavigator: true).pop();
+      dialogClosed = true;
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.microtask(() async {
+          try {
+            await Share.shareXFiles(
+              [XFile(result.file.path)],
+              text: 'KitchenGuard job export',
+              sharePositionOrigin: shareOrigin,
+            );
+            if (!mounted) return;
+            if (preset == PdfExportPreset.emailFriendly5mb &&
+                !result.targetMet) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Could not reach 5 MB without excessive quality loss. Shared smallest possible PDF.',
+                  ),
+                ),
+              );
+            }
+          } catch (error) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('Share failed: $error')));
+          }
+        });
+      });
+    } catch (error) {
+      if (!mounted) return;
+      if (!dialogClosed) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      final message = error.toString().replaceFirst(
+        RegExp(r'^(StateError|Exception|PlatformException)\(.*?\):\s*'),
+        '',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message.isEmpty ? 'PDF export failed' : message),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isExportingPdf = false);
+      } else {
+        _isExportingPdf = false;
+      }
+    }
   }
 
   Future<void> _exportAndShare({
@@ -712,9 +827,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
       );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            message.isEmpty ? '$label export failed' : message,
-          ),
+          content: Text(message.isEmpty ? '$label export failed' : message),
         ),
       );
     } finally {
@@ -893,7 +1006,9 @@ class _JobDetailState extends ConsumerState<JobDetail> {
 
     final managerNoteCount = job.managerNotes.where((n) => n.isActive).length;
     final fieldNoteCount = job.notes.where((n) => n.status == 'active').length;
-    final preCleanCount = job.preCleanLayoutPhotos.where((p) => p.isActive).length;
+    final preCleanCount = job.preCleanLayoutPhotos
+        .where((p) => p.isActive)
+        .length;
     final exitVideoCount = job.videos.exit.where((v) => v.isActive).length;
     final otherVideoCount = job.videos.other.where((v) => v.isActive).length;
 
@@ -953,9 +1068,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             itemBuilder: (context) => [
               PopupMenuItem<String>(
                 value: 'complete',
-                child: Text(
-                  job.isComplete ? 'Reopen Job' : 'Mark Complete',
-                ),
+                child: Text(job.isComplete ? 'Reopen Job' : 'Mark Complete'),
               ),
             ],
           ),
@@ -972,8 +1085,11 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             accessNotes: job.accessNotes,
             hasAlarm: job.hasAlarm == true,
             alarmCode: job.alarmCode,
-            hoodCount: job.hoodCount ?? job.units.where((u) => u.type == 'hood').length,
-            fanCount: job.fanCount ?? job.units.where((u) => u.type == 'fan').length,
+            hoodCount:
+                job.hoodCount ??
+                job.units.where((u) => u.type == 'hood').length,
+            fanCount:
+                job.fanCount ?? job.units.where((u) => u.type == 'fan').length,
             isComplete: job.isComplete,
             jobNoteCount: managerNoteCount,
             fieldNoteCount: fieldNoteCount,
@@ -988,9 +1104,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                   child: OutlinedButton.icon(
                     onPressed: _openPreCleanLayoutScreen,
                     icon: const Icon(Icons.grid_view_outlined, size: 18),
-                    label: Text(
-                      'Pre-clean Layout ($preCleanCount)',
-                    ),
+                    label: Text('Pre-clean Layout ($preCleanCount)'),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -998,9 +1112,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                   child: OutlinedButton.icon(
                     onPressed: _openExitVideosScreen,
                     icon: const Icon(Icons.videocam_outlined, size: 18),
-                    label: Text(
-                      'Exit Video ($exitVideoCount)',
-                    ),
+                    label: Text('Exit Video ($exitVideoCount)'),
                   ),
                 ),
               ],
@@ -1114,34 +1226,34 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                                 _SubPhaseUnitBody(
                                   unit: unit,
                                   isBusy: _isBusy || _isOpeningRapidCapture,
-                                  onCapture: ({
-                                    required String phase,
-                                    required String phaseLabel,
-                                    String? subPhase,
-                                    String? subPhaseLabel,
-                                  }) =>
-                                      _openRapidCapture(
-                                    unitId: unitId,
-                                    unitName: name,
-                                    phase: phase,
-                                    phaseLabel: phaseLabel,
-                                    subPhase: subPhase,
-                                    subPhaseLabel: subPhaseLabel,
-                                  ),
-                                  onGallery: ({
-                                    required String phase,
-                                    required String phaseLabel,
-                                    String? subPhase,
-                                    String? subPhaseLabel,
-                                  }) =>
-                                      _openPhaseGallery(
-                                    unitId: unitId,
-                                    unitName: name,
-                                    phase: phase,
-                                    phaseLabel: phaseLabel,
-                                    subPhase: subPhase,
-                                    subPhaseLabel: subPhaseLabel,
-                                  ),
+                                  onCapture:
+                                      ({
+                                        required String phase,
+                                        required String phaseLabel,
+                                        String? subPhase,
+                                        String? subPhaseLabel,
+                                      }) => _openRapidCapture(
+                                        unitId: unitId,
+                                        unitName: name,
+                                        phase: phase,
+                                        phaseLabel: phaseLabel,
+                                        subPhase: subPhase,
+                                        subPhaseLabel: subPhaseLabel,
+                                      ),
+                                  onGallery:
+                                      ({
+                                        required String phase,
+                                        required String phaseLabel,
+                                        String? subPhase,
+                                        String? subPhaseLabel,
+                                      }) => _openPhaseGallery(
+                                        unitId: unitId,
+                                        unitName: name,
+                                        phase: phase,
+                                        phaseLabel: phaseLabel,
+                                        subPhase: subPhase,
+                                        subPhaseLabel: subPhaseLabel,
+                                      ),
                                 )
                               else
                                 _SimpleUnitBody(
@@ -1149,20 +1261,22 @@ class _JobDetailState extends ConsumerState<JobDetail> {
                                   isBusy: _isBusy || _isOpeningRapidCapture,
                                   onCapture: ({required String phase}) =>
                                       _openRapidCapture(
-                                    unitId: unitId,
-                                    unitName: name,
-                                    phase: phase,
-                                    phaseLabel:
-                                        phase == 'before' ? 'Before' : 'After',
-                                  ),
+                                        unitId: unitId,
+                                        unitName: name,
+                                        phase: phase,
+                                        phaseLabel: phase == 'before'
+                                            ? 'Before'
+                                            : 'After',
+                                      ),
                                   onGallery: ({required String phase}) =>
                                       _openPhaseGallery(
-                                    unitId: unitId,
-                                    unitName: name,
-                                    phase: phase,
-                                    phaseLabel:
-                                        phase == 'before' ? 'Before' : 'After',
-                                  ),
+                                        unitId: unitId,
+                                        unitName: name,
+                                        phase: phase,
+                                        phaseLabel: phase == 'before'
+                                            ? 'Before'
+                                            : 'After',
+                                      ),
                                 ),
                             ],
                           ),
@@ -1235,8 +1349,12 @@ class _JobHeader extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     final unitParts = <String>[];
-    if (hoodCount > 0) unitParts.add('$hoodCount ${hoodCount == 1 ? "hood" : "hoods"}');
-    if (fanCount > 0) unitParts.add('$fanCount ${fanCount == 1 ? "fan" : "fans"}');
+    if (hoodCount > 0) {
+      unitParts.add('$hoodCount ${hoodCount == 1 ? "hood" : "hoods"}');
+    }
+    if (fanCount > 0) {
+      unitParts.add('$fanCount ${fanCount == 1 ? "fan" : "fans"}');
+    }
     final unitSummary = unitParts.join(', ');
 
     final accessLabel = accessType != null
@@ -1276,8 +1394,11 @@ class _JobHeader extends StatelessWidget {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Icon(Icons.check_circle,
-                          size: 16, color: colorScheme.primary),
+                      Icon(
+                        Icons.check_circle,
+                        size: 16,
+                        color: colorScheme.primary,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         'Complete',
@@ -1310,8 +1431,11 @@ class _JobHeader extends StatelessWidget {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.grid_view_outlined,
-                                size: 14, color: colorScheme.onSurfaceVariant),
+                            Icon(
+                              Icons.grid_view_outlined,
+                              size: 14,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               unitSummary,
@@ -1325,8 +1449,11 @@ class _JobHeader extends StatelessWidget {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.key_outlined,
-                                size: 14, color: colorScheme.onSurfaceVariant),
+                            Icon(
+                              Icons.key_outlined,
+                              size: 14,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                             const SizedBox(width: 4),
                             Flexible(
                               child: Text(
@@ -1352,7 +1479,9 @@ class _JobHeader extends StatelessWidget {
                 onTap: onJobNotesTap,
                 borderRadius: BorderRadius.circular(8),
                 child: Chip(
-                  label: Text('$jobNoteCount job ${jobNoteCount == 1 ? "note" : "notes"}'),
+                  label: Text(
+                    '$jobNoteCount job ${jobNoteCount == 1 ? "note" : "notes"}',
+                  ),
                   labelStyle: theme.textTheme.labelSmall,
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
@@ -1363,7 +1492,9 @@ class _JobHeader extends StatelessWidget {
                 onTap: onFieldNotesTap,
                 borderRadius: BorderRadius.circular(8),
                 child: Chip(
-                  label: Text('$fieldNoteCount field ${fieldNoteCount == 1 ? "note" : "notes"}'),
+                  label: Text(
+                    '$fieldNoteCount field ${fieldNoteCount == 1 ? "note" : "notes"}',
+                  ),
                   labelStyle: theme.textTheme.labelSmall,
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
@@ -1393,13 +1524,15 @@ class _SubPhaseUnitBody extends StatelessWidget {
     required String phaseLabel,
     String? subPhase,
     String? subPhaseLabel,
-  }) onCapture;
+  })
+  onCapture;
   final void Function({
     required String phase,
     required String phaseLabel,
     String? subPhase,
     String? subPhaseLabel,
-  }) onGallery;
+  })
+  onGallery;
 
   @override
   Widget build(BuildContext context) {
@@ -1521,7 +1654,9 @@ class _SubPhaseRow extends StatelessWidget {
             icon: Icon(
               Icons.camera_alt,
               size: 40,
-              color: isBusy ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.primary,
+              color: isBusy
+                  ? theme.colorScheme.onSurfaceVariant
+                  : theme.colorScheme.primary,
             ),
             padding: EdgeInsets.zero,
             visualDensity: VisualDensity.compact,
@@ -1572,9 +1707,7 @@ class _SimpleUnitBody extends StatelessWidget {
         Row(
           children: [
             IconButton(
-              onPressed: isBusy
-                  ? null
-                  : () => onCapture(phase: 'before'),
+              onPressed: isBusy ? null : () => onCapture(phase: 'before'),
               tooltip: 'Capture Before Photos',
               icon: const Icon(Icons.camera_alt, size: 40),
               visualDensity: VisualDensity.compact,
@@ -1582,12 +1715,8 @@ class _SimpleUnitBody extends StatelessWidget {
             const SizedBox(width: 2),
             Expanded(
               child: FilledButton(
-                onPressed: isBusy
-                    ? null
-                    : () => onGallery(phase: 'before'),
-                child: Text(
-                  'Before (${unit.visibleBeforeCount})',
-                ),
+                onPressed: isBusy ? null : () => onGallery(phase: 'before'),
+                child: Text('Before (${unit.visibleBeforeCount})'),
               ),
             ),
           ],
@@ -1596,9 +1725,7 @@ class _SimpleUnitBody extends StatelessWidget {
         Row(
           children: [
             IconButton(
-              onPressed: isBusy
-                  ? null
-                  : () => onCapture(phase: 'after'),
+              onPressed: isBusy ? null : () => onCapture(phase: 'after'),
               tooltip: 'Capture After Photos',
               icon: const Icon(Icons.camera_alt, size: 40),
               visualDensity: VisualDensity.compact,
@@ -1606,12 +1733,8 @@ class _SimpleUnitBody extends StatelessWidget {
             const SizedBox(width: 2),
             Expanded(
               child: OutlinedButton(
-                onPressed: isBusy
-                    ? null
-                    : () => onGallery(phase: 'after'),
-                child: Text(
-                  'After (${unit.visibleAfterCount})',
-                ),
+                onPressed: isBusy ? null : () => onGallery(phase: 'after'),
+                child: Text('After (${unit.visibleAfterCount})'),
               ),
             ),
           ],
@@ -1620,4 +1743,3 @@ class _SimpleUnitBody extends StatelessWidget {
     );
   }
 }
-

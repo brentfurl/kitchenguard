@@ -1,7 +1,13 @@
+import 'dart:async';
+import 'dart:js_interop';
+import 'dart:typed_data';
+import 'dart:ui_web' as ui_web;
+
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import 'package:web/web.dart' as web;
 
 import '../../domain/models/job.dart';
 import '../../domain/models/job_note.dart';
@@ -14,10 +20,10 @@ import '../web_job_repository.dart';
 import '../web_pdf_export_service.dart';
 import '../web_providers.dart';
 import '../widgets/web_notes_dialog.dart';
+import '../../services/pdf_export_preset.dart';
 
 /// Real-time single-job stream provider, keyed by jobId.
-final _webJobDetailProvider =
-    StreamProvider.family<Job?, String>((ref, jobId) {
+final _webJobDetailProvider = StreamProvider.family<Job?, String>((ref, jobId) {
   return ref.watch(webJobRepositoryProvider).watchJob(jobId);
 });
 
@@ -105,6 +111,7 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
 
   WebExportProgress? _pdfProgress;
   bool _isExportingPdf = false;
+  PdfExportPreset _selectedPdfPreset = PdfExportPreset.original;
 
   Job get job => widget.job;
   ThemeData get theme => widget.theme;
@@ -130,9 +137,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ZIP export failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('ZIP export failed: $e')));
       }
     } finally {
       if (mounted) {
@@ -144,13 +151,14 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
     }
   }
 
-  Future<void> _startPdfExport() async {
+  Future<void> _startPdfExport({required PdfExportPreset preset}) async {
     if (_isExportingPdf) return;
     setState(() => _isExportingPdf = true);
 
     try {
       final result = await WebPdfExportService.exportJobPdf(
         job: job,
+        preset: preset,
         onProgress: (p) {
           if (mounted) setState(() => _pdfProgress = p);
         },
@@ -163,11 +171,16 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
       );
+      if (result.note != null && result.note!.isNotEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(result.note!)));
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF export failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF export failed: $e')));
       }
     } finally {
       if (mounted) {
@@ -177,6 +190,46 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
         });
       }
     }
+  }
+
+  Widget _buildPdfExportControl() {
+    if (_isExportingPdf) {
+      return _buildExportButton(
+        isExporting: true,
+        progress: _pdfProgress,
+        label: 'Download PDF',
+        icon: Icons.picture_as_pdf,
+        onPressed: () {},
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FilledButton.tonalIcon(
+          onPressed: () => _startPdfExport(preset: _selectedPdfPreset),
+          icon: const Icon(Icons.picture_as_pdf, size: 18),
+          label: Text('Download PDF (${_selectedPdfPreset.shortLabel})'),
+        ),
+        const SizedBox(width: 4),
+        PopupMenuButton<PdfExportPreset>(
+          tooltip: 'PDF options',
+          onSelected: (preset) => setState(() => _selectedPdfPreset = preset),
+          itemBuilder: (context) => PdfExportPreset.values
+              .map(
+                (preset) => PopupMenuItem<PdfExportPreset>(
+                  value: preset,
+                  child: Text(preset.shortLabel),
+                ),
+              )
+              .toList(growable: false),
+          child: const Padding(
+            padding: EdgeInsets.all(6),
+            child: Icon(Icons.arrow_drop_down),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildExportButton({
@@ -216,8 +269,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
       context: context,
       builder: (_) => WebNotesDialog(
         title: 'Job Notes',
-        initialNotes:
-            activeNotes.map((n) => WebNoteItem(n.noteId, n.text)).toList(),
+        initialNotes: activeNotes
+            .map((n) => WebNoteItem(n.noteId, n.text))
+            .toList(),
         onAdd: (text) async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
           if (latest == null) return;
@@ -230,8 +284,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
               status: 'active',
             ),
           ];
-          await widget.webJobRepo
-              .saveJob(latest.copyWith(managerNotes: updated));
+          await widget.webJobRepo.saveJob(
+            latest.copyWith(managerNotes: updated),
+          );
         },
         onEdit: (noteId, newText) async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
@@ -245,8 +300,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             }
             return n;
           }).toList();
-          await widget.webJobRepo
-              .saveJob(latest.copyWith(managerNotes: updated));
+          await widget.webJobRepo.saveJob(
+            latest.copyWith(managerNotes: updated),
+          );
         },
         onDelete: (noteId) async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
@@ -255,8 +311,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             if (n.noteId == noteId) return n.copyWith(status: 'deleted');
             return n;
           }).toList();
-          await widget.webJobRepo
-              .saveJob(latest.copyWith(managerNotes: updated));
+          await widget.webJobRepo.saveJob(
+            latest.copyWith(managerNotes: updated),
+          );
         },
         onRefresh: () async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
@@ -276,8 +333,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
       context: context,
       builder: (_) => WebNotesDialog(
         title: 'Field Notes',
-        initialNotes:
-            activeNotes.map((n) => WebNoteItem(n.noteId, n.text)).toList(),
+        initialNotes: activeNotes
+            .map((n) => WebNoteItem(n.noteId, n.text))
+            .toList(),
         onAdd: (text) async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
           if (latest == null) return;
@@ -341,12 +399,13 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
   Widget build(BuildContext context) {
     final cs = theme.colorScheme;
     final activeNotes = job.notes.where((n) => n.isActive).toList();
-    final activeManagerNotes =
-        job.managerNotes.where((n) => n.isActive).toList();
-    final activeLayoutPhotos =
-        job.preCleanLayoutPhotos.where((p) => p.isActive).toList();
-    final exitVideos =
-        job.videos.exit.where((v) => v.isActive).toList();
+    final activeManagerNotes = job.managerNotes
+        .where((n) => n.isActive)
+        .toList();
+    final activeLayoutPhotos = job.preCleanLayoutPhotos
+        .where((p) => p.isActive)
+        .toList();
+    final exitVideos = job.videos.exit.where((v) => v.isActive).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -378,23 +437,27 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
                         ),
                         if (job.isComplete) ...[
                           const SizedBox(width: 8),
-                          Icon(Icons.check_circle,
-                              size: 22, color: cs.primary),
+                          Icon(Icons.check_circle, size: 22, color: cs.primary),
                           const SizedBox(width: 4),
-                          Text('Complete',
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: cs.primary)),
+                          Text(
+                            'Complete',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.primary,
+                            ),
+                          ),
                         ],
                       ],
                     ),
                     if (job.address != null || job.city != null) ...[
                       const SizedBox(height: 2),
                       Text(
-                        [job.address, job.city]
-                            .where((s) => s != null && s.isNotEmpty)
-                            .join(', '),
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(color: cs.onSurfaceVariant),
+                        [
+                          job.address,
+                          job.city,
+                        ].where((s) => s != null && s.isNotEmpty).join(', '),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ],
@@ -410,13 +473,7 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
                 label: Text(job.isComplete ? 'Reopen' : 'Mark Complete'),
               ),
               const SizedBox(width: 8),
-              _buildExportButton(
-                isExporting: _isExportingPdf,
-                progress: _pdfProgress,
-                label: 'Download PDF',
-                icon: Icons.picture_as_pdf,
-                onPressed: _startPdfExport,
-              ),
+              _buildPdfExportControl(),
               const SizedBox(width: 8),
               _buildExportButton(
                 isExporting: _isExportingZip,
@@ -435,10 +492,12 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             spacing: 8,
             runSpacing: 4,
             children: [
-              if (job.accessType != null)
-                _chip(Icons.vpn_key, job.accessType!),
+              if (job.accessType != null) _chip(Icons.vpn_key, job.accessType!),
               if (job.hasAlarm == true)
-                _chip(Icons.alarm, 'Alarm${job.alarmCode != null ? ': ${job.alarmCode}' : ''}'),
+                _chip(
+                  Icons.alarm,
+                  'Alarm${job.alarmCode != null ? ': ${job.alarmCode}' : ''}',
+                ),
               _actionChip(
                 Icons.note,
                 activeManagerNotes.isEmpty
@@ -499,9 +558,12 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
   Widget _sectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(top: 16, bottom: 8),
-      child: Text(title,
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600)),
+      child: Text(
+        title,
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 
@@ -552,30 +614,40 @@ class _UnitSection extends StatelessWidget {
                 children: [
                   Icon(_unitIcon(unit.type), size: 20, color: cs.primary),
                   const SizedBox(width: 8),
-                  Text(unit.name,
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  Text(
+                    unit.name,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     '${beforePhotos.length} before, ${afterPhotos.length} after',
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: cs.onSurfaceVariant),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
               if (beforePhotos.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text('Before',
-                    style: theme.textTheme.labelLarge
-                        ?.copyWith(color: cs.onSurfaceVariant)),
+                Text(
+                  'Before',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 _PhotoGrid(photos: beforePhotos),
               ],
               if (afterPhotos.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                Text('After',
-                    style: theme.textTheme.labelLarge
-                        ?.copyWith(color: cs.onSurfaceVariant)),
+                Text(
+                  'After',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 _PhotoGrid(photos: afterPhotos),
               ],
@@ -627,6 +699,8 @@ class _PhotoThumbnail extends StatefulWidget {
 }
 
 class _PhotoThumbnailState extends State<_PhotoThumbnail> {
+  static const double _thumbnailSize = 170;
+
   bool _loadFailed = false;
   int _retryKey = 0;
 
@@ -648,13 +722,13 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
     return GestureDetector(
       onTap: _loadFailed
           ? () => setState(() {
-                _loadFailed = false;
-                _retryKey++;
-              })
+              _loadFailed = false;
+              _retryKey++;
+            })
           : () => _showFullImage(context),
       child: Container(
-        width: 120,
-        height: 120,
+        width: _thumbnailSize,
+        height: _thumbnailSize,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: cs.outlineVariant),
@@ -671,8 +745,8 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
         photo.cloudUrl!,
         key: ValueKey('img_${photo.photoId}_$_retryKey'),
         fit: BoxFit.cover,
-        width: 120,
-        height: 120,
+        width: _thumbnailSize,
+        height: _thumbnailSize,
         loadingBuilder: (_, child, progress) {
           if (progress == null) return child;
           return Container(
@@ -723,8 +797,10 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
         children: [
           Icon(icon, size: 24, color: cs.onSurfaceVariant),
           const SizedBox(height: 4),
-          Text(label,
-              style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+          Text(
+            label,
+            style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+          ),
         ],
       ),
     );
@@ -738,11 +814,12 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
         children: [
           Icon(Icons.broken_image_outlined, size: 24, color: cs.error),
           const SizedBox(height: 4),
-          Text('Load failed',
-              style: TextStyle(fontSize: 10, color: cs.error)),
+          Text('Load failed', style: TextStyle(fontSize: 10, color: cs.error)),
           const SizedBox(height: 2),
-          Text('Tap to retry',
-              style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant)),
+          Text(
+            'Tap to retry',
+            style: TextStyle(fontSize: 9, color: cs.onSurfaceVariant),
+          ),
         ],
       ),
     );
@@ -768,9 +845,11 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.broken_image_outlined,
-                          size: 48,
-                          color: Theme.of(ctx).colorScheme.error),
+                      Icon(
+                        Icons.broken_image_outlined,
+                        size: 48,
+                        color: Theme.of(ctx).colorScheme.error,
+                      ),
                       const SizedBox(height: 8),
                       const Text('Failed to load image'),
                     ],
@@ -904,8 +983,10 @@ class _VideoListState extends State<_VideoList> {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Text('Checking…',
-                        style: TextStyle(color: cs.onSurfaceVariant)),
+                    Text(
+                      'Checking…',
+                      style: TextStyle(color: cs.onSurfaceVariant),
+                    ),
                   ],
                 )
               : Text(
@@ -913,13 +994,25 @@ class _VideoListState extends State<_VideoList> {
                       ? (isResolved ? 'Uploaded (recovered)' : 'Uploaded')
                       : 'Not uploaded',
                   style: TextStyle(
-                      color: uploaded ? cs.primary : cs.onSurfaceVariant),
+                    color: uploaded ? cs.primary : cs.onSurfaceVariant,
+                  ),
                 ),
           trailing: url != null
-              ? IconButton(
-                  icon: const Icon(Icons.open_in_new),
-                  tooltip: 'Open video',
-                  onPressed: () => _openVideoUrl(context, url),
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.play_circle_outline),
+                      tooltip: 'Play video',
+                      onPressed: () =>
+                          _openVideoPlayer(context, url, v.fileName),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.download),
+                      tooltip: 'Download video',
+                      onPressed: () => _downloadVideo(url, v.fileName),
+                    ),
+                  ],
                 )
               : null,
         );
@@ -927,23 +1020,155 @@ class _VideoListState extends State<_VideoList> {
     );
   }
 
-  void _openVideoUrl(BuildContext context, String url) {
+  void _openVideoPlayer(BuildContext context, String url, String fileName) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Video Playback'),
-        content: const Text(
-          'Video streaming in-browser is not yet supported. '
-          'The video has been uploaded to Firebase Storage.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(24),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          width: 960,
+          height: 620,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+                child: Row(
+                  children: [
+                    const Icon(Icons.play_circle_outline, size: 20),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Video Playback',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        fileName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(ctx).textTheme.bodySmall,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: Container(
+                  color: Colors.black,
+                  child: _WebVideoPlayer(url: url),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
+  }
+
+  Future<void> _downloadVideo(String url, String fileName) async {
+    try {
+      final bytes = await _downloadBytes(url);
+      if (bytes == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Video download failed')));
+        return;
+      }
+      _triggerDownload(bytes, fileName);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Video download failed')));
+    }
+  }
+
+  Future<Uint8List?> _downloadBytes(String url) {
+    final completer = Completer<Uint8List?>();
+    final xhr = web.XMLHttpRequest();
+    xhr.open('GET', url);
+    xhr.responseType = 'arraybuffer';
+    xhr.onload = (web.Event e) {
+      if (xhr.status == 200 && xhr.response != null) {
+        final buffer = (xhr.response! as JSArrayBuffer).toDart;
+        completer.complete(buffer.asUint8List());
+      } else {
+        completer.complete(null);
+      }
+    }.toJS;
+    xhr.onerror = (web.Event e) {
+      completer.complete(null);
+    }.toJS;
+    xhr.send();
+    return completer.future;
+  }
+
+  void _triggerDownload(List<int> bytes, String fileName) {
+    final jsArray = Uint8List.fromList(bytes).toJS;
+    final blob = web.Blob(
+      [jsArray].toJS,
+      web.BlobPropertyBag(type: 'video/mp4'),
+    );
+    final blobUrl = web.URL.createObjectURL(blob);
+    final anchor = web.document.createElement('a') as web.HTMLAnchorElement;
+    anchor.href = blobUrl;
+    anchor.download = fileName;
+    anchor.click();
+    web.URL.revokeObjectURL(blobUrl);
+  }
+}
+
+class _WebVideoPlayer extends StatefulWidget {
+  const _WebVideoPlayer({required this.url});
+
+  final String url;
+
+  @override
+  State<_WebVideoPlayer> createState() => _WebVideoPlayerState();
+}
+
+class _WebVideoPlayerState extends State<_WebVideoPlayer> {
+  late final String _viewType;
+  web.HTMLVideoElement? _videoElement;
+
+  @override
+  void initState() {
+    super.initState();
+    _viewType = 'kg-web-video-${DateTime.now().microsecondsSinceEpoch}';
+    ui_web.platformViewRegistry.registerViewFactory(_viewType, (int viewId) {
+      final video = web.HTMLVideoElement()
+        ..src = widget.url
+        ..controls = true
+        ..autoplay = true
+        ..style.width = '100%'
+        ..style.height = '100%'
+        ..style.backgroundColor = '#000';
+      _videoElement = video;
+      return video;
+    });
+  }
+
+  @override
+  void dispose() {
+    _videoElement
+      ?..pause()
+      ..src = '';
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return HtmlElementView(viewType: _viewType);
   }
 }
 
@@ -964,10 +1189,7 @@ class _NoteTile extends StatelessWidget {
       child: Card(
         elevation: 0,
         color: cs.surfaceContainerHighest,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Text(text),
-        ),
+        child: Padding(padding: const EdgeInsets.all(12), child: Text(text)),
       ),
     );
   }

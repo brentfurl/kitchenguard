@@ -7,6 +7,8 @@ import 'package:web/web.dart' as web;
 
 import '../domain/models/job.dart';
 import '../services/pdf_export_builder.dart';
+import '../services/pdf_export_preset.dart';
+import '../services/pdf_image_optimizer.dart';
 import '../utils/unit_sorter.dart';
 import 'web_export_service.dart';
 
@@ -17,6 +19,7 @@ import 'web_export_service.dart';
 class WebPdfExportService {
   static Future<WebExportProgress> exportJobPdf({
     required Job job,
+    required PdfExportPreset preset,
     required void Function(WebExportProgress) onProgress,
   }) async {
     final sortedUnits = UnitSorter.sort(job.units);
@@ -27,35 +30,45 @@ class WebPdfExportService {
       final beforePhotos = unit.photosBefore.where((p) => p.isActive).toList();
       final afterPhotos = unit.photosAfter.where((p) => p.isActive).toList();
       if (beforePhotos.isNotEmpty) {
-        sectionDefs.add(_SectionDef(
-          title: '${unit.name}: Before',
-          items: beforePhotos
-              .map((p) => _PhotoItem(
+        sectionDefs.add(
+          _SectionDef(
+            title: '${unit.name}: Before',
+            items: beforePhotos
+                .map(
+                  (p) => _PhotoItem(
                     cloudUrl: p.cloudUrl,
                     storagePath:
                         'jobs/${job.jobId}/${p.relativePath.replaceAll('\\', '/')}',
                     fileName: p.fileName,
-                  ))
-              .toList(),
-        ));
+                  ),
+                )
+                .toList(),
+          ),
+        );
       }
       if (afterPhotos.isNotEmpty) {
-        sectionDefs.add(_SectionDef(
-          title: '${unit.name}: After',
-          items: afterPhotos
-              .map((p) => _PhotoItem(
+        sectionDefs.add(
+          _SectionDef(
+            title: '${unit.name}: After',
+            items: afterPhotos
+                .map(
+                  (p) => _PhotoItem(
                     cloudUrl: p.cloudUrl,
                     storagePath:
                         'jobs/${job.jobId}/${p.relativePath.replaceAll('\\', '/')}',
                     fileName: p.fileName,
-                  ))
-              .toList(),
-        ));
+                  ),
+                )
+                .toList(),
+          ),
+        );
       }
     }
 
-    final totalPhotos =
-        sectionDefs.fold<int>(0, (sum, s) => sum + s.items.length);
+    final totalPhotos = sectionDefs.fold<int>(
+      0,
+      (sum, s) => sum + s.items.length,
+    );
     var completed = 0;
     var skipped = 0;
 
@@ -64,12 +77,14 @@ class WebPdfExportService {
     for (final def in sectionDefs) {
       final imageBytes = <Uint8List>[];
       for (final item in def.items) {
-        onProgress(WebExportProgress(
-          total: totalPhotos,
-          completed: completed,
-          currentFile: item.fileName,
-          skipped: skipped,
-        ));
+        onProgress(
+          WebExportProgress(
+            total: totalPhotos,
+            completed: completed,
+            currentFile: item.fileName,
+            skipped: skipped,
+          ),
+        );
 
         final bytes = await _downloadPhoto(item);
         if (bytes != null) {
@@ -84,40 +99,51 @@ class WebPdfExportService {
       }
     }
 
-    onProgress(WebExportProgress(
-      total: totalPhotos,
-      completed: totalPhotos,
-      currentFile: 'Building PDF…',
-      skipped: skipped,
-    ));
+    onProgress(
+      WebExportProgress(
+        total: totalPhotos,
+        completed: totalPhotos,
+        currentFile: 'Building PDF…',
+        skipped: skipped,
+      ),
+    );
 
-    final address = [job.address, job.city]
-        .where((s) => s != null && s.isNotEmpty)
-        .join(', ');
+    final address = [
+      job.address,
+      job.city,
+    ].where((s) => s != null && s.isNotEmpty).join(', ');
 
-    final pdfBytes = await PdfExportBuilder.build(
+    final pdfResult = await PdfImageOptimizer.buildWithPreset(
       cover: PdfCoverInfo(
         restaurantName: job.restaurantName,
         address: address.isNotEmpty ? address : null,
         shiftDate: job.shiftStartDate,
       ),
+      preset: preset,
       sections: pdfSections,
     );
 
-    final safeName =
-        job.restaurantName.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final safeName = job.restaurantName.replaceAll(
+      RegExp(r'[^a-zA-Z0-9_-]'),
+      '_',
+    );
     final ts = DateTime.now()
         .toIso8601String()
         .replaceAll(':', '-')
         .split('.')
         .first;
-    _triggerDownload(pdfBytes, 'KitchenGuard_${safeName}_$ts.pdf');
+    _triggerDownload(pdfResult.bytes, 'KitchenGuard_${safeName}_$ts.pdf');
+
+    final note = (!pdfResult.targetMet && preset.targetMaxBytes != null)
+        ? 'Could not reach 5 MB without excessive quality loss. Downloaded smallest possible PDF.'
+        : null;
 
     final finalProgress = WebExportProgress(
       total: totalPhotos,
       completed: totalPhotos,
       currentFile: 'Done',
       skipped: skipped,
+      note: note,
     );
     onProgress(finalProgress);
     return finalProgress;
@@ -174,8 +200,7 @@ class WebPdfExportService {
       web.BlobPropertyBag(type: 'application/pdf'),
     );
     final blobUrl = web.URL.createObjectURL(blob);
-    final anchor =
-        web.document.createElement('a') as web.HTMLAnchorElement;
+    final anchor = web.document.createElement('a') as web.HTMLAnchorElement;
     anchor.href = blobUrl;
     anchor.download = fileName;
     anchor.click();

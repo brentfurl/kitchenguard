@@ -21,9 +21,23 @@ import '../data/repositories/day_note_repository.dart';
 import '../data/repositories/day_schedule_repository.dart';
 import '../data/repositories/job_repository.dart';
 import '../services/pdf_export_builder.dart';
+import '../services/pdf_export_preset.dart';
+import '../services/pdf_image_optimizer.dart';
 import '../services/upload_queue.dart';
 import '../storage/app_paths.dart';
 import '../utils/unit_sorter.dart';
+
+class PdfExportFileResult {
+  const PdfExportFileResult({
+    required this.file,
+    required this.targetMet,
+    this.targetBytes,
+  });
+
+  final File file;
+  final bool targetMet;
+  final int? targetBytes;
+}
 
 /// Creates and updates job folders backed by `job.json`.
 class JobsService {
@@ -941,9 +955,7 @@ class JobsService {
     final notesText = await _buildExportNotesText(jobDir);
     if (notesText != null) {
       final notesBytes = utf8.encode(notesText);
-      archive.addFile(
-        ArchiveFile('notes.txt', notesBytes.length, notesBytes),
-      );
+      archive.addFile(ArchiveFile('notes.txt', notesBytes.length, notesBytes));
     }
 
     final filesForExport = <Map<String, dynamic>>[];
@@ -999,9 +1011,10 @@ class JobsService {
     return zipFile;
   }
 
-  Future<File> exportJobPdf({
+  Future<PdfExportFileResult> exportJobPdf({
     required Directory jobDir,
     required String pdfBaseName,
+    PdfExportPreset preset = PdfExportPreset.original,
   }) async {
     if (!await jobDir.exists()) {
       throw StateError('Job directory missing: ${jobDir.path}');
@@ -1020,33 +1033,33 @@ class JobsService {
       if (beforePhotos.isNotEmpty) {
         final bytes = await _collectPhotoBytes(jobDir, job.jobId, beforePhotos);
         if (bytes.isNotEmpty) {
-          sections.add(PdfSection(
-            title: '${unit.name}: Before',
-            imageBytes: bytes,
-          ));
+          sections.add(
+            PdfSection(title: '${unit.name}: Before', imageBytes: bytes),
+          );
         }
       }
       if (afterPhotos.isNotEmpty) {
         final bytes = await _collectPhotoBytes(jobDir, job.jobId, afterPhotos);
         if (bytes.isNotEmpty) {
-          sections.add(PdfSection(
-            title: '${unit.name}: After',
-            imageBytes: bytes,
-          ));
+          sections.add(
+            PdfSection(title: '${unit.name}: After', imageBytes: bytes),
+          );
         }
       }
     }
 
-    final address = [job.address, job.city]
-        .where((s) => s != null && s.isNotEmpty)
-        .join(', ');
+    final address = [
+      job.address,
+      job.city,
+    ].where((s) => s != null && s.isNotEmpty).join(', ');
 
-    final pdfBytes = await PdfExportBuilder.build(
+    final pdfResult = await PdfImageOptimizer.buildWithPreset(
       cover: PdfCoverInfo(
         restaurantName: job.restaurantName,
         address: address.isNotEmpty ? address : null,
         shiftDate: job.shiftStartDate,
       ),
+      preset: preset,
       sections: sections,
     );
 
@@ -1060,8 +1073,12 @@ class JobsService {
     final pdfFile = File(
       p.join(exportDir.path, 'KitchenGuard_${safeBase}_$timestamp.pdf'),
     );
-    await pdfFile.writeAsBytes(pdfBytes, flush: true);
-    return pdfFile;
+    await pdfFile.writeAsBytes(pdfResult.bytes, flush: true);
+    return PdfExportFileResult(
+      file: pdfFile,
+      targetMet: pdfResult.targetMet,
+      targetBytes: pdfResult.targetBytes,
+    );
   }
 
   /// Reads photo bytes from disk, falling back to Firebase Storage for
@@ -1186,19 +1203,15 @@ class JobsService {
     return phaseDir == beforeDir || phaseDir == afterDir;
   }
 
-  int _compareExportPaths(
-    String left,
-    String right,
-    List<Unit> sortedUnits,
-  ) {
+  int _compareExportPaths(String left, String right, List<Unit> sortedUnits) {
     final leftParts = p.posix.split(left);
     final rightParts = p.posix.split(right);
     final leftRoot = leftParts.isEmpty ? '' : leftParts.first;
     final rightRoot = rightParts.isEmpty ? '' : rightParts.first;
 
-    final rootCmp = _exportRootRank(leftRoot).compareTo(
-      _exportRootRank(rightRoot),
-    );
+    final rootCmp = _exportRootRank(
+      leftRoot,
+    ).compareTo(_exportRootRank(rightRoot));
     if (rootCmp != 0) {
       return rootCmp;
     }
@@ -1274,12 +1287,12 @@ class JobsService {
 
     final activeNotes = job.notes
         .where((n) => n.isActive)
-        .map((n) => <String, String>{
-              'text': n.text
-                  .replaceAll(RegExp(r'[\r\n]+'), ' ')
-                  .trim(),
-              'createdAt': n.createdAt,
-            })
+        .map(
+          (n) => <String, String>{
+            'text': n.text.replaceAll(RegExp(r'[\r\n]+'), ' ').trim(),
+            'createdAt': n.createdAt,
+          },
+        )
         .where((m) => (m['text'] ?? '').isNotEmpty)
         .toList();
 
@@ -1329,14 +1342,24 @@ class JobsService {
         final rp = photo.relativePath.replaceAll('\\', '/');
         if (addedPaths.contains(rp)) continue;
         await _downloadToArchive(
-            archive, storage, job.jobId, rp, photoMaxBytes);
+          archive,
+          storage,
+          job.jobId,
+          rp,
+          photoMaxBytes,
+        );
       }
       for (final photo in unit.photosAfter) {
         if (!photo.isActive) continue;
         final rp = photo.relativePath.replaceAll('\\', '/');
         if (addedPaths.contains(rp)) continue;
         await _downloadToArchive(
-            archive, storage, job.jobId, rp, photoMaxBytes);
+          archive,
+          storage,
+          job.jobId,
+          rp,
+          photoMaxBytes,
+        );
       }
     }
 
@@ -1344,15 +1367,13 @@ class JobsService {
       if (!video.isActive) continue;
       final rp = video.relativePath.replaceAll('\\', '/');
       if (addedPaths.contains(rp)) continue;
-      await _downloadToArchive(
-          archive, storage, job.jobId, rp, videoMaxBytes);
+      await _downloadToArchive(archive, storage, job.jobId, rp, videoMaxBytes);
     }
     for (final video in job.videos.other) {
       if (!video.isActive) continue;
       final rp = video.relativePath.replaceAll('\\', '/');
       if (addedPaths.contains(rp)) continue;
-      await _downloadToArchive(
-          archive, storage, job.jobId, rp, videoMaxBytes);
+      await _downloadToArchive(archive, storage, job.jobId, rp, videoMaxBytes);
     }
   }
 
@@ -1382,7 +1403,9 @@ class JobsService {
     required String unitName,
     required String unitId,
   }) async {
-    final category = AppPaths.categoryForUnitType(unitType.trim().toLowerCase());
+    final category = AppPaths.categoryForUnitType(
+      unitType.trim().toLowerCase(),
+    );
     if (category == null) {
       throw ArgumentError.value(
         unitType,
@@ -1404,8 +1427,7 @@ class JobsService {
       throw StateError('Unit not found in job.json: $unitId');
     }
 
-    final effectiveUnitName =
-        target.name.isNotEmpty ? target.name : unitName;
+    final effectiveUnitName = target.name.isNotEmpty ? target.name : unitName;
 
     if (target.unitFolderName.isNotEmpty) {
       return target.unitFolderName;
@@ -1582,10 +1604,7 @@ class JobsService {
             .replaceAll('\\', '/');
 
         updatedMoved.add(
-          rec.copyWith(
-            relativePath: newRelativePath,
-            subPhase: destSubPhase,
-          ),
+          rec.copyWith(relativePath: newRelativePath, subPhase: destSubPhase),
         );
       }
     }
@@ -1684,10 +1703,7 @@ class JobsService {
   ///
   /// Pass [scheduledDate] as a YYYY-MM-DD string, or null to unschedule.
   /// Returns the updated [Job] with [Job.updatedAt] stamped to now.
-  Future<Job> setScheduledDate(
-    Directory jobDir,
-    String? scheduledDate,
-  ) async {
+  Future<Job> setScheduledDate(Directory jobDir, String? scheduledDate) async {
     final job = await jobRepository.loadJob(jobDir);
     if (job == null) {
       throw StateError('Missing job.json in ${jobDir.path}');
@@ -1762,7 +1778,10 @@ class JobsService {
       status: 'active',
     );
 
-    await dayNoteRepository.saveAll({...all, date: [...existing, note]});
+    await dayNoteRepository.saveAll({
+      ...all,
+      date: [...existing, note],
+    });
     return note;
   }
 
@@ -1985,18 +2004,23 @@ class JobsService {
       final newBefore = _resetPhotoSync(unit.photosBefore, photoId, jobDir);
       final newAfter = _resetPhotoSync(unit.photosAfter, photoId, jobDir);
       if (newBefore != null || newAfter != null) found = true;
-      updatedUnits.add(unit.copyWith(
-        photosBefore: newBefore ?? unit.photosBefore,
-        photosAfter: newAfter ?? unit.photosAfter,
-      ));
+      updatedUnits.add(
+        unit.copyWith(
+          photosBefore: newBefore ?? unit.photosBefore,
+          photosAfter: newAfter ?? unit.photosAfter,
+        ),
+      );
     }
     if (found) {
       updated = updated.copyWith(units: updatedUnits);
     }
 
     // Search pre-clean layout photos
-    final newPreClean =
-        _resetPhotoSync(job.preCleanLayoutPhotos, photoId, jobDir);
+    final newPreClean = _resetPhotoSync(
+      job.preCleanLayoutPhotos,
+      photoId,
+      jobDir,
+    );
     if (newPreClean != null) {
       found = true;
       updated = updated.copyWith(preCleanLayoutPhotos: newPreClean);
