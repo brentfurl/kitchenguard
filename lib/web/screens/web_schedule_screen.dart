@@ -1041,7 +1041,7 @@ class _JobFormDialogState extends State<_JobFormDialog> {
                       const InputDecoration(labelText: 'Access Type'),
                   items: const [
                     DropdownMenuItem(
-                        value: 'no-key', child: Text('No Key')),
+                        value: 'no-key', child: Text('No Key - Meet after closing')),
                     DropdownMenuItem(
                         value: 'get-key-from-shop',
                         child: Text('Get Key from Shop')),
