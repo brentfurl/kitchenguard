@@ -1151,6 +1151,7 @@ class _VideoListState extends State<_VideoList> {
     try {
       final callable = FirebaseFunctions.instance.httpsCallable(
         'prepareCompressedVideoDownload',
+        options: HttpsCallableOptions(timeout: const Duration(minutes: 8)),
       );
       final response = await callable.call<Map<String, dynamic>>({
         'jobId': widget.jobId,
