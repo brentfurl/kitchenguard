@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'domain/models/app_role.dart';
@@ -131,11 +132,18 @@ class _AuthGateState extends ConsumerState<_AuthGate> {
 
   Future<void> _onRoleSelected(AppRole role) async {
     setState(() => _checkingClaims = true);
+    final roleNotifier = ref.read(appRoleProvider.notifier);
     try {
-      await ref.read(appRoleProvider.notifier).setRole(role);
+      // Persist locally first so the user can proceed immediately.
+      await roleNotifier.setRoleLocal(role);
+
+      // Hotfix: avoid iOS native crash path observed after role selection.
+      // Role claim assignment can be completed from web/manager tooling.
+      if (defaultTargetPlatform == TargetPlatform.iOS) return;
+
+      await roleNotifier.setRole(role);
     } catch (_) {
-      // Cloud Function may fail if not deployed yet; fall back to local-only.
-      await ref.read(appRoleProvider.notifier).setRoleLocal(role);
+      // Keep local role if remote claim assignment fails.
     } finally {
       if (mounted) setState(() => _checkingClaims = false);
     }

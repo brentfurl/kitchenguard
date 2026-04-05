@@ -10,6 +10,7 @@ import '../../domain/models/manager_job_note.dart';
 import '../../domain/models/photo_record.dart';
 import '../../domain/models/video_record.dart';
 import '../../application/jobs_service.dart';
+import '../../services/pdf_export_preset.dart';
 
 class JobDetailController {
   JobDetailController({required this.jobs, required this.jobDir});
@@ -430,9 +431,15 @@ class JobDetailController {
     return await jobs.exportJobZip(jobDir: jobDir, zipBaseName: jobName);
   }
 
-  Future<File> exportPdf() async {
+  Future<PdfExportFileResult> exportPdf({
+    PdfExportPreset preset = PdfExportPreset.original,
+  }) async {
     final jobName = _job?.restaurantName ?? 'Job';
-    return await jobs.exportJobPdf(jobDir: jobDir, pdfBaseName: jobName);
+    return await jobs.exportJobPdf(
+      jobDir: jobDir,
+      pdfBaseName: jobName,
+      preset: preset,
+    );
   }
 
   /// Returns active [DayNote]s for this job's [Job.scheduledDate].

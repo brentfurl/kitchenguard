@@ -16,12 +16,14 @@ class WebExportProgress {
     required this.completed,
     required this.currentFile,
     this.skipped = 0,
+    this.note,
   });
 
   final int total;
   final int completed;
   final String currentFile;
   final int skipped;
+  final String? note;
 
   double get fraction => total > 0 ? completed / total : 0;
   bool get isDone => completed >= total;
@@ -54,9 +56,7 @@ class WebExportService {
         buf.writeln('${i + 1}. ${activeNotes[i].text}');
       }
       final notesBytes = utf8.encode(buf.toString());
-      archive.addFile(
-        ArchiveFile('notes.txt', notesBytes.length, notesBytes),
-      );
+      archive.addFile(ArchiveFile('notes.txt', notesBytes.length, notesBytes));
     }
 
     // Collect downloadable media (pre-clean excluded per export rules)
@@ -67,34 +67,46 @@ class WebExportService {
       final folder = unit.unitFolderName;
 
       for (final p in unit.photosBefore.where((p) => p.isActive)) {
-        items.add(_MediaItem(
-          cloudUrl: p.cloudUrl,
-          storagePath: 'jobs/${job.jobId}/${p.relativePath.replaceAll('\\', '/')}',
-          archivePath: '$cat/$folder/Before/${p.fileName}',
-        ));
+        items.add(
+          _MediaItem(
+            cloudUrl: p.cloudUrl,
+            storagePath:
+                'jobs/${job.jobId}/${p.relativePath.replaceAll('\\', '/')}',
+            archivePath: '$cat/$folder/Before/${p.fileName}',
+          ),
+        );
       }
       for (final p in unit.photosAfter.where((p) => p.isActive)) {
-        items.add(_MediaItem(
-          cloudUrl: p.cloudUrl,
-          storagePath: 'jobs/${job.jobId}/${p.relativePath.replaceAll('\\', '/')}',
-          archivePath: '$cat/$folder/After/${p.fileName}',
-        ));
+        items.add(
+          _MediaItem(
+            cloudUrl: p.cloudUrl,
+            storagePath:
+                'jobs/${job.jobId}/${p.relativePath.replaceAll('\\', '/')}',
+            archivePath: '$cat/$folder/After/${p.fileName}',
+          ),
+        );
       }
     }
 
     for (final v in job.videos.exit.where((v) => v.isActive)) {
-      items.add(_MediaItem(
-        cloudUrl: v.cloudUrl,
-        storagePath: 'jobs/${job.jobId}/${v.relativePath.replaceAll('\\', '/')}',
-        archivePath: 'Videos/Exit/${v.fileName}',
-      ));
+      items.add(
+        _MediaItem(
+          cloudUrl: v.cloudUrl,
+          storagePath:
+              'jobs/${job.jobId}/${v.relativePath.replaceAll('\\', '/')}',
+          archivePath: 'Videos/Exit/${v.fileName}',
+        ),
+      );
     }
     for (final v in job.videos.other.where((v) => v.isActive)) {
-      items.add(_MediaItem(
-        cloudUrl: v.cloudUrl,
-        storagePath: 'jobs/${job.jobId}/${v.relativePath.replaceAll('\\', '/')}',
-        archivePath: 'Videos/Other/${v.fileName}',
-      ));
+      items.add(
+        _MediaItem(
+          cloudUrl: v.cloudUrl,
+          storagePath:
+              'jobs/${job.jobId}/${v.relativePath.replaceAll('\\', '/')}',
+          archivePath: 'Videos/Other/${v.fileName}',
+        ),
+      );
     }
 
     final total = items.length;
@@ -102,12 +114,14 @@ class WebExportService {
     var skipped = 0;
 
     for (final item in items) {
-      onProgress(WebExportProgress(
-        total: total,
-        completed: completed,
-        currentFile: item.archivePath.split('/').last,
-        skipped: skipped,
-      ));
+      onProgress(
+        WebExportProgress(
+          total: total,
+          completed: completed,
+          currentFile: item.archivePath.split('/').last,
+          skipped: skipped,
+        ),
+      );
 
       var url = item.cloudUrl;
 
@@ -123,9 +137,7 @@ class WebExportService {
       try {
         final bytes = await _downloadBytes(url);
         if (bytes != null) {
-          archive.addFile(
-            ArchiveFile(item.archivePath, bytes.length, bytes),
-          );
+          archive.addFile(ArchiveFile(item.archivePath, bytes.length, bytes));
         } else {
           skipped++;
         }
@@ -145,8 +157,10 @@ class WebExportService {
 
     final zipBytes = ZipEncoder().encode(archive);
 
-    final safeName =
-        job.restaurantName.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final safeName = job.restaurantName.replaceAll(
+      RegExp(r'[^a-zA-Z0-9_-]'),
+      '_',
+    );
     final ts = DateTime.now()
         .toIso8601String()
         .replaceAll(':', '-')
@@ -163,9 +177,7 @@ class WebExportService {
 
   static Future<String?> _resolveStorageUrl(String storagePath) async {
     try {
-      return await FirebaseStorage.instance
-          .ref(storagePath)
-          .getDownloadURL();
+      return await FirebaseStorage.instance.ref(storagePath).getDownloadURL();
     } catch (_) {
       return null;
     }
@@ -198,8 +210,7 @@ class WebExportService {
       web.BlobPropertyBag(type: 'application/zip'),
     );
     final blobUrl = web.URL.createObjectURL(blob);
-    final anchor =
-        web.document.createElement('a') as web.HTMLAnchorElement;
+    final anchor = web.document.createElement('a') as web.HTMLAnchorElement;
     anchor.href = blobUrl;
     anchor.download = fileName;
     anchor.click();

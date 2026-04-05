@@ -116,22 +116,26 @@ class PdfExportBuilder {
                     pw.SizedBox(width: 20),
                     pw.SizedBox(
                       width: 161,
-                      child: logoBytes == null
-                          ? pw.Align(
-                              alignment: pw.Alignment.topRight,
-                              child: pw.Text(
-                                'KitchenGuard',
-                                style: pw.TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: pw.FontWeight.bold,
+                      child: pw.Padding(
+                        // Lift logo block higher to tighten top-right placement.
+                        padding: const pw.EdgeInsets.only(top: -32),
+                        child: logoBytes == null
+                            ? pw.Align(
+                                alignment: pw.Alignment.topRight,
+                                child: pw.Text(
+                                  'KitchenGuard',
+                                  style: pw.TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: pw.FontWeight.bold,
+                                  ),
                                 ),
+                              )
+                            : pw.Image(
+                                pw.MemoryImage(logoBytes),
+                                fit: pw.BoxFit.contain,
+                                alignment: pw.Alignment.topRight,
                               ),
-                            )
-                          : pw.Image(
-                              pw.MemoryImage(logoBytes),
-                              fit: pw.BoxFit.contain,
-                              alignment: pw.Alignment.topRight,
-                            ),
+                      ),
                     ),
                   ],
                 ),
