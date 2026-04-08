@@ -79,8 +79,11 @@ class StorageService {
     required String relativePath,
     required File file,
   }) {
-    final ext = p.extension(file.path).toLowerCase();
-    final contentType = ext == '.mp4' ? 'video/mp4' : 'video/$ext';
+    final extWithDot = p.extension(file.path).toLowerCase();
+    final ext = extWithDot.startsWith('.')
+        ? extWithDot.substring(1)
+        : extWithDot;
+    final contentType = ext.isEmpty ? 'video/mp4' : 'video/$ext';
 
     return uploadJobFile(
       jobId: jobId,

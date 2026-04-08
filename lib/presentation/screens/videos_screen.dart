@@ -14,6 +14,7 @@ class VideosScreen extends StatefulWidget {
     required this.captureVideo,
     required this.resolveVideoFile,
     this.softDelete,
+    this.retryUpload,
   });
 
   final String title;
@@ -22,6 +23,7 @@ class VideosScreen extends StatefulWidget {
   final Future<void> Function() captureVideo;
   final Future<File?> Function(String relativePath) resolveVideoFile;
   final Future<void> Function(String relativePath)? softDelete;
+  final Future<void> Function(String videoId)? retryUpload;
 
   @override
   State<VideosScreen> createState() => _VideosScreenState();
@@ -109,24 +111,66 @@ class _VideosScreenState extends State<VideosScreen> {
     }
   }
 
-  Future<void> _showDeleteMenu({required String relativePath}) async {
+  Future<void> _retryUpload(VideoRecord video) async {
+    final retryUpload = widget.retryUpload;
+    if (retryUpload == null) return;
+    try {
+      await retryUpload(video.videoId);
+      if (!mounted) return;
+      await _reload();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Retry queued')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString().replaceFirst(
+        RegExp(r'^(StateError|Exception):\s*'),
+        '',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message.isEmpty ? 'Retry failed' : message)),
+      );
+    }
+  }
+
+  Future<void> _showActionsMenu({required VideoRecord video}) async {
+    final canDelete = video.relativePath.isNotEmpty && widget.softDelete != null;
+    final canRetry = video.syncStatus == 'error' && widget.retryUpload != null;
+    if (!canDelete && !canRetry) return;
+
     final action = await showModalBottomSheet<String>(
       context: context,
       builder: (context) {
         return SafeArea(
-          child: ListTile(
-            leading: const Icon(Icons.delete_outline),
-            title: const Text('Remove from job'),
-            onTap: () => Navigator.of(context).pop('remove'),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (canRetry)
+                ListTile(
+                  leading: const Icon(Icons.refresh),
+                  title: const Text('Retry upload'),
+                  onTap: () => Navigator.of(context).pop('retry'),
+                ),
+              if (canDelete)
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: const Text('Remove from job'),
+                  onTap: () => Navigator.of(context).pop('remove'),
+                ),
+            ],
           ),
         );
       },
     );
 
-    if (action != 'remove') {
+    if (action == 'retry') {
+      await _retryUpload(video);
       return;
     }
-    await _confirmDelete(relativePath: relativePath);
+
+    if (action == 'remove') {
+      await _confirmDelete(relativePath: video.relativePath);
+    }
   }
 
   @override
@@ -167,6 +211,10 @@ class _VideosScreenState extends State<VideosScreen> {
                     final relativePath = video.relativePath;
                     final cloudUrl = video.cloudUrl;
                     final hasCloud = cloudUrl != null && cloudUrl.isNotEmpty;
+                    final canShowActions =
+                        (relativePath.isNotEmpty && widget.softDelete != null) ||
+                        (video.syncStatus == 'error' &&
+                            widget.retryUpload != null);
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(fileName),
@@ -207,10 +255,9 @@ class _VideosScreenState extends State<VideosScreen> {
                           ),
                         );
                       },
-                      onLongPress:
-                          relativePath.isEmpty || widget.softDelete == null
-                          ? null
-                          : () => _showDeleteMenu(relativePath: relativePath),
+                      onLongPress: canShowActions
+                          ? () => _showActionsMenu(video: video)
+                          : null,
                     );
                   }),
               ],

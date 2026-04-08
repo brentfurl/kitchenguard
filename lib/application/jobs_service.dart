@@ -590,6 +590,7 @@ class JobsService {
       relativePath: relativePath,
       capturedAt: DateTime.now().toUtc().toIso8601String(),
       status: 'local',
+      syncStatus: 'pending',
     );
 
     final Videos updatedVideos;
@@ -2041,6 +2042,59 @@ class JobsService {
     }
   }
 
+  /// Resets a video's cloud sync fields and re-queues it for upload.
+  ///
+  /// Intended for manual retry when a video is stuck in a failed state.
+  Future<void> requeueVideoUpload({
+    required Directory jobDir,
+    required String videoId,
+  }) async {
+    final job = await jobRepository.loadJob(jobDir);
+    if (job == null) return;
+
+    var found = false;
+    Videos updatedVideos = job.videos;
+
+    final newExit = _resetVideoSync(job.videos.exit, videoId);
+    if (newExit != null) {
+      found = true;
+      updatedVideos = updatedVideos.copyWith(exit: newExit);
+    }
+
+    final newOther = _resetVideoSync(job.videos.other, videoId);
+    if (newOther != null) {
+      found = true;
+      updatedVideos = updatedVideos.copyWith(other: newOther);
+    }
+
+    if (!found) return;
+
+    final updatedJob = job.copyWith(videos: updatedVideos);
+    await jobRepository.saveJob(jobDir, updatedJob);
+
+    final localFile = _localFileForVideo(jobDir, videoId, updatedJob);
+    if (localFile == null || !localFile.existsSync()) {
+      return;
+    }
+
+    final queue = uploadQueue;
+    if (queue == null) return;
+
+    final reusedFailedEntry = await queue.requeueFailedMedia(
+      jobId: job.jobId,
+      mediaId: videoId,
+      mediaType: 'video',
+    );
+    if (!reusedFailedEntry) {
+      await queue.enqueue(
+        jobId: job.jobId,
+        jobDirPath: jobDir.path,
+        mediaId: videoId,
+        mediaType: 'video',
+      );
+    }
+  }
+
   /// Returns a new list with [photoId]'s sync fields cleared, or `null` if
   /// the photo was not found in [photos].
   List<PhotoRecord>? _resetPhotoSync(
@@ -2077,6 +2131,35 @@ class JobsService {
     for (final photo in job.preCleanLayoutPhotos) {
       if (photo.photoId == photoId && photo.relativePath.isNotEmpty) {
         return File(p.join(jobDir.path, photo.relativePath));
+      }
+    }
+    return null;
+  }
+
+  List<VideoRecord>? _resetVideoSync(
+    List<VideoRecord> videos,
+    String videoId,
+  ) {
+    final idx = videos.indexWhere((v) => v.videoId == videoId);
+    if (idx < 0) return null;
+
+    final old = videos[idx];
+    final reset = VideoRecord(
+      videoId: old.videoId,
+      fileName: old.fileName,
+      relativePath: old.relativePath,
+      capturedAt: old.capturedAt,
+      status: old.status,
+      deletedAt: old.deletedAt,
+      syncStatus: 'pending',
+    );
+    return [...videos]..[idx] = reset;
+  }
+
+  File? _localFileForVideo(Directory jobDir, String videoId, Job job) {
+    for (final video in [...job.videos.exit, ...job.videos.other]) {
+      if (video.videoId == videoId && video.relativePath.isNotEmpty) {
+        return File(p.join(jobDir.path, video.relativePath));
       }
     }
     return null;

@@ -970,6 +970,24 @@ class _VideoListState extends State<_VideoList> {
         final uploaded = v.isSynced || url != null;
         final isChecking =
             v.cloudUrl == null && !_resolvedUrls.containsKey(v.videoId);
+        final syncStatus = v.syncStatus;
+        final String statusLabel;
+        Color statusColor = cs.onSurfaceVariant;
+        if (isChecking) {
+          statusLabel = 'Checking…';
+        } else if (uploaded) {
+          statusLabel = isResolved ? 'Uploaded (recovered)' : 'Uploaded';
+          statusColor = cs.primary;
+        } else if (syncStatus == 'uploading') {
+          statusLabel = 'Uploading…';
+        } else if (syncStatus == 'error') {
+          statusLabel = 'Upload failed';
+          statusColor = cs.error;
+        } else if (syncStatus == 'pending' || syncStatus == null) {
+          statusLabel = 'Pending upload';
+        } else {
+          statusLabel = 'Not uploaded';
+        }
 
         return ListTile(
           leading: Icon(Icons.videocam, color: cs.primary),
@@ -988,18 +1006,14 @@ class _VideoListState extends State<_VideoList> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Checking…',
-                      style: TextStyle(color: cs.onSurfaceVariant),
+                      statusLabel,
+                      style: TextStyle(color: statusColor),
                     ),
                   ],
                 )
               : Text(
-                  uploaded
-                      ? (isResolved ? 'Uploaded (recovered)' : 'Uploaded')
-                      : 'Not uploaded',
-                  style: TextStyle(
-                    color: uploaded ? cs.primary : cs.onSurfaceVariant,
-                  ),
+                  statusLabel,
+                  style: TextStyle(color: statusColor),
                 ),
           trailing: url != null
               ? Row(

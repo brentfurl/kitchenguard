@@ -678,7 +678,7 @@ Phase 4 completed steps:
 - Step 1: Firebase project setup — Firebase project `kitchenguard-8e288` created, FlutterFire CLI configured for Android/iOS/Web, `firebase_core` added, `Firebase.initializeApp()` in `main.dart`.
 - Step 2: Firebase Auth + roles — `firebase_auth` and `cloud_functions` packages, `AuthService` wrapper, `authStateProvider` / `authServiceProvider`, auth gate in `app.dart` (AuthScreen → role picker → JobsHome), `AppRoleNotifier` reads from Firebase ID token custom claims with SharedPreferences fallback, `setUserRole` Cloud Function for custom claims.
 - Step 3: Firestore for scheduling data — `cloud_firestore` package, `clientId` field on `Job` model, `CloudJobRepository` (wraps local + mirrors to Firestore), `CloudDayNoteRepository` and `CloudDayScheduleRepository` (pure Firestore), `firestore.rules` security rules, hybrid provider wiring (authenticated → cloud repos, unauthenticated → local repos).
-- Step 4a: Firebase Storage structure + basic upload — `firebase_storage` and `connectivity_plus` packages, `syncStatus`/`cloudUrl`/`uploadedBy` fields on `PhotoRecord` and `VideoRecord`, `StorageService` (Firebase Storage wrapper with upload/delete/getUrl), `UploadController` (coordinates single-file upload + sync status persistence), `storage.rules` (auth-gated, 10MB photo / 100MB video limits), `storageServiceProvider` and `uploadControllerProvider` wiring.
+- Step 4a: Firebase Storage structure + basic upload — `firebase_storage` and `connectivity_plus` packages, `syncStatus`/`cloudUrl`/`uploadedBy` fields on `PhotoRecord` and `VideoRecord`, `StorageService` (Firebase Storage wrapper with upload/delete/getUrl), `UploadController` (coordinates single-file upload + sync status persistence), `storage.rules` (auth-gated, 10MB photo / 500MB video limits), `storageServiceProvider` and `uploadControllerProvider` wiring.
 - Step 4b: Upload queue + offline persistence — `UploadQueueEntry` model, `UploadQueue` service (persistent JSON queue at `KitchenCleaningJobs/upload_queue.json`), auto-enqueue after photo/video capture in `JobsService`, queue processor (`processNext`/`processAll` via `UploadController`), `uploadQueueProvider` wiring, fixed `movePhotos` sync field preservation for same-unit moves.
 - Step 4c: Background upload service — `workmanager` package, `BackgroundUploadService` (connectivity check, exponential backoff 1m-30m cap), `UploadProgressNotifier` + `uploadProgressProvider` (Riverpod state for UI), workmanager periodic task (15-min), sync status indicator in Jobs Home AppBar (pending badge + processing spinner), `UploadQueue.onNewEntry` callback for immediate post-capture upload trigger.
 - Step 4d: Multi-device coordination — `uploadedBy` attribution on photo/video uploads, `JobMerger` append-only merge by photoId/videoId (union of records, sync-status best-wins, soft-delete additive), `CloudJobRepository.pullFromCloud()` triggered on pull-to-refresh.
@@ -954,7 +954,7 @@ lib/presentation/controllers/job_detail_controller.dart — chronological sort f
 
 The fix also simplifies the export code by removing the temp-file dance (previously wrote `job.json` and `notes.txt` to temp files before adding to the encoder; now adds raw bytes directly to the `Archive`).
 
-**Cloud download fallback (complete):** After adding local files, the export now downloads cloud-only media from Firebase Storage for any active photo/video whose `relativePath` was not found on disk. Uses `FirebaseStorage.instance.ref('jobs/{jobId}/{relativePath}').getData()` with 10MB/100MB limits (matching `storage.rules`). Fails silently per-item. This mirrors the web console's `WebExportService` approach and ensures ZIPs include all media regardless of which device captured it.
+**Cloud download fallback (complete):** After adding local files, the export now downloads cloud-only media from Firebase Storage for any active photo/video whose `relativePath` was not found on disk. Uses `FirebaseStorage.instance.ref('jobs/{jobId}/{relativePath}').getData()` with 10MB/500MB limits (matching `storage.rules`). Fails silently per-item. This mirrors the web console's `WebExportService` approach and ensures ZIPs include all media regardless of which device captured it.
 
 **Key files changed:**
 ```
@@ -1207,7 +1207,7 @@ Computed helpers on both models: `isSynced`, `needsUpload`.
 ## Upload Flow
 
 ```
-Photo captured → saved to local filesystem → PhotoRecord created (syncStatus null)
+Media captured → saved to local filesystem → PhotoRecord/VideoRecord created (syncStatus 'pending')
     ↓
 UploadController.uploadPhoto(jobDir, jobId, photoId)
     ↓
@@ -1316,6 +1316,25 @@ filesystem only (no re-push to Firestore). Cloud-only jobs (no local folder) are
 provisioned locally with a folder named `{sanitized_name}_{jobId_prefix}`. Triggered
 in real-time via Firestore `.snapshots()` listener, and manually via pull-to-refresh.
 
+### Upload Reliability + Manual Video Retry (2026-04-05)
+
+- `VideosScreen` long-press menu now includes **Retry upload** when a video's `syncStatus == 'error'`
+- `JobsService.requeueVideoUpload(jobDir, videoId)` resets video sync metadata and requeues immediately
+- `UploadQueue.requeueFailedMedia(...)` reuses failed entries by flipping them back to `pending` (no backoff wait)
+- Web video status labels now distinguish `Pending upload`, `Uploading...`, and `Upload failed` instead of a generic "Not uploaded"
+
+**Key files changed:**
+```
+lib/application/jobs_service.dart                — requeueVideoUpload + video sync reset helpers
+lib/services/upload_queue.dart                   — requeueFailedMedia for immediate retry
+lib/presentation/controllers/job_detail_controller.dart — retryVideoUpload wiring
+lib/presentation/screens/videos_screen.dart      — long-press Retry upload action
+lib/presentation/job_detail.dart                 — retry callback wiring for exit/other video screens
+lib/web/screens/web_job_detail_screen.dart       — explicit video upload status labels
+lib/services/storage_service.dart                — corrected video MIME contentType formatting
+storage.rules                                    — video write limit raised to 500MB
+```
+
 ---
 
 # Sync Engine (Step 5 → Phase 7)
@@ -1387,7 +1406,7 @@ lib/application/jobs_service.dart                   — requeueBrokenPhoto (sync
 ## Storage Security Rules
 
 - Any authenticated user can read from `jobs/{jobId}/...`
-- Any authenticated user can write to `jobs/{jobId}/...` (photos: 10MB limit, videos: 100MB limit)
+- Any authenticated user can write to `jobs/{jobId}/...` (photos: 10MB limit, videos: 500MB limit)
 - Everything else is denied
 
 ---

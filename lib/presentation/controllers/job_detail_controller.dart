@@ -379,6 +379,15 @@ class JobDetailController {
     await loadJob();
   }
 
+  Future<void> retryVideoUpload({required String videoId}) async {
+    final trimmed = videoId.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(videoId, 'videoId', 'Video id cannot be empty.');
+    }
+    await jobs.requeueVideoUpload(jobDir: jobDir, videoId: trimmed);
+    await loadJob();
+  }
+
   Future<List<PhotoRecord>> loadPreCleanLayoutPhotos() async {
     final job = _job ?? await loadJob();
     return job.preCleanLayoutPhotos

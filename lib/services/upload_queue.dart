@@ -168,6 +168,31 @@ class UploadQueue {
     ));
   }
 
+  /// Re-queues a previously failed media entry for immediate retry.
+  ///
+  /// Returns true if a matching failed entry was found and reset to pending.
+  Future<bool> requeueFailedMedia({
+    required String jobId,
+    required String mediaId,
+    required String mediaType,
+  }) async {
+    await _ensureLoaded();
+    for (var i = _entries.length - 1; i >= 0; i--) {
+      final entry = _entries[i];
+      if (entry.jobId != jobId ||
+          entry.mediaId != mediaId ||
+          entry.mediaType != mediaType ||
+          !entry.isFailed) {
+        continue;
+      }
+      _entries[i] = entry.copyWith(status: 'pending', lastAttempt: null);
+      await _save();
+      onNewEntry?.call();
+      return true;
+    }
+    return false;
+  }
+
   /// Removes all completed entries from the queue.
   Future<void> removeCompleted() async {
     await _ensureLoaded();

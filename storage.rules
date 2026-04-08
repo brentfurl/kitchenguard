@@ -19,7 +19,7 @@ service firebase.storage {
     match /jobs/{jobId}/Videos/{allPaths=**} {
       allow read: if isSignedIn();
       allow write: if isSignedIn()
-                   && request.resource.size < 100 * 1024 * 1024; // 100 MB videos
+                   && request.resource.size < 500 * 1024 * 1024; // 500 MB videos
     }
 
     // Deny everything else.

@@ -473,6 +473,10 @@ class _JobDetailState extends ConsumerState<JobDetail> {
             );
             _reloadJob();
           },
+          retryUpload: (videoId) async {
+            await _controller.retryVideoUpload(videoId: videoId);
+            _reloadJob();
+          },
           resolveVideoFile: (relativePath) async {
             final file = _controller.videoFileFromRelativePath(relativePath);
             return await file.exists() ? file : null;
@@ -516,6 +520,10 @@ class _JobDetailState extends ConsumerState<JobDetail> {
               kind: 'other',
               relativePath: relativePath,
             );
+            _reloadJob();
+          },
+          retryUpload: (videoId) async {
+            await _controller.retryVideoUpload(videoId: videoId);
             _reloadJob();
           },
           resolveVideoFile: (relativePath) async {
