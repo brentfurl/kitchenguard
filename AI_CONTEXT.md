@@ -670,6 +670,8 @@ Core capabilities complete:
 - chronological note ordering: field notes and job notes sorted oldest-to-newest on mobile
 - web console: PDF photo report download (cover page + 2x3 grid sections per unit/phase)
 - web console: Published filter further restricted to Today + Upcoming only
+- web console: per-video download menu (`Download (~10 MB)` and `Download original`) in job detail
+- web console: backend-assisted best-effort video compression via callable `prepareCompressedVideoDownload`
 - auth screen: "Forgot password?" link triggers Firebase password reset email
 - iOS share fix: `sharePositionOrigin` passed to `share_plus` to prevent `PlatformException` on iOS share sheet
 
@@ -1074,6 +1076,46 @@ lib/web/web_dashboard.dart                  — Offstage + Stack to preserve sch
 lib/web/web_export_service.dart             — NEW: web ZIP export service with Storage URL fallback
 cors.json                                   — NEW: Firebase Storage CORS config (deployed via gsutil)
 pubspec.yaml                                — added package:web dependency
+```
+
+### Web Console Video Download Compression + Cache Busting (complete)
+
+Added a new per-video download flow in web job detail that supports best-effort email-friendly compression, plus a cache-refresh strategy to reduce stale web bundles.
+
+**1. Per-video download options (web job detail):**
+- Exit video rows now expose a download menu with two options: `Download (~10 MB)` and `Download original`.
+- The compressed option calls a backend callable first, then downloads the returned artifact; original download remains available as fallback.
+
+**2. Backend callable compression (best-effort 10 MB):**
+- New callable function: `prepareCompressedVideoDownload` in `functions/index.js`.
+- Input: `jobId`, `videoId`, `relativePath`, `fileName`, `targetMb`.
+- Behavior:
+  - If source is already <= target size, returns original storage path.
+  - Otherwise downloads source from Firebase Storage, probes duration with `ffprobe`, transcodes with `ffmpeg` (adaptive bitrate), uploads compressed result under `jobs/{jobId}/Videos/Compressed/...`, and returns metadata note.
+  - If compression fails, returns original storage path so the web client can still download.
+
+**3. Signed-URL IAM mitigation:**
+- Initial approach using signed URLs failed in production due to missing `iam.serviceAccounts.signBlob` permission on the function runtime service account.
+- Fix: callable now returns Storage paths (and optional URL), and web client resolves final URL via `FirebaseStorage.instance.ref(storagePath).getDownloadURL()`.
+
+**4. Long-run timeout fix:**
+- Web callable timeout increased to 8 minutes (`HttpsCallableOptions`) so longer transcodes do not fail around the default ~60s callable timeout.
+
+**5. Web cache-busting improvement:**
+- Added service-worker update logic to `web/index.html`:
+  - checks for waiting service workers
+  - posts `SKIP_WAITING`
+  - reloads once on `controllerchange`
+  - calls `registration.update()` on load
+- This reduces stale-bundle issues where users can see old UI after hosting deploys.
+
+**Key files changed:**
+```
+functions/index.js                           — NEW callable: prepareCompressedVideoDownload (ffprobe + ffmpeg flow)
+functions/package.json                       — added ffmpeg-static, ffprobe-static
+functions/package-lock.json                  — lockfile updates for new function dependencies
+lib/web/screens/web_job_detail_screen.dart  — download menu, callable integration, timeout, storage-path URL resolution
+web/index.html                               — service-worker auto-update + one-time reload cache-busting logic
 ```
 
 ---

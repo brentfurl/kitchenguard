@@ -110,6 +110,48 @@
       if (el) el.remove();
     });
   </script>
+  <script>
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+
+      var reloadedKey = 'kg_sw_reloaded_once';
+
+      function requestActivateAndReload(registration) {
+        if (!registration || !registration.waiting) return;
+        if (sessionStorage.getItem(reloadedKey) === '1') return;
+
+        sessionStorage.setItem(reloadedKey, '1');
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          window.location.reload();
+        }, { once: true });
+      }
+
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.getRegistration().then(function (registration) {
+          if (!registration) return;
+
+          if (registration.waiting) {
+            requestActivateAndReload(registration);
+            return;
+          }
+
+          registration.addEventListener('updatefound', function () {
+            var installing = registration.installing;
+            if (!installing) return;
+            installing.addEventListener('statechange', function () {
+              if (installing.state === 'installed' && registration.waiting) {
+                requestActivateAndReload(registration);
+              }
+            });
+          });
+
+          registration.update();
+        });
+      });
+    })();
+  </script>
 
 
 </body></html>
