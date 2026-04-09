@@ -485,9 +485,11 @@ class JobMerger {
 
   /// Returns whichever sync status ranks higher.
   ///
-  /// Ranking: synced (4) > uploading (3) > error (2) > pending (1) > null (0).
+  /// Ranking: synced (4) > uploading (3) > pending (2) > error (1) > null (0).
+  /// 'pending' outranks 'error' so that a deliberate retry-reset (e.g. from
+  /// the web console) propagates through merge to the uploading device.
   static String? _betterSyncStatus(String? a, String? b) {
-    const rank = {'synced': 4, 'uploading': 3, 'error': 2, 'pending': 1};
+    const rank = {'synced': 4, 'uploading': 3, 'pending': 2, 'error': 1};
     final ra = rank[a] ?? 0;
     final rb = rank[b] ?? 0;
     return ra >= rb ? a : b;

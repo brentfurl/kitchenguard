@@ -113,7 +113,7 @@ void uploadQueueCallbackDispatcher() {
       final queue = UploadQueue(paths: paths);
       await queue.load();
 
-      if (queue.pendingCount == 0) return true;
+      if (!queue.hasProcessableEntries) return true;
 
       if (!await BackgroundUploadService.isConnected()) return true;
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/background_upload_service.dart';
@@ -38,9 +40,16 @@ class UploadProgressNotifier extends StateNotifier<UploadProgressState> {
   final UploadQueue queue;
   final UploadController? uploadController;
   bool _isProcessing = false;
+  Timer? _retryTimer;
+
+  static const _retryInterval = Duration(minutes: 3);
 
   Future<void> _init() async {
     queue.onNewEntry = _onNewEntry;
+    _retryTimer = Timer.periodic(_retryInterval, (_) {
+      if (!mounted) return;
+      _processIfEligible();
+    });
     try {
       await queue.load();
       _refreshState();
@@ -103,6 +112,7 @@ class UploadProgressNotifier extends StateNotifier<UploadProgressState> {
   @override
   void dispose() {
     queue.onNewEntry = null;
+    _retryTimer?.cancel();
     super.dispose();
   }
 }

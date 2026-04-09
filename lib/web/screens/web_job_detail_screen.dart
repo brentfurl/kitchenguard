@@ -117,6 +117,42 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
   Job get job => widget.job;
   ThemeData get theme => widget.theme;
 
+  Future<void> _retryVideoUpload(String videoId) async {
+    final exitList = job.videos.exit.map((v) {
+      if (v.videoId != videoId) return v;
+      return VideoRecord(
+        videoId: v.videoId,
+        fileName: v.fileName,
+        relativePath: v.relativePath,
+        capturedAt: v.capturedAt,
+        status: v.status,
+        deletedAt: v.deletedAt,
+        syncStatus: 'pending',
+      );
+    }).toList();
+    final otherList = job.videos.other.map((v) {
+      if (v.videoId != videoId) return v;
+      return VideoRecord(
+        videoId: v.videoId,
+        fileName: v.fileName,
+        relativePath: v.relativePath,
+        capturedAt: v.capturedAt,
+        status: v.status,
+        deletedAt: v.deletedAt,
+        syncStatus: 'pending',
+      );
+    }).toList();
+    final updated = job.copyWith(
+      videos: job.videos.copyWith(exit: exitList, other: otherList),
+    );
+    await widget.webJobRepo.saveJob(updated);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Retry requested — the phone will re-upload this video.')),
+      );
+    }
+  }
+
   Future<void> _startZipExport() async {
     if (_isExportingZip) return;
     setState(() => _isExportingZip = true);
@@ -537,7 +573,11 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
               // Exit videos
               if (exitVideos.isNotEmpty) ...[
                 _sectionHeader('Exit Videos'),
-                _VideoList(videos: exitVideos, jobId: job.jobId),
+                _VideoList(
+                  videos: exitVideos,
+                  jobId: job.jobId,
+                  onRetryUpload: _retryVideoUpload,
+                ),
               ],
               // Manager notes
               if (activeManagerNotes.isNotEmpty) ...[
@@ -893,10 +933,15 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
 // ---------------------------------------------------------------------------
 
 class _VideoList extends StatefulWidget {
-  const _VideoList({required this.videos, required this.jobId});
+  const _VideoList({
+    required this.videos,
+    required this.jobId,
+    this.onRetryUpload,
+  });
 
   final List<VideoRecord> videos;
   final String jobId;
+  final Future<void> Function(String videoId)? onRetryUpload;
 
   @override
   State<_VideoList> createState() => _VideoListState();
@@ -1054,7 +1099,14 @@ class _VideoListState extends State<_VideoList> {
                           ),
                   ],
                 )
-              : null,
+              : syncStatus == 'error' && widget.onRetryUpload != null
+                  ? IconButton(
+                      icon: Icon(Icons.refresh, color: cs.error),
+                      tooltip: 'Retry upload',
+                      onPressed: () =>
+                          widget.onRetryUpload!(v.videoId),
+                    )
+                  : null,
         );
       }).toList(),
     );

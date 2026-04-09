@@ -411,14 +411,23 @@ PDF structure:
 - Videos excluded (photos only)
 - Unit ordering matches ZIP export (Hoods, Fans, Misc via `UnitSorter`)
 - Cloud-only photos downloaded from Firebase Storage (same fallback as ZIP)
+- Export presets:
+  - `Original`
+  - `Email-friendly (fast)` (single-pass, best-effort)
+  - `Email-friendly (5 MB, slower)` (strict target with bounded adaptive attempts)
+- Web default preset is `Email-friendly (fast)` for better runtime.
 
-Implementation uses the `pdf` package (pure Dart, platform-independent). The builder (`PdfExportBuilder`) is shared and can be reused for mobile PDF export later.
+Implementation uses the `pdf` package (pure Dart, platform-independent). The builder (`PdfExportBuilder`) is shared by both web and mobile export flows. Compression uses `package:image` via `PdfImageOptimizer`.
 
 **Key files:**
 ```
 lib/services/pdf_export_builder.dart           — shared PDF builder (cover + 2x3 grid sections)
-lib/web/web_pdf_export_service.dart            — web: download images from Storage, build PDF, trigger browser download
-lib/web/screens/web_job_detail_screen.dart     — Download PDF button alongside Download ZIP
+lib/services/pdf_export_preset.dart            — preset definitions (`Original`, `Email fast`, `Email 5MB`)
+lib/services/pdf_image_optimizer.dart          — bounded adaptive image compression and PDF build orchestration
+lib/web/web_pdf_export_service.dart            — web: concurrent photo download + preset-aware PDF build + browser download
+lib/web/screens/web_job_detail_screen.dart     — web PDF preset selector (default: Email fast) + progress UI
+lib/application/jobs_service.dart              — mobile/local PDF export path with preset-aware build
+lib/presentation/job_detail.dart               — mobile PDF preset bottom sheet before share
 ```
 
 ---
@@ -669,6 +678,9 @@ Core capabilities complete:
 - unit card redesign: camera icon (leading) + label+count opens gallery (swapped roles for intuitiveness)
 - chronological note ordering: field notes and job notes sorted oldest-to-newest on mobile
 - web console: PDF photo report download (cover page + 2x3 grid sections per unit/phase)
+- web console: PDF presets (`Original`, `Email fast`, `Email 5MB (slower)`) with default set to Email fast
+- web console: PDF export speedup via concurrent image downloads and faster bounded adaptive compression
+- mobile: PDF export preset picker (`Standard`, `Email-friendly fast`, `Email-friendly 5 MB target`) before share
 - web console: Published filter further restricted to Today + Upcoming only
 - web console: per-video download menu (`Download (~10 MB)` and `Download original`) in job detail
 - web console: backend-assisted best-effort video compression via callable `prepareCompressedVideoDownload`
@@ -1375,6 +1387,53 @@ lib/presentation/job_detail.dart                 — retry callback wiring for e
 lib/web/screens/web_job_detail_screen.dart       — explicit video upload status labels
 lib/services/storage_service.dart                — corrected video MIME contentType formatting
 storage.rules                                    — video write limit raised to 500MB
+```
+
+### Sync Reliability Fixes (2026-04-08)
+
+Eight improvements addressing field-reported sync/upload issues: stuck spinner, incomplete cross-device photo sync, stale video upload failures, and missing upload status visibility.
+
+**1. Connectivity-change upload trigger:**
+- `SyncNotifier._onConnectivityChanged` now detects offline→online transitions and calls `triggerUpload()` so queued uploads resume immediately when connectivity returns.
+
+**2. Background task early-exit fix:**
+- `uploadQueueCallbackDispatcher` previously checked `queue.pendingCount == 0` and exited early. `pendingCount` only counted `pending` entries, not `failed` entries eligible for retry. Changed to `queue.hasProcessableEntries` which includes retryable failed entries.
+
+**3. Periodic foreground retry timer:**
+- `UploadProgressNotifier` now runs a 3-minute `Timer.periodic` that calls `_processIfEligible()`. Handles the gap where items failed with backoff and are now eligible again. Cancelled in `dispose()`.
+
+**4. Spinner tap-to-sync:**
+- `_SyncIndicator` spinner (active sync state) is now wrapped in `GestureDetector` with `onTap` so users can trigger manual sync even while the spinner is showing, providing an escape hatch for stuck states.
+
+**5. Snapshot-dropping race fix:**
+- `_processPendingSnapshot` no longer nulls `_pendingCloudJobs` before checking `_isMerging`. When a merge is already in progress, the snapshot is preserved. After the merge completes, `finally` checks for a pending snapshot and re-processes it.
+
+**6. Auto-recovery for exhausted retries:**
+- `UploadQueue.load()` now resets entries with `retryCount >= maxRetries` back to `pending` with `retryCount: 0`. This recovers from situations where a transient bug burned through all 10 retries before a fix was deployed.
+
+**7. Per-photo sync status badge (mobile):**
+- `CloudAwareImage` now shows a small sync status overlay on locally-captured photos: green cloud-done for synced, blue upload for uploading, orange upload-outlined for pending, red cloud-off for error. Badge only appears when `syncStatus` is set and the local file exists.
+
+**8. Web console video retry button:**
+- Failed videos (`syncStatus == 'error'`) in the web job detail screen now show a retry icon button. Clicking resets the video's `syncStatus` to `'pending'` in Firestore. The mobile app picks up the change via real-time listener and re-attempts upload.
+
+**9. Merge ranking adjustment:**
+- `_betterSyncStatus` ranking changed from `synced > uploading > error > pending > null` to `synced > uploading > pending > error > null`. This allows a deliberate retry-reset (setting syncStatus to 'pending' from the web console) to propagate through the merge to the uploading device.
+
+**10. Video retry menu widened:**
+- `VideosScreen` long-press "Retry upload" option now shows for any video that isn't synced (`!video.isSynced`), not only those with `syncStatus == 'error'`. This covers cases where syncStatus was reset to 'pending' (e.g. via web retry) but the queue entry was lost.
+
+**Key files changed:**
+```
+lib/providers/sync_provider.dart                — connectivity trigger + snapshot race fix
+lib/providers/upload_progress_provider.dart     — periodic retry timer (3 min)
+lib/services/background_upload_service.dart     — hasProcessableEntries check
+lib/services/upload_queue.dart                  — hasProcessableEntries getter + exhausted-retry reset on load
+lib/presentation/jobs_home.dart                 — tappable spinner
+lib/presentation/widgets/cloud_aware_image.dart — per-photo sync status badge
+lib/web/screens/web_job_detail_screen.dart      — video retry button
+lib/domain/merge/job_merger.dart                — pending > error ranking
+lib/presentation/screens/videos_screen.dart    — retry menu shows for any non-synced video
 ```
 
 ---

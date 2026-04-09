@@ -81,11 +81,20 @@ class _CloudAwareImageState extends State<CloudAwareImage> {
   @override
   Widget build(BuildContext context) {
     if (_localAvailable) {
-      return Image.file(
+      final image = Image.file(
         widget.localFile!,
         fit: widget.fit,
         width: widget.width,
         height: widget.height,
+      );
+      final badge = _syncBadge();
+      if (badge == null) return image;
+      return Stack(
+        fit: StackFit.passthrough,
+        children: [
+          image,
+          Positioned(bottom: 4, right: 4, child: badge),
+        ],
       );
     }
 
@@ -145,6 +154,37 @@ class _CloudAwareImageState extends State<CloudAwareImage> {
     }
 
     return _missingPlaceholder();
+  }
+
+  Widget? _syncBadge() {
+    final s = widget.syncStatus;
+    if (s == null) return null;
+    final IconData icon;
+    final Color color;
+    switch (s) {
+      case 'synced':
+        icon = Icons.cloud_done;
+        color = Colors.green;
+      case 'uploading':
+        icon = Icons.cloud_upload;
+        color = Colors.blue;
+      case 'pending':
+        icon = Icons.cloud_upload_outlined;
+        color = Colors.orange;
+      case 'error':
+        icon = Icons.cloud_off;
+        color = Colors.red;
+      default:
+        return null;
+    }
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Icon(icon, size: 14, color: color),
+    );
   }
 
   static Widget _missingPlaceholder() {

@@ -106,8 +106,13 @@ class SyncNotifier extends StateNotifier<SyncState> {
   }
 
   void _onConnectivityChanged(List<ConnectivityResult> results) {
+    final wasOffline = !state.isOnline;
     final online = !results.contains(ConnectivityResult.none);
     state = state.copyWith(isOnline: online);
+
+    if (online && wasOffline) {
+      ref.read(uploadProgressProvider.notifier).triggerUpload();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -151,9 +156,10 @@ class SyncNotifier extends StateNotifier<SyncState> {
   Future<void> _processPendingSnapshot() async {
     final jobs = _pendingCloudJobs;
     if (jobs == null) return;
-    _pendingCloudJobs = null;
 
     if (_isMerging) return;
+
+    _pendingCloudJobs = null;
     _isMerging = true;
     state = state.copyWith(isPulling: true);
 
@@ -177,6 +183,9 @@ class SyncNotifier extends StateNotifier<SyncState> {
       state = state.copyWith(isPulling: false);
     } finally {
       _isMerging = false;
+      if (_pendingCloudJobs != null) {
+        _processPendingSnapshot();
+      }
     }
   }
 

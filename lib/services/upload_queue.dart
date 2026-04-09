@@ -72,6 +72,13 @@ class UploadQueue {
           _entries[i] = _entries[i].copyWith(status: 'pending');
           modified = true;
         }
+        if (_entries[i].isFailed && _entries[i].retryCount >= maxRetries) {
+          _entries[i] = _entries[i].copyWith(
+            status: 'pending',
+            retryCount: 0,
+          );
+          modified = true;
+        }
       }
 
       if (modified) await _save();
@@ -280,6 +287,9 @@ class UploadQueue {
   // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------
+
+  /// True if any entry is eligible for processing (pending or retryable).
+  bool get hasProcessableEntries => _entries.any(_isProcessable);
 
   bool _isProcessable(UploadQueueEntry e) =>
       e.isPending || (e.isFailed && e.retryCount < maxRetries);

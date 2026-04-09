@@ -135,7 +135,7 @@ class _VideosScreenState extends State<VideosScreen> {
 
   Future<void> _showActionsMenu({required VideoRecord video}) async {
     final canDelete = video.relativePath.isNotEmpty && widget.softDelete != null;
-    final canRetry = video.syncStatus == 'error' && widget.retryUpload != null;
+    final canRetry = !video.isSynced && widget.retryUpload != null;
     if (!canDelete && !canRetry) return;
 
     final action = await showModalBottomSheet<String>(
@@ -213,8 +213,7 @@ class _VideosScreenState extends State<VideosScreen> {
                     final hasCloud = cloudUrl != null && cloudUrl.isNotEmpty;
                     final canShowActions =
                         (relativePath.isNotEmpty && widget.softDelete != null) ||
-                        (video.syncStatus == 'error' &&
-                            widget.retryUpload != null);
+                        (!video.isSynced && widget.retryUpload != null);
                     return ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: Text(fileName),
