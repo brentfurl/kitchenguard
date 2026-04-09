@@ -173,8 +173,13 @@ class CloudJobRepository implements JobRepository {
   /// they appear in the job list. Media files stay cloud-only and are
   /// viewable via [CloudAwareImage] / network video playback (Step 4e).
   ///
-  /// Results are saved to the local filesystem only (no re-push to
-  /// Firestore to avoid write loops).
+  /// Results are saved to the local filesystem only — **except** when
+  /// the merge detects that Firestore is missing documentation records
+  /// that exist locally. In that case the merged result is pushed back
+  /// to Firestore to self-heal overwrites from other clients (e.g. the
+  /// web console using partial updates on a stale copy). This is safe
+  /// from infinite loops because the next snapshot will match the local
+  /// version, so no further pushback occurs.
   @override
   Future<int> mergeCloudJobs(List<Job> cloudJobs) async {
     try {
@@ -194,8 +199,17 @@ class CloudJobRepository implements JobRepository {
             local: localResult.job,
             cloud: cloudJob,
           );
-          await _local.saveJob(localResult.jobDir, merged);
+          final saved = await _local.saveJob(localResult.jobDir, merged);
           await _provisionUnitFolders(localResult.jobDir, merged);
+
+          if (_cloudIsMissingRecords(saved, cloudJob)) {
+            developer.log(
+              'Pushback: cloud missing records for '
+              '${saved.restaurantName} — re-syncing to Firestore',
+              name: 'CloudJobRepository',
+            );
+            _syncToFirestore(saved);
+          }
         } else {
           await _provisionCloudOnlyJob(cloudJob);
         }
@@ -298,6 +312,30 @@ class CloudJobRepository implements JobRepository {
         await afterDir.create(recursive: true);
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Stale-cloud detection
+  // ---------------------------------------------------------------------------
+
+  /// Returns true when [cloud] has fewer documentation records (photos,
+  /// videos, notes) than [merged]. This indicates Firestore was overwritten
+  /// with stale data (e.g. a web console edit on an old snapshot).
+  bool _cloudIsMissingRecords(Job merged, Job cloud) {
+    return _docRecordCount(merged) > _docRecordCount(cloud);
+  }
+
+  /// Counts total documentation records across all units, pre-clean,
+  /// videos, and notes.
+  static int _docRecordCount(Job job) {
+    var count = 0;
+    for (final u in job.units) {
+      count += u.photosBefore.length + u.photosAfter.length;
+    }
+    count += job.preCleanLayoutPhotos.length;
+    count += job.videos.exit.length + job.videos.other.length;
+    count += job.notes.length + job.managerNotes.length;
+    return count;
   }
 
   // ---------------------------------------------------------------------------

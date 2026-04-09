@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -249,17 +250,16 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
 
     final repo = ref.read(webJobRepositoryProvider);
     for (var i = 0; i < reordered.length; i++) {
-      await repo.saveJob(reordered[i].copyWith(sortOrder: i));
+      await repo.updateFields(reordered[i].jobId, {'sortOrder': i});
     }
   }
 
   Future<void> _toggleJobCompletion(Job job) async {
-    final updated = job.copyWith(
-      completedAt: job.isComplete
-          ? null
+    await ref.read(webJobRepositoryProvider).updateFields(job.jobId, {
+      'completedAt': job.isComplete
+          ? FieldValue.delete()
           : DateTime.now().toUtc().toIso8601String(),
-    );
-    await ref.read(webJobRepositoryProvider).saveJob(updated);
+    });
   }
 
   Future<void> _deleteJob(String jobId) async {
@@ -415,7 +415,9 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
               status: 'active',
             ),
           ];
-          await webJobRepo.saveJob(latest.copyWith(managerNotes: updated));
+          await webJobRepo.updateFields(job.jobId, {
+            'managerNotes': updated.map((n) => n.toJson()).toList(),
+          });
         },
         onEdit: (noteId, newText) async {
           final latest = await webJobRepo.loadJob(job.jobId);
@@ -429,7 +431,9 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             }
             return n;
           }).toList();
-          await webJobRepo.saveJob(latest.copyWith(managerNotes: updated));
+          await webJobRepo.updateFields(job.jobId, {
+            'managerNotes': updated.map((n) => n.toJson()).toList(),
+          });
         },
         onDelete: (noteId) async {
           final latest = await webJobRepo.loadJob(job.jobId);
@@ -438,7 +442,9 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             if (n.noteId == noteId) return n.copyWith(status: 'deleted');
             return n;
           }).toList();
-          await webJobRepo.saveJob(latest.copyWith(managerNotes: updated));
+          await webJobRepo.updateFields(job.jobId, {
+            'managerNotes': updated.map((n) => n.toJson()).toList(),
+          });
         },
         onRefresh: () async {
           final latest = await webJobRepo.loadJob(job.jobId);
@@ -469,7 +475,22 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
       builder: (ctx) => _JobFormDialog(
         existing: job,
         onSave: (updated) async {
-          await ref.read(webJobRepositoryProvider).saveJob(updated);
+          final fields = <String, dynamic>{
+            'restaurantName': updated.restaurantName,
+            'scheduledDate': updated.scheduledDate ?? FieldValue.delete(),
+            'address': updated.address ?? FieldValue.delete(),
+            'city': updated.city ?? FieldValue.delete(),
+            'accessType': updated.accessType ?? FieldValue.delete(),
+            'accessNotes': updated.accessNotes ?? FieldValue.delete(),
+            'hasAlarm': updated.hasAlarm ?? FieldValue.delete(),
+            'alarmCode': updated.alarmCode ?? FieldValue.delete(),
+            'hoodCount': updated.hoodCount ?? FieldValue.delete(),
+            'fanCount': updated.fanCount ?? FieldValue.delete(),
+          };
+          await ref.read(webJobRepositoryProvider).updateFields(
+            job.jobId,
+            fields,
+          );
         },
       ),
     );

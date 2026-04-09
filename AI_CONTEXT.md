@@ -633,7 +633,7 @@ lib/presentation/job_detail.dart                                — wiring (exit
 
 # Current Development Phase
 
-**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes). **Store Readiness (in progress)** (bundle IDs, app icon, splash, Crashlytics, signing). **Video Capture Screen complete** (camera-based recording replaces ImagePicker for exit/other videos). **Export ZIP fix complete** (archive 4.x ZipFileEncoder bug). **PDF Photo Report complete** (web console structured photo report with cover page + 2x3 grid sections). **Auth UX improvements** (forgot password, iOS share fix).
+**Phase 2 complete.** **Phase 3 complete** (all 8 steps). **Pre-Phase 4 UX rework complete.** **Phase 4 complete** (Steps 0-3, 4a-4e). **Phase 5 complete** (sync engine). **Step 6 complete** (Flutter web management dashboard). **Phase 7 complete** (real-time sync + broken-URL recovery). **Phase 0 (pre-publishing refactor) complete.** **Phase A complete** (day publishing). **Web Console Fixes complete** (photo display, filter UX, ZIP export). **Bug Fix Round 2 complete** (draft visibility, filter row, midnight rollover, web Mark Complete). **Web Console Notes complete** (clickable note counters, full CRUD for all note types). **Web Console UX + Unit Card Redesign complete** (Published filter, drag reorder, unit card camera/gallery swap, chronological notes). **Store Readiness (in progress)** (bundle IDs, app icon, splash, Crashlytics, signing). **Video Capture Screen complete** (camera-based recording replaces ImagePicker for exit/other videos). **Export ZIP fix complete** (archive 4.x ZipFileEncoder bug). **PDF Photo Report complete** (web console structured photo report with cover page + 2x3 grid sections). **Auth UX improvements** (forgot password, iOS share fix). **Photo sync overwrite fix complete** (web partial updates + mobile merge pushback).
 
 Core capabilities complete:
 
@@ -1434,6 +1434,36 @@ lib/presentation/widgets/cloud_aware_image.dart — per-photo sync status badge
 lib/web/screens/web_job_detail_screen.dart      — video retry button
 lib/domain/merge/job_merger.dart                — pending > error ranking
 lib/presentation/screens/videos_screen.dart    — retry menu shows for any non-synced video
+```
+
+### Photo Sync Overwrite Fix (2026-04-08)
+
+Critical fix for photos uploaded from phones disappearing from Firestore (and thus the web console and other phones), even though the capturing phone showed green "synced" badges.
+
+**Root cause:** `WebJobRepository.saveJob()` used Firestore `set()` which replaces the **entire** document. Any web edit (mark complete, reorder, notes, etc.) would overwrite the `units` array (where photo records live) with a potentially stale copy from before the phone's upload arrived. Since the mobile merge only saved locally (no Firestore push), the lost records were never restored in cloud.
+
+**Fix Part A — Web partial updates:**
+- Added `WebJobRepository.updateFields()` method using Firestore `update()` so only specified fields are written.
+- Switched all web edit operations from `saveJob` (full doc replace) to `updateFields`:
+  - Reorder → only updates `sortOrder`
+  - Mark Complete / Reopen → only updates `completedAt`
+  - Edit Job dialog → only updates scheduling fields (name, date, address, access info, unit counts)
+  - Note CRUD → only updates `managerNotes` or `notes`
+  - Video retry → only updates `videos`
+- `saveJob` retained only for new job creation (no overwrite risk).
+- Uses `FieldValue.delete()` for nullable fields being cleared (completedAt, scheduledDate, etc.).
+
+**Fix Part B — Mobile merge pushback:**
+- After merge, `CloudJobRepository.mergeCloudJobs()` now compares documentation record counts (photos, videos, notes) between the merged result and the cloud version.
+- If the merged result has MORE records than cloud (indicating Firestore was overwritten with stale data), the merged result is pushed back to Firestore via `_syncToFirestore`.
+- Safe from infinite loops: the next snapshot matches local, so no further pushback fires.
+
+**Key files changed:**
+```
+lib/web/web_job_repository.dart              — updateFields() method (Firestore update)
+lib/web/screens/web_schedule_screen.dart     — all edit ops use updateFields instead of saveJob
+lib/web/screens/web_job_detail_screen.dart   — all edit ops use updateFields instead of saveJob
+lib/data/repositories/cloud_job_repository.dart — merge pushback + _cloudIsMissingRecords helper
 ```
 
 ---

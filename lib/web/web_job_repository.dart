@@ -45,13 +45,29 @@ class WebJobRepository {
     });
   }
 
-  /// Create or update a job in Firestore.
+  /// Create or fully replace a job in Firestore.
+  ///
+  /// Use only for new job creation. For partial edits (scheduling fields,
+  /// notes, completion, etc.) prefer [updateFields] to avoid overwriting
+  /// phone-managed documentation data (units, photos, videos).
   Future<Job> saveJob(Job job) async {
     final stamped = job.copyWith(
       updatedAt: DateTime.now().toUtc().toIso8601String(),
     );
     await _jobs.doc(stamped.jobId).set(stamped.toJson());
     return stamped;
+  }
+
+  /// Partially updates specific fields on a Firestore job document.
+  ///
+  /// Uses Firestore `update()` so only the provided [fields] are written;
+  /// all other fields (especially `units` with photo records) are untouched.
+  /// Automatically stamps `updatedAt`.
+  Future<void> updateFields(String jobId, Map<String, dynamic> fields) async {
+    await _jobs.doc(jobId).update({
+      ...fields,
+      'updatedAt': DateTime.now().toUtc().toIso8601String(),
+    });
   }
 
   /// Delete a job from Firestore.

@@ -3,6 +3,7 @@ import 'dart:js_interop';
 import 'dart:typed_data';
 import 'dart:ui_web' as ui_web;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
@@ -74,12 +75,11 @@ class WebJobDetailScreen extends ConsumerWidget {
           theme: theme,
           webJobRepo: ref.read(webJobRepositoryProvider),
           onToggleCompletion: () async {
-            final updated = job.copyWith(
-              completedAt: job.isComplete
-                  ? null
+            await ref.read(webJobRepositoryProvider).updateFields(job.jobId, {
+              'completedAt': job.isComplete
+                  ? FieldValue.delete()
                   : DateTime.now().toUtc().toIso8601String(),
-            );
-            await ref.read(webJobRepositoryProvider).saveJob(updated);
+            });
           },
         );
       },
@@ -142,10 +142,10 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
         syncStatus: 'pending',
       );
     }).toList();
-    final updated = job.copyWith(
-      videos: job.videos.copyWith(exit: exitList, other: otherList),
-    );
-    await widget.webJobRepo.saveJob(updated);
+    final updatedVideos = job.videos.copyWith(exit: exitList, other: otherList);
+    await widget.webJobRepo.updateFields(job.jobId, {
+      'videos': updatedVideos.toJson(),
+    });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Retry requested — the phone will re-upload this video.')),
@@ -321,9 +321,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
               status: 'active',
             ),
           ];
-          await widget.webJobRepo.saveJob(
-            latest.copyWith(managerNotes: updated),
-          );
+          await widget.webJobRepo.updateFields(job.jobId, {
+            'managerNotes': updated.map((n) => n.toJson()).toList(),
+          });
         },
         onEdit: (noteId, newText) async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
@@ -337,9 +337,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             }
             return n;
           }).toList();
-          await widget.webJobRepo.saveJob(
-            latest.copyWith(managerNotes: updated),
-          );
+          await widget.webJobRepo.updateFields(job.jobId, {
+            'managerNotes': updated.map((n) => n.toJson()).toList(),
+          });
         },
         onDelete: (noteId) async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
@@ -348,9 +348,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             if (n.noteId == noteId) return n.copyWith(status: 'deleted');
             return n;
           }).toList();
-          await widget.webJobRepo.saveJob(
-            latest.copyWith(managerNotes: updated),
-          );
+          await widget.webJobRepo.updateFields(job.jobId, {
+            'managerNotes': updated.map((n) => n.toJson()).toList(),
+          });
         },
         onRefresh: () async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
@@ -385,7 +385,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
               status: 'active',
             ),
           ];
-          await widget.webJobRepo.saveJob(latest.copyWith(notes: updated));
+          await widget.webJobRepo.updateFields(job.jobId, {
+            'notes': updated.map((n) => n.toJson()).toList(),
+          });
         },
         onEdit: (noteId, newText) async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
@@ -399,7 +401,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             }
             return n;
           }).toList();
-          await widget.webJobRepo.saveJob(latest.copyWith(notes: updated));
+          await widget.webJobRepo.updateFields(job.jobId, {
+            'notes': updated.map((n) => n.toJson()).toList(),
+          });
         },
         onDelete: (noteId) async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
@@ -408,7 +412,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             if (n.noteId == noteId) return n.copyWith(status: 'deleted');
             return n;
           }).toList();
-          await widget.webJobRepo.saveJob(latest.copyWith(notes: updated));
+          await widget.webJobRepo.updateFields(job.jobId, {
+            'notes': updated.map((n) => n.toJson()).toList(),
+          });
         },
         onRefresh: () async {
           final latest = await widget.webJobRepo.loadJob(job.jobId);
