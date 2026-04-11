@@ -153,7 +153,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
                 (date == todayStr && hasIncompletePastDays);
           })
           .toList()
-        ..sort();
+        ..sort((a, b) => b.compareTo(a));
     } else {
       filteredDates = allGrouped.keys.where((date) {
         if (_activeFilters.contains('today') && isEffectiveToday(date)) {
@@ -171,7 +171,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
         }
         return false;
       }).toList()
-        ..sort();
+        ..sort((a, b) => b.compareTo(a));
     }
 
     // Sort jobs within each date by sortOrder
