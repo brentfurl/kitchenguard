@@ -185,6 +185,19 @@ Use this for phone testing.
 - Refactoring code
 - Doing quick iterations
 
+## Use Web Console (Browser) When:
+- Testing schedule, user management, or job detail screens
+
+Run with a fixed port so the URL stays bookmarkable:
+
+```
+flutter run -d web-server --web-port 8686
+```
+
+Then open `http://localhost:8686` in your normal Chrome browser. This preserves your Firebase Auth session between restarts — no re-login needed. Just re-run the command and refresh the tab.
+
+Note: `flutter run -d chrome` launches an isolated Chrome instance that loses login state every time. Use `web-server` mode instead for web console work.
+
 ## Use Phone When:
 - Working on camera
 - Working on storage
