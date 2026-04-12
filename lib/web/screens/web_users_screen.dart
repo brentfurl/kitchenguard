@@ -122,7 +122,23 @@ class WebUsersScreen extends ConsumerWidget {
 
     return DataRow(cells: [
       DataCell(Text(email)),
-      DataCell(Text(name)),
+      DataCell(
+        InkWell(
+          onTap: () => _editName(context, ref, uid, name),
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(name),
+                const SizedBox(width: 4),
+                Icon(Icons.edit, size: 14, color: Colors.grey[400]),
+              ],
+            ),
+          ),
+        ),
+      ),
       DataCell(
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -151,27 +167,38 @@ class WebUsersScreen extends ConsumerWidget {
       DataCell(Text(lastLoginDisplay,
           style: const TextStyle(fontSize: 13))),
       DataCell(
-        PopupMenuButton<String>(
-          itemBuilder: (_) => [
-            const PopupMenuItem(
-                value: 'manager', child: Text('Set as Manager')),
-            const PopupMenuItem(
-                value: 'technician', child: Text('Set as Technician')),
-          ],
-          onSelected: (newRole) =>
-              _changeRole(context, ref, uid, email, newRole),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Change Role',
-                    style: TextStyle(
-                        fontSize: 13, color: cs.primary)),
-                Icon(Icons.arrow_drop_down, size: 18, color: cs.primary),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PopupMenuButton<String>(
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                    value: 'manager', child: Text('Set as Manager')),
+                const PopupMenuItem(
+                    value: 'technician', child: Text('Set as Technician')),
               ],
+              onSelected: (newRole) =>
+                  _changeRole(context, ref, uid, email, newRole),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Change Role',
+                        style: TextStyle(
+                            fontSize: 13, color: cs.primary)),
+                    Icon(Icons.arrow_drop_down, size: 18, color: cs.primary),
+                  ],
+                ),
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: Icon(Icons.delete_outline, size: 20, color: cs.error),
+              tooltip: 'Remove User',
+              onPressed: () => _removeUser(context, ref, uid, email),
+            ),
+          ],
         ),
       ),
     ]);
@@ -203,6 +230,107 @@ class WebUsersScreen extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update role: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _removeUser(
+    BuildContext context,
+    WidgetRef ref,
+    String uid,
+    String email,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove User'),
+        content: Text('Remove $email from the user list?\n\n'
+            'This removes the user record from Firestore. '
+            'The user can re-appear by signing in again.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(uid).delete();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$email has been removed.')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to remove user: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _editName(
+    BuildContext context,
+    WidgetRef ref,
+    String uid,
+    String currentName,
+  ) async {
+    final controller = TextEditingController(
+      text: currentName == '-' ? '' : currentName,
+    );
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit Name'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 350),
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Display Name'),
+            onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (newName == null || newName.isEmpty) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .update({'displayName': newName});
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Name updated to $newName.')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update name: $e')),
         );
       }
     }

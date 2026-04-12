@@ -9,6 +9,7 @@ import '../../domain/models/day_schedule.dart';
 import '../../domain/models/job.dart';
 import '../../domain/models/manager_job_note.dart';
 import '../../domain/models/videos.dart';
+import '../../presentation/widgets/job_dialog.dart' show accessTypeLabels;
 import '../web_providers.dart';
 import '../widgets/web_notes_dialog.dart';
 
@@ -796,7 +797,8 @@ class _JobTile extends StatelessWidget {
                       if (totalPhotos > 0)
                         _metaChip('$totalPhotos photos'),
                       if (job.accessType != null)
-                        _metaChip(job.accessType!),
+                        _metaChip(accessTypeLabels[job.accessType] ??
+                            job.accessType!.replaceAll(RegExp(r'[-_]'), ' ')),
                       _jobNotesChip(),
                     ],
                   ),
@@ -1062,12 +1064,12 @@ class _JobFormDialogState extends State<_JobFormDialog> {
                       const InputDecoration(labelText: 'Access Type'),
                   items: const [
                     DropdownMenuItem(
-                        value: 'no-key', child: Text('No Key - Meet after closing')),
+                        value: 'no-key', child: Text('No key - Meet after closing')),
                     DropdownMenuItem(
                         value: 'get-key-from-shop',
-                        child: Text('Get Key from Shop')),
+                        child: Text('Get key from shop')),
                     DropdownMenuItem(
-                        value: 'key-hidden', child: Text('Key Hidden')),
+                        value: 'key-hidden', child: Text('Key hidden')),
                     DropdownMenuItem(
                         value: 'lockbox', child: Text('Lockbox')),
                   ],

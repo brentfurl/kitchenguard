@@ -17,6 +17,7 @@ import '../../domain/models/manager_job_note.dart';
 import '../../domain/models/photo_record.dart';
 import '../../domain/models/unit.dart';
 import '../../domain/models/video_record.dart';
+import '../../presentation/widgets/job_dialog.dart' show accessTypeLabels;
 import '../web_export_service.dart';
 import '../web_job_repository.dart';
 import '../web_pdf_export_service.dart';
@@ -532,7 +533,10 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             spacing: 8,
             runSpacing: 4,
             children: [
-              if (job.accessType != null) _chip(Icons.vpn_key, job.accessType!),
+              if (job.accessType != null)
+                _chip(Icons.vpn_key,
+                    accessTypeLabels[job.accessType] ??
+                        job.accessType!.replaceAll(RegExp(r'[-_]'), ' ')),
               if (job.hasAlarm == true)
                 _chip(
                   Icons.alarm,
