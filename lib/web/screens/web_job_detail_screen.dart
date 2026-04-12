@@ -445,9 +445,6 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
     final activeManagerNotes = job.managerNotes
         .where((n) => n.isActive)
         .toList();
-    final activeLayoutPhotos = job.preCleanLayoutPhotos
-        .where((p) => p.isActive)
-        .toList();
     final exitVideos = job.videos.exit.where((v) => v.isActive).toList();
 
     return Column(
@@ -568,12 +565,6 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
             children: [
-              // Pre-clean layout photos
-              if (activeLayoutPhotos.isNotEmpty) ...[
-                _sectionHeader('Pre-Clean Layout'),
-                _PhotoGrid(photos: activeLayoutPhotos),
-                const SizedBox(height: 16),
-              ],
               // Units
               for (final unit in job.units) _UnitSection(unit: unit),
               // Exit videos

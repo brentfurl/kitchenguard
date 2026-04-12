@@ -109,9 +109,13 @@ class WebUsersScreen extends ConsumerWidget {
 
     String lastLoginDisplay;
     try {
-      final dt = DateTime.parse(lastLogin);
+      final utc = DateTime.parse(lastLogin);
+      final dt = utc.subtract(const Duration(hours: 5));
+      final hour24 = dt.hour;
+      final hour12 = hour24 == 0 ? 12 : (hour24 > 12 ? hour24 - 12 : hour24);
+      final amPm = hour24 < 12 ? 'AM' : 'PM';
       lastLoginDisplay =
-          '${dt.month}/${dt.day}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+          '${dt.month}/${dt.day}/${dt.year} $hour12:${dt.minute.toString().padLeft(2, '0')} $amPm';
     } catch (_) {
       lastLoginDisplay = '-';
     }
