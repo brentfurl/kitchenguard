@@ -15,9 +15,11 @@ service cloud.firestore {
     }
 
     // Users — each user can write their own profile; any auth'd user can read.
+    // Managers can delete any user doc (remove user from web console).
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && request.auth.uid == userId;
+      allow create, update: if isSignedIn() && request.auth.uid == userId;
+      allow delete: if isManager();
     }
 
     // Jobs — any auth'd user can read; managers and technicians can write.
