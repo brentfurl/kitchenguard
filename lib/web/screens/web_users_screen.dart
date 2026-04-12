@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -106,6 +107,7 @@ class WebUsersScreen extends ConsumerWidget {
     final role = user['role'] as String? ?? 'none';
     final lastLogin = user['lastLoginAt'] as String? ?? '';
     final uid = user['uid'] as String? ?? '';
+    final isSelf = uid == FirebaseAuth.instance.currentUser?.uid;
 
     String lastLoginDisplay;
     try {
@@ -192,12 +194,14 @@ class WebUsersScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: Icon(Icons.delete_outline, size: 20, color: cs.error),
-              tooltip: 'Remove User',
-              onPressed: () => _removeUser(context, ref, uid, email),
-            ),
+            if (!isSelf) ...[
+              const SizedBox(width: 8),
+              IconButton(
+                icon: Icon(Icons.delete_outline, size: 20, color: cs.error),
+                tooltip: 'Remove User',
+                onPressed: () => _removeUser(context, ref, uid, email),
+              ),
+            ],
           ],
         ),
       ),
