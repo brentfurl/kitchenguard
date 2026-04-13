@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../domain/models/job.dart';
+import '../domain/models/photo_record.dart';
 
 /// Firestore-only job repository for the web dashboard.
 ///
@@ -67,6 +68,45 @@ class WebJobRepository {
     await _jobs.doc(jobId).update({
       ...fields,
       'updatedAt': DateTime.now().toUtc().toIso8601String(),
+    });
+  }
+
+  /// Soft-delete a single photo within a unit.
+  ///
+  /// Re-reads the job from Firestore to minimise the stale-data window, marks
+  /// the target [PhotoRecord] as `deleted`, then writes the updated `units`
+  /// array back via [updateFields]. Follows the same read-then-write pattern
+  /// used by the notes CRUD operations.
+  Future<void> softDeletePhoto({
+    required String jobId,
+    required String unitId,
+    required String phase,
+    required String photoId,
+  }) async {
+    final job = await loadJob(jobId);
+    if (job == null) return;
+
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    final updatedUnits = job.units.map((unit) {
+      if (unit.unitId != unitId) return unit;
+
+      List<PhotoRecord> markDeleted(List<PhotoRecord> photos) {
+        return photos.map((p) {
+          if (p.photoId != photoId) return p;
+          if (p.isDeleted) return p;
+          return p.copyWith(status: 'deleted', deletedAt: now);
+        }).toList();
+      }
+
+      if (phase == 'before') {
+        return unit.copyWith(photosBefore: markDeleted(unit.photosBefore));
+      }
+      return unit.copyWith(photosAfter: markDeleted(unit.photosAfter));
+    }).toList();
+
+    await updateFields(jobId, {
+      'units': updatedUnits.map((u) => u.toJson()).toList(),
     });
   }
 

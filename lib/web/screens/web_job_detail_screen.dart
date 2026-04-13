@@ -570,7 +570,12 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
             children: [
               // Units
-              for (final unit in job.units) _UnitSection(unit: unit),
+              for (final unit in job.units)
+                _UnitSection(
+                  unit: unit,
+                  jobId: job.jobId,
+                  webJobRepo: widget.webJobRepo,
+                ),
               // Exit videos
               if (exitVideos.isNotEmpty) ...[
                 _sectionHeader('Exit Videos'),
@@ -624,9 +629,15 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
 // ---------------------------------------------------------------------------
 
 class _UnitSection extends StatelessWidget {
-  const _UnitSection({required this.unit});
+  const _UnitSection({
+    required this.unit,
+    required this.jobId,
+    required this.webJobRepo,
+  });
 
   final Unit unit;
+  final String jobId;
+  final WebJobRepository webJobRepo;
 
   @override
   Widget build(BuildContext context) {
@@ -680,7 +691,13 @@ class _UnitSection extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                _PhotoGrid(photos: beforePhotos),
+                _PhotoGrid(
+                  photos: beforePhotos,
+                  jobId: jobId,
+                  unitId: unit.unitId,
+                  phase: 'before',
+                  webJobRepo: webJobRepo,
+                ),
               ],
               if (afterPhotos.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -691,7 +708,13 @@ class _UnitSection extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                _PhotoGrid(photos: afterPhotos),
+                _PhotoGrid(
+                  photos: afterPhotos,
+                  jobId: jobId,
+                  unitId: unit.unitId,
+                  phase: 'after',
+                  webJobRepo: webJobRepo,
+                ),
               ],
             ],
           ),
@@ -717,24 +740,52 @@ class _UnitSection extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _PhotoGrid extends StatelessWidget {
-  const _PhotoGrid({required this.photos});
+  const _PhotoGrid({
+    required this.photos,
+    required this.jobId,
+    required this.unitId,
+    required this.phase,
+    required this.webJobRepo,
+  });
 
   final List<PhotoRecord> photos;
+  final String jobId;
+  final String unitId;
+  final String phase;
+  final WebJobRepository webJobRepo;
 
   @override
   Widget build(BuildContext context) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: photos.map((photo) => _PhotoThumbnail(photo: photo)).toList(),
+      children: photos
+          .map((photo) => _PhotoThumbnail(
+                photo: photo,
+                jobId: jobId,
+                unitId: unitId,
+                phase: phase,
+                webJobRepo: webJobRepo,
+              ))
+          .toList(),
     );
   }
 }
 
 class _PhotoThumbnail extends StatefulWidget {
-  const _PhotoThumbnail({required this.photo});
+  const _PhotoThumbnail({
+    required this.photo,
+    required this.jobId,
+    required this.unitId,
+    required this.phase,
+    required this.webJobRepo,
+  });
 
   final PhotoRecord photo;
+  final String jobId;
+  final String unitId;
+  final String phase;
+  final WebJobRepository webJobRepo;
 
   @override
   State<_PhotoThumbnail> createState() => _PhotoThumbnailState();
@@ -908,6 +959,15 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
               ),
             ),
             Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton.filled(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: 'Remove photo',
+                onPressed: () => _confirmDelete(ctx),
+              ),
+            ),
+            Positioned(
               bottom: 8,
               left: 8,
               child: Container(
@@ -926,6 +986,52 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDelete(BuildContext dialogContext) async {
+    final confirmed = await showDialog<bool>(
+      context: dialogContext,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove photo?'),
+        content: const Text(
+          'This photo will be removed from all devices. '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await widget.webJobRepo.softDeletePhoto(
+        jobId: widget.jobId,
+        unitId: widget.unitId,
+        phase: widget.phase,
+        photoId: photo.photoId,
+      );
+      if (dialogContext.mounted) Navigator.pop(dialogContext);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Photo removed')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to remove photo: $e')),
+        );
+      }
+    }
   }
 }
 
