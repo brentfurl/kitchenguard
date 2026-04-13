@@ -3,9 +3,11 @@ import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 
 import '../../domain/merge/job_merger.dart';
 import '../../domain/models/job.dart';
+import '../../domain/models/unit.dart';
 import '../../storage/app_paths.dart';
 import '../../storage/job_scanner.dart';
 import 'job_repository.dart';
@@ -32,6 +34,7 @@ class CloudJobRepository implements JobRepository {
   final JobRepository _local;
   final AppPaths _paths;
   final CollectionReference<Map<String, dynamic>> _jobs;
+  final Uuid _uuid = const Uuid();
 
   // ---------------------------------------------------------------------------
   // Read — always local (fast, offline-first)
@@ -199,8 +202,9 @@ class CloudJobRepository implements JobRepository {
             local: localResult.job,
             cloud: cloudJob,
           );
-          final saved = await _local.saveJob(localResult.jobDir, merged);
-          await _provisionUnitFolders(localResult.jobDir, merged);
+          final hydrated = _withAutoPopulatedUnitsFromCounts(merged);
+          final saved = await _local.saveJob(localResult.jobDir, hydrated);
+          await _provisionUnitFolders(localResult.jobDir, saved);
 
           if (_cloudIsMissingRecords(saved, cloudJob)) {
             developer.log(
@@ -273,9 +277,10 @@ class CloudJobRepository implements JobRepository {
 
       if (await Directory(jobPath).exists()) return;
 
+      final hydrated = _withAutoPopulatedUnitsFromCounts(cloudJob);
       final jobDir =
-          await _local.createJobFolder(jobPath: jobPath, job: cloudJob);
-      await _provisionUnitFolders(jobDir, cloudJob);
+          await _local.createJobFolder(jobPath: jobPath, job: hydrated);
+      await _provisionUnitFolders(jobDir, hydrated);
       developer.log(
         'Provisioned cloud-only job: ${cloudJob.restaurantName} → $folderName',
         name: 'CloudJobRepository',
@@ -341,6 +346,42 @@ class CloudJobRepository implements JobRepository {
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
+
+  Job _withAutoPopulatedUnitsFromCounts(Job job) {
+    if (job.units.isNotEmpty) return job;
+
+    final hoodCount = job.hoodCount ?? 0;
+    final fanCount = job.fanCount ?? 0;
+    if (hoodCount <= 0 && fanCount <= 0) return job;
+
+    final generatedUnits = <Unit>[];
+    for (var i = 1; i <= hoodCount; i++) {
+      generatedUnits.add(_buildAutoUnit(type: 'hood', index: i));
+    }
+    for (var i = 1; i <= fanCount; i++) {
+      generatedUnits.add(_buildAutoUnit(type: 'fan', index: i));
+    }
+
+    developer.log(
+      'Auto-populated ${generatedUnits.length} unit(s) from counts for ${job.jobId}',
+      name: 'CloudJobRepository',
+    );
+    return job.copyWith(units: generatedUnits);
+  }
+
+  Unit _buildAutoUnit({required String type, required int index}) {
+    final unitId = _uuid.v4();
+    final unitName = '$type $index';
+    return Unit(
+      unitId: unitId,
+      type: type,
+      name: unitName,
+      unitFolderName: _paths.unitFolderName(unitName: unitName, unitId: unitId),
+      isComplete: false,
+      photosBefore: const [],
+      photosAfter: const [],
+    );
+  }
 
   void _syncToFirestore(Job job) {
     _jobs.doc(job.jobId).set(job.toJson()).catchError((Object e) {

@@ -741,8 +741,10 @@ class _JobTile extends StatelessWidget {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    final hoodCount = job.units.where((u) => u.type == 'hood').length;
-    final fanCount = job.units.where((u) => u.type == 'fan').length;
+    final hoodCount =
+        job.hoodCount ?? job.units.where((u) => u.type == 'hood').length;
+    final fanCount =
+        job.fanCount ?? job.units.where((u) => u.type == 'fan').length;
     final totalPhotos = job.units.fold<int>(
         0, (sum, u) => sum + u.visibleBeforeCount + u.visibleAfterCount);
 
