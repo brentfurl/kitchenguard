@@ -17,10 +17,19 @@ class JobListNotifier extends AsyncNotifier<List<JobScanResult>> {
 
   /// Force a reload from disk (e.g. after returning from job detail).
   Future<void> reload() async {
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(
-      () => ref.read(jobRepositoryProvider).loadAllJobs(),
-    );
+    final hadData = state.valueOrNull != null;
+    if (!hadData) {
+      state = const AsyncLoading();
+    }
+    try {
+      final jobs = await ref.read(jobRepositoryProvider).loadAllJobs();
+      state = AsyncData(jobs);
+    } catch (error, stackTrace) {
+      if (!hadData) {
+        state = AsyncError(error, stackTrace);
+      }
+      // Keep previous data on refresh failures to avoid UI flicker.
+    }
   }
 
   /// Pulls remote jobs (merge with local), then reloads the list.
@@ -34,5 +43,5 @@ class JobListNotifier extends AsyncNotifier<List<JobScanResult>> {
 
 final jobListProvider =
     AsyncNotifierProvider<JobListNotifier, List<JobScanResult>>(
-  JobListNotifier.new,
-);
+      JobListNotifier.new,
+    );

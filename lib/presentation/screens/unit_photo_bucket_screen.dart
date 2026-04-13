@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -20,6 +22,7 @@ class UnitPhotoBucketScreen extends ConsumerStatefulWidget {
     required this.onJobMutated,
     required this.onSoftDelete,
     required this.onOpenViewer,
+    this.initialPhotos,
     this.allUnits = const [],
     this.currentUnitId,
     this.currentPhase,
@@ -34,10 +37,9 @@ class UnitPhotoBucketScreen extends ConsumerStatefulWidget {
   final Future<void> Function() onCapture;
   final Future<void> Function() onJobMutated;
   final Future<void> Function(String relativePath) onSoftDelete;
-  final Future<void> Function(
-    int initialIndex,
-    List<PhotoRecord> photos,
-  ) onOpenViewer;
+  final Future<void> Function(int initialIndex, List<PhotoRecord> photos)
+  onOpenViewer;
+  final List<PhotoRecord>? initialPhotos;
 
   /// All units in the job — needed for the move destination sheet.
   final List<Unit> allUnits;
@@ -50,7 +52,8 @@ class UnitPhotoBucketScreen extends ConsumerStatefulWidget {
     required List<String> photoIds,
     required String destUnitId,
     required String? destSubPhase,
-  })? onMovePhotos;
+  })?
+  onMovePhotos;
 
   /// Called when a cloud URL fails to load, for re-upload recovery.
   final Future<void> Function(String photoId)? onBrokenCloudUrl;
@@ -81,25 +84,58 @@ class _UnitPhotoBucketScreenState extends ConsumerState<UnitPhotoBucketScreen> {
   @override
   void initState() {
     super.initState();
-    _reloadPhotos();
+    if (widget.initialPhotos != null) {
+      _photos = widget.initialPhotos!;
+      _isLoading = false;
+      _scheduleWarmCloudThumbnails(_photos);
+      _reloadPhotos(showSpinner: false);
+    } else {
+      _reloadPhotos();
+    }
   }
 
-  Future<void> _reloadPhotos() async {
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _reloadPhotos({bool showSpinner = true}) async {
+    if (showSpinner) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
     try {
       final photos = await widget.loadPhotos();
       if (!mounted) return;
       setState(() {
         _photos = photos;
       });
+      _scheduleWarmCloudThumbnails(photos);
     } finally {
-      if (mounted) {
+      if (mounted && showSpinner) {
         setState(() {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  void _scheduleWarmCloudThumbnails(List<PhotoRecord> photos) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _warmCloudThumbnails(photos);
+    });
+  }
+
+  void _warmCloudThumbnails(List<PhotoRecord> photos) {
+    if (!mounted) return;
+    final urls = photos
+        .map((p) => p.cloudUrl?.trim() ?? '')
+        .where((u) => u.isNotEmpty)
+        .toSet()
+        .take(18);
+    for (final url in urls) {
+      unawaited(
+        precacheImage(CachedNetworkImageProvider(url), context).catchError((_) {
+          // Best-effort prefetch only.
+        }),
+      );
     }
   }
 
@@ -177,9 +213,7 @@ class _UnitPhotoBucketScreenState extends ConsumerState<UnitPhotoBucketScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          'Removed $count ${count == 1 ? 'photo' : 'photos'}',
-        ),
+        content: Text('Removed $count ${count == 1 ? 'photo' : 'photos'}'),
       ),
     );
   }
@@ -212,16 +246,14 @@ class _UnitPhotoBucketScreenState extends ConsumerState<UnitPhotoBucketScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Moved $count ${count == 1 ? 'photo' : 'photos'}',
-          ),
+          content: Text('Moved $count ${count == 1 ? 'photo' : 'photos'}'),
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Move failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Move failed: $e')));
     }
   }
 
@@ -363,7 +395,8 @@ class _UnitPhotoBucketScreenState extends ConsumerState<UnitPhotoBucketScreen> {
                               syncStatus: photo.syncStatus,
                               showCloudBadge: true,
                               onCloudUrlBroken: widget.onBrokenCloudUrl != null
-                                  ? () => widget.onBrokenCloudUrl!(photo.photoId)
+                                  ? () =>
+                                        widget.onBrokenCloudUrl!(photo.photoId)
                                   : null,
                             ),
                           ),
@@ -381,8 +414,9 @@ class _UnitPhotoBucketScreenState extends ConsumerState<UnitPhotoBucketScreen> {
                             AnimatedContainer(
                               duration: const Duration(milliseconds: 150),
                               color: isSelected
-                                  ? theme.colorScheme.primary
-                                      .withValues(alpha: 0.25)
+                                  ? theme.colorScheme.primary.withValues(
+                                      alpha: 0.25,
+                                    )
                                   : Colors.transparent,
                             ),
                           if (_isSelectMode)
@@ -398,10 +432,7 @@ class _UnitPhotoBucketScreenState extends ConsumerState<UnitPhotoBucketScreen> {
                                     ? theme.colorScheme.primary
                                     : Colors.white.withValues(alpha: 0.8),
                                 shadows: const [
-                                  Shadow(
-                                    blurRadius: 4,
-                                    color: Colors.black38,
-                                  ),
+                                  Shadow(blurRadius: 4, color: Colors.black38),
                                 ],
                               ),
                             ),

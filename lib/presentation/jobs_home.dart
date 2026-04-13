@@ -496,12 +496,14 @@ class _JobsHomeState extends ConsumerState<JobsHome> {
 
     Widget body;
 
-    if (jobsAsync is AsyncLoading || notesAsync is AsyncLoading) {
+    final hasJobsData = jobsAsync.valueOrNull != null;
+    if (!hasJobsData &&
+        (jobsAsync is AsyncLoading || notesAsync is AsyncLoading)) {
       body = const Center(child: CircularProgressIndicator());
-    } else if (jobsAsync is AsyncError) {
+    } else if (jobsAsync is AsyncError && !hasJobsData) {
       body = Center(child: Text('Error: ${jobsAsync.error}'));
     } else {
-      final results = jobsAsync.valueOrNull ?? const [];
+      final results = jobsAsync.valueOrNull ?? const <JobScanResult>[];
       final activeShiftNotes =
           notesAsync.valueOrNull ?? const <String, List<DayNote>>{};
       final daySchedules =

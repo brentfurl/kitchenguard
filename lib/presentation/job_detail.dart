@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
@@ -195,6 +197,14 @@ class _JobDetailState extends ConsumerState<JobDetail> {
     String? subPhase,
     String? subPhaseLabel,
   }) async {
+    final initialPhotos = await _loadUnitPhotos(
+      unitId: unitId,
+      phase: phase,
+      subPhase: subPhase,
+    );
+    if (!mounted) return;
+    _precacheGalleryThumbnails(initialPhotos);
+
     final galleryTitle = subPhaseLabel != null
         ? '$unitName — $phaseLabel $subPhaseLabel'
         : '$unitName — $phaseLabel';
@@ -203,6 +213,7 @@ class _JobDetailState extends ConsumerState<JobDetail> {
         builder: (_) => UnitPhotoBucketScreen(
           title: galleryTitle,
           jobDir: widget.job.jobDir,
+          initialPhotos: initialPhotos,
           loadPhotos: () =>
               _loadUnitPhotos(unitId: unitId, phase: phase, subPhase: subPhase),
           onCapture: () async {
@@ -277,6 +288,21 @@ class _JobDetailState extends ConsumerState<JobDetail> {
     );
     if (!mounted) return;
     _reloadJob();
+  }
+
+  void _precacheGalleryThumbnails(List<PhotoRecord> photos) {
+    final urls = photos
+        .map((p) => p.cloudUrl?.trim() ?? '')
+        .where((u) => u.isNotEmpty)
+        .toSet()
+        .take(18);
+    for (final url in urls) {
+      unawaited(
+        precacheImage(CachedNetworkImageProvider(url), context).catchError((_) {
+          // Best-effort prefetch only.
+        }),
+      );
+    }
   }
 
   Future<void> _renameUnitFlow({
