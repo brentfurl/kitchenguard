@@ -76,7 +76,7 @@ class PdfImageOptimizer {
     // Single-pass best effort preset for speed.
     final pass = _emailFriendlyPasses[3];
     onProgress?.call('Compressing images (fast pass)...');
-    final compressed = _compressSections(sections, pass);
+    final compressed = await _compressSections(sections, pass);
     onProgress?.call('Building PDF...');
     final pdfBytes = await PdfExportBuilder.build(
       cover: cover,
@@ -103,7 +103,7 @@ class PdfImageOptimizer {
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       final pass = _emailFriendlyPasses[passIndex];
       onProgress?.call('Compressing images ($attempt/$maxAttempts)...');
-      final compressed = _compressSections(sections, pass);
+      final compressed = await _compressSections(sections, pass);
       onProgress?.call('Building PDF ($attempt/$maxAttempts)...');
       final pdfBytes = await PdfExportBuilder.build(
         cover: cover,
@@ -161,20 +161,23 @@ class PdfImageOptimizer {
     return next;
   }
 
-  static List<PdfSection> _compressSections(
+  static Future<List<PdfSection>> _compressSections(
     List<PdfSection> sections,
     _CompressionPass pass,
-  ) {
-    return sections
-        .map(
-          (section) => PdfSection(
-            title: section.title,
-            imageBytes: section.imageBytes
-                .map((bytes) => _compressSingle(bytes, pass))
-                .toList(growable: false),
-          ),
-        )
-        .toList(growable: false);
+  ) async {
+    final compressedSections = <PdfSection>[];
+    for (final section in sections) {
+      final compressedImages = <Uint8List>[];
+      for (final bytes in section.imageBytes) {
+        compressedImages.add(_compressSingle(bytes, pass));
+        // Yield between images so web UIs stay responsive during long exports.
+        await Future.delayed(Duration.zero);
+      }
+      compressedSections.add(
+        PdfSection(title: section.title, imageBytes: compressedImages),
+      );
+    }
+    return compressedSections;
   }
 
   static Uint8List _compressSingle(Uint8List bytes, _CompressionPass pass) {
