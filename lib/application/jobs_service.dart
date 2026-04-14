@@ -7,6 +7,7 @@ import 'package:archive/archive.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../domain/models/day_note.dart';
 import '../domain/models/day_schedule.dart';
@@ -587,6 +588,10 @@ class JobsService {
     final relativePath = p
         .relative(finalVideoFile.path, from: jobDir.path)
         .replaceAll('\\', '/');
+    final thumbnailRelativePath = await _generateVideoThumbnail(
+      jobDir: jobDir,
+      videoFile: finalVideoFile,
+    );
     final videoRecord = VideoRecord(
       videoId: _uuid.v4(),
       fileName: p.basename(finalVideoFile.path),
@@ -595,6 +600,7 @@ class JobsService {
       status: 'local',
       syncStatus: 'pending',
       sourcePath: sourceVideoFile.path,
+      thumbnailPath: thumbnailRelativePath,
     );
 
     final Videos updatedVideos;
@@ -1975,6 +1981,32 @@ class JobsService {
     return '$y-$m-${d}_$hh-$mm-$ss';
   }
 
+  Future<String?> _generateVideoThumbnail({
+    required Directory jobDir,
+    required File videoFile,
+  }) async {
+    try {
+      final thumbnailName =
+          '${p.basenameWithoutExtension(videoFile.path)}_thumb.jpg';
+      final thumbnailPath = p.join(videoFile.parent.path, thumbnailName);
+      final generatedPath = await VideoThumbnail.thumbnailFile(
+        video: videoFile.path,
+        thumbnailPath: thumbnailPath,
+        imageFormat: ImageFormat.JPEG,
+        quality: 70,
+      );
+      if (generatedPath == null) return null;
+      final generatedFile = File(generatedPath);
+      if (!await generatedFile.exists()) return null;
+      return p.relative(generatedFile.path, from: jobDir.path).replaceAll(
+        '\\',
+        '/',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   String _formatExportTimestamp(DateTime now) {
     final y = now.year.toString().padLeft(4, '0');
     final m = now.month.toString().padLeft(2, '0');
@@ -2159,6 +2191,7 @@ class JobsService {
       deletedAt: old.deletedAt,
       syncStatus: 'pending',
       sourcePath: old.sourcePath,
+      thumbnailPath: old.thumbnailPath,
     );
     return [...videos]..[idx] = reset;
   }

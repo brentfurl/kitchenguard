@@ -90,6 +90,7 @@ class UploadController {
         clearSourcePath: true,
       );
       await _deleteSourceBackup(photo.sourcePath);
+      await _replacePhotoInJob(jobDir, job, found, synced);
 
       final freshJob = await jobRepository.loadJob(jobDir);
       if (freshJob != null) {
@@ -167,14 +168,21 @@ class UploadController {
         relativePath: video.relativePath,
         file: localFile,
       );
+      final thumbnailCloudUrl = await _uploadVideoThumbnail(
+        jobDir: jobDir,
+        jobId: jobId,
+        thumbnailPath: video.thumbnailPath,
+      );
 
       final synced = uploading.copyWith(
         syncStatus: 'synced',
         cloudUrl: downloadUrl,
         uploadedBy: currentUserId,
         clearSourcePath: true,
+        thumbnailCloudUrl: thumbnailCloudUrl,
       );
       await _deleteSourceBackup(video.sourcePath);
+      await _replaceVideoInJob(jobDir, job, found, synced);
 
       final freshJob = await jobRepository.loadJob(jobDir);
       if (freshJob != null) {
@@ -339,6 +347,32 @@ class UploadController {
       await sourceFile.delete();
     } catch (_) {
       // Backup cleanup is best-effort after a confirmed cloud upload.
+    }
+  }
+
+  Future<String?> _uploadVideoThumbnail({
+    required Directory jobDir,
+    required String jobId,
+    required String? thumbnailPath,
+  }) async {
+    if (thumbnailPath == null || thumbnailPath.isEmpty) return null;
+    final thumbnailFile = File(p.join(jobDir.path, thumbnailPath));
+    if (!thumbnailFile.existsSync()) return null;
+    try {
+      return await storageService.uploadJobFile(
+        jobId: jobId,
+        relativePath: thumbnailPath,
+        file: thumbnailFile,
+        contentType: 'image/jpeg',
+      );
+    } catch (e, st) {
+      developer.log(
+        'Thumbnail upload failed for $thumbnailPath: $e',
+        name: 'UploadController',
+        error: e,
+        stackTrace: st,
+      );
+      return null;
     }
   }
 }

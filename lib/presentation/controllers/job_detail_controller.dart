@@ -328,7 +328,7 @@ class JobDetailController {
       );
     }
 
-    final job = _job ?? await loadJob();
+    final job = await loadJob();
     final bucket = normalized == 'exit' ? job.videos.exit : job.videos.other;
     return bucket.where((v) => v.isActive).toList(growable: false);
   }

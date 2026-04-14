@@ -10,6 +10,8 @@ class VideoRecord {
     this.cloudUrl,
     this.uploadedBy,
     this.sourcePath,
+    this.thumbnailPath,
+    this.thumbnailCloudUrl,
   });
 
   final String videoId;
@@ -32,6 +34,12 @@ class VideoRecord {
   /// Original capture path used as a best-effort local fallback until upload succeeds.
   final String? sourcePath;
 
+  /// Relative path to the generated thumbnail image on local disk.
+  final String? thumbnailPath;
+
+  /// Firebase Storage download URL for the generated thumbnail image.
+  final String? thumbnailCloudUrl;
+
   bool get isActive => status == 'local';
   bool get isDeleted => status == 'deleted';
   bool get isSynced => syncStatus == 'synced';
@@ -53,6 +61,8 @@ class VideoRecord {
       cloudUrl: json['cloudUrl'] as String?,
       uploadedBy: json['uploadedBy'] as String?,
       sourcePath: json['sourcePath'] as String?,
+      thumbnailPath: json['thumbnailPath'] as String?,
+      thumbnailCloudUrl: json['thumbnailCloudUrl'] as String?,
     );
   }
 
@@ -68,6 +78,8 @@ class VideoRecord {
       if (cloudUrl != null) 'cloudUrl': cloudUrl,
       if (uploadedBy != null) 'uploadedBy': uploadedBy,
       if (sourcePath != null) 'sourcePath': sourcePath,
+      if (thumbnailPath != null) 'thumbnailPath': thumbnailPath,
+      if (thumbnailCloudUrl != null) 'thumbnailCloudUrl': thumbnailCloudUrl,
     };
   }
 
@@ -82,7 +94,10 @@ class VideoRecord {
     String? cloudUrl,
     String? uploadedBy,
     String? sourcePath,
+    String? thumbnailPath,
+    String? thumbnailCloudUrl,
     bool clearSourcePath = false,
+    bool clearThumbnailCloudUrl = false,
   }) {
     return VideoRecord(
       videoId: videoId ?? this.videoId,
@@ -95,6 +110,10 @@ class VideoRecord {
       cloudUrl: cloudUrl ?? this.cloudUrl,
       uploadedBy: uploadedBy ?? this.uploadedBy,
       sourcePath: clearSourcePath ? null : (sourcePath ?? this.sourcePath),
+      thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+      thumbnailCloudUrl: clearThumbnailCloudUrl
+          ? null
+          : (thumbnailCloudUrl ?? this.thumbnailCloudUrl),
     );
   }
 }

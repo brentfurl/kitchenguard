@@ -378,6 +378,7 @@ class JobMerger {
         syncStatus: syncStatus,
         cloudUrl: syncSource.cloudUrl,
         uploadedBy: syncSource.uploadedBy,
+        thumbnailCloudUrl: syncSource.thumbnailCloudUrl,
       );
     }
 
@@ -386,6 +387,7 @@ class JobMerger {
         syncStatus: syncStatus,
         cloudUrl: syncSource.cloudUrl,
         uploadedBy: syncSource.uploadedBy,
+        thumbnailCloudUrl: syncSource.thumbnailCloudUrl,
       );
     }
 

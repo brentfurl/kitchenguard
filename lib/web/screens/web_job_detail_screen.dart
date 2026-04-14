@@ -129,6 +129,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
         status: v.status,
         deletedAt: v.deletedAt,
         syncStatus: 'pending',
+        sourcePath: v.sourcePath,
+        thumbnailPath: v.thumbnailPath,
+        thumbnailCloudUrl: v.thumbnailCloudUrl,
       );
     }).toList();
     final otherList = job.videos.other.map((v) {
@@ -141,6 +144,9 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
         status: v.status,
         deletedAt: v.deletedAt,
         syncStatus: 'pending',
+        sourcePath: v.sourcePath,
+        thumbnailPath: v.thumbnailPath,
+        thumbnailCloudUrl: v.thumbnailCloudUrl,
       );
     }).toList();
     final updatedVideos = job.videos.copyWith(exit: exitList, other: otherList);
