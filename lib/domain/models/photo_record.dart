@@ -12,6 +12,7 @@ class PhotoRecord {
     this.syncStatus,
     this.cloudUrl,
     this.uploadedBy,
+    this.sourcePath,
   });
 
   final String photoId;
@@ -33,6 +34,9 @@ class PhotoRecord {
 
   /// UID of the user who uploaded this photo to Storage.
   final String? uploadedBy;
+
+  /// Original capture path used as a best-effort local fallback until upload succeeds.
+  final String? sourcePath;
 
   bool get isActive => status == 'local' && !missingLocal;
   bool get isDeleted => status == 'deleted';
@@ -57,6 +61,7 @@ class PhotoRecord {
       syncStatus: json['syncStatus'] as String?,
       cloudUrl: json['cloudUrl'] as String?,
       uploadedBy: json['uploadedBy'] as String?,
+      sourcePath: json['sourcePath'] as String?,
     );
   }
 
@@ -74,6 +79,7 @@ class PhotoRecord {
       if (syncStatus != null) 'syncStatus': syncStatus,
       if (cloudUrl != null) 'cloudUrl': cloudUrl,
       if (uploadedBy != null) 'uploadedBy': uploadedBy,
+      if (sourcePath != null) 'sourcePath': sourcePath,
     };
   }
 
@@ -94,6 +100,8 @@ class PhotoRecord {
     String? syncStatus,
     String? cloudUrl,
     String? uploadedBy,
+    String? sourcePath,
+    bool clearSourcePath = false,
   }) {
     return PhotoRecord(
       photoId: photoId ?? this.photoId,
@@ -108,6 +116,7 @@ class PhotoRecord {
       syncStatus: syncStatus ?? this.syncStatus,
       cloudUrl: cloudUrl ?? this.cloudUrl,
       uploadedBy: uploadedBy ?? this.uploadedBy,
+      sourcePath: clearSourcePath ? null : (sourcePath ?? this.sourcePath),
     );
   }
 }

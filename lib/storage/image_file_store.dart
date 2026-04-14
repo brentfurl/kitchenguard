@@ -46,6 +46,7 @@ class ImageFileStore {
         'Source image file does not exist: ${sourceImageFile.path}',
       );
     }
+    final sourceLength = await sourceImageFile.length();
 
     if (await tempFile.exists()) {
       await tempFile.delete();
@@ -53,6 +54,13 @@ class ImageFileStore {
 
     await sourceImageFile.copy(tempFile.path);
     await tempFile.rename(finalFile.path);
+    final finalLength = await finalFile.length();
+    if (finalLength == 0 || finalLength != sourceLength) {
+      throw StateError(
+        'Photo copy verification failed: source=$sourceLength bytes, '
+        'destination=$finalLength bytes',
+      );
+    }
 
     return finalFile;
   }

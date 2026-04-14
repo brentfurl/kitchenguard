@@ -150,6 +150,12 @@ class UploadQueue {
   }) async {
     await _ensureLoaded();
     for (final entry in _entries) {
+      if (!entry.isVideo) continue;
+      if (!_isProcessable(entry)) continue;
+      if (isEligible != null && !isEligible(entry)) continue;
+      return entry;
+    }
+    for (final entry in _entries) {
       if (!_isProcessable(entry)) continue;
       if (isEligible != null && !isEligible(entry)) continue;
       return entry;

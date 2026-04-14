@@ -9,6 +9,7 @@ class VideoRecord {
     this.syncStatus,
     this.cloudUrl,
     this.uploadedBy,
+    this.sourcePath,
   });
 
   final String videoId;
@@ -27,6 +28,9 @@ class VideoRecord {
 
   /// UID of the user who uploaded this video to Storage.
   final String? uploadedBy;
+
+  /// Original capture path used as a best-effort local fallback until upload succeeds.
+  final String? sourcePath;
 
   bool get isActive => status == 'local';
   bool get isDeleted => status == 'deleted';
@@ -48,6 +52,7 @@ class VideoRecord {
       syncStatus: json['syncStatus'] as String?,
       cloudUrl: json['cloudUrl'] as String?,
       uploadedBy: json['uploadedBy'] as String?,
+      sourcePath: json['sourcePath'] as String?,
     );
   }
 
@@ -62,6 +67,7 @@ class VideoRecord {
       if (syncStatus != null) 'syncStatus': syncStatus,
       if (cloudUrl != null) 'cloudUrl': cloudUrl,
       if (uploadedBy != null) 'uploadedBy': uploadedBy,
+      if (sourcePath != null) 'sourcePath': sourcePath,
     };
   }
 
@@ -75,6 +81,8 @@ class VideoRecord {
     String? syncStatus,
     String? cloudUrl,
     String? uploadedBy,
+    String? sourcePath,
+    bool clearSourcePath = false,
   }) {
     return VideoRecord(
       videoId: videoId ?? this.videoId,
@@ -86,6 +94,7 @@ class VideoRecord {
       syncStatus: syncStatus ?? this.syncStatus,
       cloudUrl: cloudUrl ?? this.cloudUrl,
       uploadedBy: uploadedBy ?? this.uploadedBy,
+      sourcePath: clearSourcePath ? null : (sourcePath ?? this.sourcePath),
     );
   }
 }

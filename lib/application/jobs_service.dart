@@ -382,6 +382,7 @@ class JobsService {
     required String unitId,
     required String phase, // "before" | "after"
     required File finalImageFile,
+    String? sourcePath,
     String? subPhase,
   }) async {
     final job = await jobRepository.loadJob(jobDir);
@@ -411,6 +412,7 @@ class JobsService {
       recovered: false,
       subPhase: subPhase,
       syncStatus: 'pending',
+      sourcePath: sourcePath,
     );
 
     final normalizedPhase = phase.trim().toLowerCase();
@@ -528,6 +530,7 @@ class JobsService {
       unitId: unitId,
       phase: phase,
       finalImageFile: finalImageFile,
+      sourcePath: sourceImageFile.path,
       subPhase: subPhase,
     );
   }
@@ -591,6 +594,7 @@ class JobsService {
       capturedAt: DateTime.now().toUtc().toIso8601String(),
       status: 'local',
       syncStatus: 'pending',
+      sourcePath: sourceVideoFile.path,
     );
 
     final Videos updatedVideos;
@@ -876,6 +880,7 @@ class JobsService {
       missingLocal: false,
       recovered: false,
       syncStatus: 'pending',
+      sourcePath: sourceImageFile.path,
     );
 
     await jobRepository.saveJob(
@@ -2116,6 +2121,7 @@ class JobsService {
       recovered: old.recovered,
       deletedAt: old.deletedAt,
       subPhase: old.subPhase,
+      sourcePath: old.sourcePath,
     );
     return [...photos]..[idx] = reset;
   }
@@ -2152,6 +2158,7 @@ class JobsService {
       status: old.status,
       deletedAt: old.deletedAt,
       syncStatus: 'pending',
+      sourcePath: old.sourcePath,
     );
     return [...videos]..[idx] = reset;
   }

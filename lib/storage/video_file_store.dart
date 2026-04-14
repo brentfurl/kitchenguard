@@ -23,6 +23,7 @@ class VideoFileStore {
         'Source video file does not exist: ${sourceVideoFile.path}',
       );
     }
+    final sourceLength = await sourceVideoFile.length();
 
     final normalizedKind = kind.trim().toLowerCase();
     final destinationDir = switch (normalizedKind) {
@@ -64,10 +65,12 @@ class VideoFileStore {
     }
     await tempFile.rename(finalFile.path);
 
-    try {
-      await sourceVideoFile.delete();
-    } catch (_) {
-      // Source cleanup is best-effort.
+    final finalLength = await finalFile.length();
+    if (finalLength == 0 || finalLength != sourceLength) {
+      throw StateError(
+        'Video copy verification failed: source=$sourceLength bytes, '
+        'destination=$finalLength bytes',
+      );
     }
 
     return finalFile;

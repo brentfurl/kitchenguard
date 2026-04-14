@@ -63,6 +63,12 @@ class UploadController {
         'Upload skipped: local file missing at ${localFile.path}',
         name: 'UploadController',
       );
+
+      if (photo.syncStatus == 'uploading' || photo.syncStatus == 'pending') {
+        final errored = photo.copyWith(syncStatus: 'error');
+        await _replacePhotoInJob(jobDir, job, found, errored);
+      }
+
       return null;
     }
 
@@ -81,7 +87,9 @@ class UploadController {
         syncStatus: 'synced',
         cloudUrl: downloadUrl,
         uploadedBy: currentUserId,
+        clearSourcePath: true,
       );
+      await _deleteSourceBackup(photo.sourcePath);
 
       final freshJob = await jobRepository.loadJob(jobDir);
       if (freshJob != null) {
@@ -141,6 +149,12 @@ class UploadController {
         'Upload skipped: local file missing at ${localFile.path}',
         name: 'UploadController',
       );
+
+      if (video.syncStatus == 'uploading' || video.syncStatus == 'pending') {
+        final errored = video.copyWith(syncStatus: 'error');
+        await _replaceVideoInJob(jobDir, job, found, errored);
+      }
+
       return null;
     }
 
@@ -158,7 +172,9 @@ class UploadController {
         syncStatus: 'synced',
         cloudUrl: downloadUrl,
         uploadedBy: currentUserId,
+        clearSourcePath: true,
       );
+      await _deleteSourceBackup(video.sourcePath);
 
       final freshJob = await jobRepository.loadJob(jobDir);
       if (freshJob != null) {
@@ -313,6 +329,17 @@ class UploadController {
       videos: Videos(exit: exitList, other: otherList),
     );
     await jobRepository.saveJob(jobDir, updated);
+  }
+
+  Future<void> _deleteSourceBackup(String? sourcePath) async {
+    if (sourcePath == null || sourcePath.isEmpty) return;
+    final sourceFile = File(sourcePath);
+    if (!sourceFile.existsSync()) return;
+    try {
+      await sourceFile.delete();
+    } catch (_) {
+      // Backup cleanup is best-effort after a confirmed cloud upload.
+    }
   }
 }
 
