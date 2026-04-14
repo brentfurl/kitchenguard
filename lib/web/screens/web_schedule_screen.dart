@@ -44,9 +44,12 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
           child: Row(
             children: [
-              Text('Schedule',
-                  style: theme.textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Schedule',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const Spacer(),
               FilledButton.icon(
                 onPressed: () => _showCreateJobDialog(context),
@@ -76,8 +79,11 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
           child: jobsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text('Error loading jobs: $e')),
-            data: (jobs) => _buildJobList(context, jobs,
-                ref.watch(webDaySchedulesProvider).valueOrNull ?? {}),
+            data: (jobs) => _buildJobList(
+              context,
+              jobs,
+              ref.watch(webDaySchedulesProvider).valueOrNull ?? {},
+            ),
           ),
         ),
       ],
@@ -108,8 +114,11 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     );
   }
 
-  Widget _buildJobList(BuildContext context, List<Job> allJobs,
-      Map<String, DaySchedule> daySchedules) {
+  Widget _buildJobList(
+    BuildContext context,
+    List<Job> allJobs,
+    Map<String, DaySchedule> daySchedules,
+  ) {
     final now = DateTime.now();
     final todayStr =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
@@ -129,10 +138,12 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
 
     // Actual today is deferred to "Upcoming" while earlier days still
     // have incomplete jobs (overnight shifts that cross midnight).
-    final hasIncompletePastDays = allGrouped.keys.any((d) =>
-        d.compareTo(todayStr) < 0 &&
-        allGrouped[d] != null &&
-        allGrouped[d]!.any((j) => !j.isComplete));
+    final hasIncompletePastDays = allGrouped.keys.any(
+      (d) =>
+          d.compareTo(todayStr) < 0 &&
+          allGrouped[d] != null &&
+          allGrouped[d]!.any((j) => !j.isComplete),
+    );
 
     bool isEffectiveToday(String date) {
       if (date.compareTo(todayStr) < 0) {
@@ -145,16 +156,13 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
 
     final List<String> filteredDates;
     if (isPublishedView) {
-      filteredDates = allGrouped.keys
-          .where((date) {
-            final schedule = daySchedules[date];
-            if (schedule == null || !schedule.isPublished) return false;
-            return isEffectiveToday(date) ||
-                date.compareTo(todayStr) > 0 ||
-                (date == todayStr && hasIncompletePastDays);
-          })
-          .toList()
-        ..sort((a, b) => b.compareTo(a));
+      filteredDates = allGrouped.keys.where((date) {
+        final schedule = daySchedules[date];
+        if (schedule == null || !schedule.isPublished) return false;
+        return isEffectiveToday(date) ||
+            date.compareTo(todayStr) > 0 ||
+            (date == todayStr && hasIncompletePastDays);
+      }).toList()..sort((a, b) => b.compareTo(a));
     } else {
       filteredDates = allGrouped.keys.where((date) {
         if (_activeFilters.contains('today') && isEffectiveToday(date)) {
@@ -162,7 +170,7 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
         }
         if (_activeFilters.contains('upcoming') &&
             (date.compareTo(todayStr) > 0 ||
-             (date == todayStr && hasIncompletePastDays))) {
+                (date == todayStr && hasIncompletePastDays))) {
           return true;
         }
         if (_activeFilters.contains('past') &&
@@ -171,18 +179,20 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
           return true;
         }
         return false;
-      }).toList()
-        ..sort((a, b) => b.compareTo(a));
+      }).toList()..sort((a, b) => b.compareTo(a));
     }
 
     // Sort jobs within each date by sortOrder
     for (final date in filteredDates) {
       allGrouped[date]!.sort(
-          (a, b) => (a.sortOrder ?? 999).compareTo(b.sortOrder ?? 999));
+        (a, b) => (a.sortOrder ?? 999).compareTo(b.sortOrder ?? 999),
+      );
     }
 
-    final showUnscheduled = !isPublishedView &&
-        _activeFilters.contains('unscheduled') && allUnscheduled.isNotEmpty;
+    final showUnscheduled =
+        !isPublishedView &&
+        _activeFilters.contains('unscheduled') &&
+        allUnscheduled.isNotEmpty;
 
     if (filteredDates.isEmpty && !showUnscheduled) {
       return Center(
@@ -191,8 +201,10 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
           children: [
             Icon(Icons.event_busy, size: 48, color: Colors.grey[400]),
             const SizedBox(height: 12),
-            Text('No jobs found',
-                style: TextStyle(color: Colors.grey[600], fontSize: 16)),
+            Text(
+              'No jobs found',
+              style: TextStyle(color: Colors.grey[600], fontSize: 16),
+            ),
           ],
         ),
       );
@@ -217,6 +229,8 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             isEffectiveToday: isEffectiveToday(date),
             onToggleJobCompletion: _toggleJobCompletion,
             onShiftNotesTap: () => _openShiftNotes(date),
+            onArrivalTimesTap: () =>
+                _openArrivalTimes(date, daySchedules[date], allGrouped[date]!),
             onJobNotesTap: (job) => _openJobNotes(context, job),
             onReorder: (oldIndex, newIndex) =>
                 _reorderJobs(date, allGrouped[date]!, oldIndex, newIndex),
@@ -224,27 +238,34 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
         if (showUnscheduled) ...[
           Padding(
             padding: const EdgeInsets.only(top: 16, bottom: 8),
-            child: Text('Unscheduled',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600)),
+            child: Text(
+              'Unscheduled',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
           ),
-          ...allUnscheduled.map((job) => _JobTile(
-                job: job,
-                onTap: () => widget.onJobTap(job.jobId),
-                onDelete: () => _deleteJob(job.jobId),
-                onEdit: () => _showEditJobDialog(context, job),
-                onToggleCompletion: () => _toggleJobCompletion(job),
-                onJobNotesTap: () => _openJobNotes(context, job),
-              )),
+          ...allUnscheduled.map(
+            (job) => _JobTile(
+              job: job,
+              onTap: () => widget.onJobTap(job.jobId),
+              onDelete: () => _deleteJob(job.jobId),
+              onEdit: () => _showEditJobDialog(context, job),
+              onToggleCompletion: () => _toggleJobCompletion(job),
+              onJobNotesTap: () => _openJobNotes(context, job),
+            ),
+          ),
         ],
       ],
     );
   }
 
   Future<void> _reorderJobs(
-      String date, List<Job> jobs, int oldIndex, int newIndex) async {
+    String date,
+    List<Job> jobs,
+    int oldIndex,
+    int newIndex,
+  ) async {
     final reordered = List<Job>.from(jobs);
     final item = reordered.removeAt(oldIndex);
     reordered.insert(newIndex, item);
@@ -269,15 +290,18 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Job?'),
         content: const Text(
-            'This will permanently remove the job from the schedule. '
-            'Uploaded photos remain in Storage.'),
+          'This will permanently remove the job from the schedule. '
+          'Uploaded photos remain in Storage.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Delete')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -324,7 +348,9 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isCurrentlyPublished ? 'Day unpublished' : 'Day published'),
+          content: Text(
+            isCurrentlyPublished ? 'Day unpublished' : 'Day published',
+          ),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -335,25 +361,26 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     final repo = ref.read(webDayNoteRepositoryProvider);
     final allNotes =
         ref.read(webDayNotesProvider).valueOrNull ??
-            const <String, List<DayNote>>{};
+        const <String, List<DayNote>>{};
     final notes = (allNotes[date] ?? []).where((n) => n.isActive).toList();
 
     await showDialog(
       context: context,
       builder: (_) => WebNotesDialog(
         title: 'Shift Notes',
-        initialNotes:
-            notes.map((n) => WebNoteItem(n.noteId, n.text)).toList(),
+        initialNotes: notes.map((n) => WebNoteItem(n.noteId, n.text)).toList(),
         onAdd: (text) async {
           final current = await repo.loadAll();
           final list = current[date] ?? [];
-          list.add(DayNote(
-            noteId: const Uuid().v4(),
-            date: date,
-            text: text,
-            createdAt: DateTime.now().toUtc().toIso8601String(),
-            status: 'active',
-          ));
+          list.add(
+            DayNote(
+              noteId: const Uuid().v4(),
+              date: date,
+              text: text,
+              createdAt: DateTime.now().toUtc().toIso8601String(),
+              status: 'active',
+            ),
+          );
           current[date] = list;
           await repo.saveAll(current);
           ref.invalidate(webDayNotesProvider);
@@ -394,6 +421,86 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
     );
   }
 
+  Future<void> _openArrivalTimes(
+    String date,
+    DaySchedule? existing,
+    List<Job> dateJobs,
+  ) async {
+    final firstJobRestaurantName = dateJobs.isNotEmpty
+        ? dateJobs.first.restaurantName
+        : null;
+    final result = await showWebArrivalTimeDialog(
+      context,
+      existing: existing,
+      firstJobRestaurantName: firstJobRestaurantName,
+    );
+    if (result == null) return;
+
+    try {
+      final repo = ref.read(webDayScheduleRepositoryProvider);
+      final allSchedules = await repo.loadAll();
+
+      if (result.clear) {
+        final cleared = DaySchedule(
+          date: date,
+          published: existing?.published,
+          publishedAt: existing?.publishedAt,
+          publishedBy: existing?.publishedBy,
+        );
+        if (cleared.isEmpty) {
+          allSchedules.remove(date);
+        } else {
+          allSchedules[date] = cleared;
+        }
+      } else {
+        final arrivalTime = result.arrivalTime?.trim();
+        final shopMeetupTime = result.shopMeetupTime?.trim();
+        final restaurantName = result.restaurantName?.trim();
+        final updated = DaySchedule(
+          date: date,
+          shopMeetupTime: (shopMeetupTime == null || shopMeetupTime.isEmpty)
+              ? null
+              : shopMeetupTime,
+          firstRestaurantName:
+              (restaurantName == null || restaurantName.isEmpty)
+              ? null
+              : restaurantName,
+          firstArrivalTime: (arrivalTime == null || arrivalTime.isEmpty)
+              ? null
+              : arrivalTime,
+          published: existing?.published,
+          publishedAt: existing?.publishedAt,
+          publishedBy: existing?.publishedBy,
+        );
+        if (updated.isEmpty) {
+          allSchedules.remove(date);
+        } else {
+          allSchedules[date] = updated;
+        }
+      }
+
+      await repo.saveAll(allSchedules);
+      ref.invalidate(webDaySchedulesProvider);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.clear ? 'Arrival times cleared' : 'Arrival times saved',
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save arrival times: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _openJobNotes(BuildContext context, Job job) async {
     final webJobRepo = ref.read(webJobRepositoryProvider);
     final activeNotes = job.managerNotes.where((n) => n.isActive).toList();
@@ -402,8 +509,9 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
       context: context,
       builder: (_) => WebNotesDialog(
         title: 'Job Notes \u2014 ${job.restaurantName}',
-        initialNotes:
-            activeNotes.map((n) => WebNoteItem(n.noteId, n.text)).toList(),
+        initialNotes: activeNotes
+            .map((n) => WebNoteItem(n.noteId, n.text))
+            .toList(),
         onAdd: (text) async {
           final latest = await webJobRepo.loadJob(job.jobId);
           if (latest == null) return;
@@ -488,10 +596,9 @@ class _WebScheduleScreenState extends ConsumerState<WebScheduleScreen> {
             'hoodCount': updated.hoodCount ?? FieldValue.delete(),
             'fanCount': updated.fanCount ?? FieldValue.delete(),
           };
-          await ref.read(webJobRepositoryProvider).updateFields(
-            job.jobId,
-            fields,
-          );
+          await ref
+              .read(webJobRepositoryProvider)
+              .updateFields(job.jobId, fields);
         },
       ),
     );
@@ -518,6 +625,7 @@ class _DayCard extends StatelessWidget {
     this.isEffectiveToday = false,
     this.onToggleJobCompletion,
     this.onShiftNotesTap,
+    this.onArrivalTimesTap,
     this.onJobNotesTap,
     this.onReorder,
   });
@@ -536,6 +644,7 @@ class _DayCard extends StatelessWidget {
   final bool isEffectiveToday;
   final ValueChanged<Job>? onToggleJobCompletion;
   final VoidCallback? onShiftNotesTap;
+  final VoidCallback? onArrivalTimesTap;
   final ValueChanged<Job>? onJobNotesTap;
   final void Function(int oldIndex, int newIndex)? onReorder;
 
@@ -544,12 +653,20 @@ class _DayCard extends StatelessWidget {
   String get _formattedDate {
     try {
       final dt = DateTime.parse(date);
-      const weekdays = [
-        'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
-      ];
+      const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
       const months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
       return '${weekdays[dt.weekday - 1]}, ${months[dt.month - 1]} ${dt.day}';
     } catch (_) {
@@ -586,46 +703,60 @@ class _DayCard extends StatelessWidget {
               // Date header
               Row(
                 children: [
-                  Text(_formattedDate,
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  Text(
+                    _formattedDate,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   if (_isToday) ...[
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: cs.primary,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Text('TODAY',
-                          style: theme.textTheme.labelSmall
-                              ?.copyWith(color: cs.onPrimary)),
+                      child: Text(
+                        'TODAY',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.onPrimary,
+                        ),
+                      ),
                     ),
                   ],
                   if (isDraft) ...[
                     const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: cs.tertiaryContainer,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Text('DRAFT',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: cs.onTertiaryContainer,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1,
-                          )),
+                      child: Text(
+                        'DRAFT',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: cs.onTertiaryContainer,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1,
+                        ),
+                      ),
                     ),
                   ],
                   const SizedBox(width: 8),
                   ActionChip(
                     avatar: const Icon(Icons.note_outlined, size: 16),
-                    label: Text(activeNotes.isEmpty
-                        ? 'Add note'
-                        : '${activeNotes.length} notes'),
+                    label: Text(
+                      activeNotes.isEmpty
+                          ? 'Add note'
+                          : '${activeNotes.length} notes',
+                    ),
                     visualDensity: VisualDensity.compact,
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     onPressed: onShiftNotesTap,
@@ -643,21 +774,34 @@ class _DayCard extends StatelessWidget {
                 ],
               ),
               // Schedule info
-              if (schedule != null && !schedule.isEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 16,
-                  children: [
-                    if (schedule.shopMeetupTime != null)
-                      _infoChip(Icons.store, 'Shop: ${schedule.shopMeetupTime}'),
-                    if (schedule.firstArrivalTime != null)
-                      _infoChip(
-                          Icons.restaurant,
-                          '${schedule.firstRestaurantName ?? 'First'}: '
-                              '${schedule.firstArrivalTime}'),
-                  ],
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: onArrivalTimesTap,
+                borderRadius: BorderRadius.circular(6),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child:
+                      (schedule?.shopMeetupTime != null ||
+                          schedule?.firstArrivalTime != null)
+                      ? Wrap(
+                          spacing: 16,
+                          children: [
+                            if (schedule?.shopMeetupTime != null)
+                              _infoChip(
+                                Icons.store,
+                                'Shop: ${schedule!.shopMeetupTime}',
+                              ),
+                            if (schedule?.firstArrivalTime != null)
+                              _infoChip(
+                                Icons.restaurant,
+                                '${schedule!.firstRestaurantName ?? 'First'}: '
+                                '${schedule.firstArrivalTime}',
+                              ),
+                          ],
+                        )
+                      : _infoChip(Icons.schedule_outlined, 'Add arrival times'),
                 ),
-              ],
+              ),
               const Divider(height: 20),
               // Job tiles (drag-reorderable)
               ReorderableListView.builder(
@@ -746,7 +890,9 @@ class _JobTile extends StatelessWidget {
     final fanCount =
         job.fanCount ?? job.units.where((u) => u.type == 'fan').length;
     final totalPhotos = job.units.fold<int>(
-        0, (sum, u) => sum + u.visibleBeforeCount + u.visibleAfterCount);
+      0,
+      (sum, u) => sum + u.visibleBeforeCount + u.visibleAfterCount,
+    );
 
     return InkWell(
       onTap: onTap,
@@ -764,26 +910,28 @@ class _JobTile extends StatelessWidget {
                       Flexible(
                         child: Text(
                           job.restaurantName,
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w600),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       if (job.isComplete) ...[
                         const SizedBox(width: 8),
-                        Icon(Icons.check_circle,
-                            size: 18, color: cs.primary),
+                        Icon(Icons.check_circle, size: 18, color: cs.primary),
                       ],
                     ],
                   ),
                   if (job.address != null) ...[
                     const SizedBox(height: 2),
                     Text(
-                      [job.address, job.city]
-                          .where((s) => s != null && s.isNotEmpty)
-                          .join(', '),
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: cs.onSurfaceVariant),
+                      [
+                        job.address,
+                        job.city,
+                      ].where((s) => s != null && s.isNotEmpty).join(', '),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
@@ -792,15 +940,14 @@ class _JobTile extends StatelessWidget {
                     spacing: 12,
                     runSpacing: 4,
                     children: [
-                      if (hoodCount > 0)
-                        _metaChip('$hoodCount hoods'),
-                      if (fanCount > 0)
-                        _metaChip('$fanCount fans'),
-                      if (totalPhotos > 0)
-                        _metaChip('$totalPhotos photos'),
+                      if (hoodCount > 0) _metaChip('$hoodCount hoods'),
+                      if (fanCount > 0) _metaChip('$fanCount fans'),
+                      if (totalPhotos > 0) _metaChip('$totalPhotos photos'),
                       if (job.accessType != null)
-                        _metaChip(accessTypeLabels[job.accessType] ??
-                            job.accessType!.replaceAll(RegExp(r'[-_]'), ' ')),
+                        _metaChip(
+                          accessTypeLabels[job.accessType] ??
+                              job.accessType!.replaceAll(RegExp(r'[-_]'), ' '),
+                        ),
                       _jobNotesChip(),
                     ],
                   ),
@@ -829,8 +976,7 @@ class _JobTile extends StatelessWidget {
   }
 
   Widget _metaChip(String text) {
-    return Text(text,
-        style: TextStyle(fontSize: 12, color: Colors.grey[600]));
+    return Text(text, style: TextStyle(fontSize: 12, color: Colors.grey[600]));
   }
 
   Widget _jobNotesChip() {
@@ -854,6 +1000,94 @@ class _JobTile extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<WebArrivalTimeDialogResult?> showWebArrivalTimeDialog(
+  BuildContext context, {
+  DaySchedule? existing,
+  String? firstJobRestaurantName,
+}) async {
+  final arrivalController = TextEditingController(
+    text: existing?.firstArrivalTime ?? '',
+  );
+  final shopController = TextEditingController(
+    text: existing?.shopMeetupTime ?? '',
+  );
+  final restaurantName =
+      existing?.firstRestaurantName ?? firstJobRestaurantName ?? '';
+
+  final result = await showDialog<Map<String, String?>>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Arrival Times'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: arrivalController,
+            decoration: InputDecoration(
+              labelText: restaurantName.isNotEmpty
+                  ? '$restaurantName arrival'
+                  : 'First restaurant arrival',
+              hintText: 'e.g. 9:45',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: shopController,
+            decoration: const InputDecoration(
+              labelText: 'Shop meetup time',
+              hintText: 'e.g. 9:15 (optional)',
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cancel'),
+        ),
+        if (existing != null && !existing.isEmpty)
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop({'clear': 'true'}),
+            child: const Text('Clear'),
+          ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop({
+            'arrival': arrivalController.text.trim(),
+            'shop': shopController.text.trim(),
+            'restaurant': restaurantName,
+          }),
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
+
+  if (result == null) return null;
+  if (result.containsKey('clear')) {
+    return const WebArrivalTimeDialogResult(clear: true);
+  }
+
+  return WebArrivalTimeDialogResult(
+    arrivalTime: result['arrival'],
+    shopMeetupTime: result['shop'],
+    restaurantName: result['restaurant'],
+  );
+}
+
+class WebArrivalTimeDialogResult {
+  const WebArrivalTimeDialogResult({
+    this.clear = false,
+    this.arrivalTime,
+    this.shopMeetupTime,
+    this.restaurantName,
+  });
+
+  final bool clear;
+  final String? arrivalTime;
+  final String? shopMeetupTime;
+  final String? restaurantName;
 }
 
 // ---------------------------------------------------------------------------
@@ -893,10 +1127,10 @@ class _JobFormDialogState extends State<_JobFormDialog> {
     _nameCtrl = TextEditingController(text: e?.restaurantName ?? '');
     _addressCtrl = TextEditingController(text: e?.address ?? '');
     _cityCtrl = TextEditingController(text: e?.city ?? '');
-    _hoodCountCtrl =
-        TextEditingController(text: e?.hoodCount?.toString() ?? '');
-    _fanCountCtrl =
-        TextEditingController(text: e?.fanCount?.toString() ?? '');
+    _hoodCountCtrl = TextEditingController(
+      text: e?.hoodCount?.toString() ?? '',
+    );
+    _fanCountCtrl = TextEditingController(text: e?.fanCount?.toString() ?? '');
     _scheduledDate = e?.scheduledDate;
     _accessType = e?.accessType;
     _accessNotesCtrl = TextEditingController(text: e?.accessNotes ?? '');
@@ -953,8 +1187,9 @@ class _JobFormDialogState extends State<_JobFormDialog> {
       scheduledDate: _scheduledDate,
       sortOrder: existing?.sortOrder,
       completedAt: existing?.completedAt,
-      address:
-          _addressCtrl.text.trim().isEmpty ? null : _addressCtrl.text.trim(),
+      address: _addressCtrl.text.trim().isEmpty
+          ? null
+          : _addressCtrl.text.trim(),
       city: _cityCtrl.text.trim().isEmpty ? null : _cityCtrl.text.trim(),
       accessType: _accessType,
       accessNotes: _accessNotesCtrl.text.trim().isEmpty
@@ -979,9 +1214,9 @@ class _JobFormDialogState extends State<_JobFormDialog> {
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1003,8 +1238,9 @@ class _JobFormDialogState extends State<_JobFormDialog> {
               children: [
                 TextFormField(
                   controller: _nameCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'Restaurant Name'),
+                  decoration: const InputDecoration(
+                    labelText: 'Restaurant Name',
+                  ),
                   validator: (v) =>
                       (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
@@ -1029,23 +1265,24 @@ class _JobFormDialogState extends State<_JobFormDialog> {
                       IconButton(
                         icon: const Icon(Icons.clear, size: 18),
                         tooltip: 'Clear date',
-                        onPressed: () =>
-                            setState(() => _scheduledDate = null),
+                        onPressed: () => setState(() => _scheduledDate = null),
                       ),
                   ],
                 ),
                 const Divider(height: 24),
                 // Address section
-                Text('Address',
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelLarge
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  'Address',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _addressCtrl,
-                  decoration:
-                      const InputDecoration(labelText: 'Street Address'),
+                  decoration: const InputDecoration(
+                    labelText: 'Street Address',
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -1054,26 +1291,30 @@ class _JobFormDialogState extends State<_JobFormDialog> {
                 ),
                 const Divider(height: 24),
                 // Access info
-                Text('Access Info',
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelLarge
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  'Access Info',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   initialValue: _accessType,
-                  decoration:
-                      const InputDecoration(labelText: 'Access Type'),
+                  decoration: const InputDecoration(labelText: 'Access Type'),
                   items: const [
                     DropdownMenuItem(
-                        value: 'no-key', child: Text('No key - Meet after closing')),
+                      value: 'no-key',
+                      child: Text('No key - Meet after closing'),
+                    ),
                     DropdownMenuItem(
-                        value: 'get-key-from-shop',
-                        child: Text('Get key from shop')),
+                      value: 'get-key-from-shop',
+                      child: Text('Get key from shop'),
+                    ),
                     DropdownMenuItem(
-                        value: 'key-hidden', child: Text('Key hidden')),
-                    DropdownMenuItem(
-                        value: 'lockbox', child: Text('Lockbox')),
+                      value: 'key-hidden',
+                      child: Text('Key hidden'),
+                    ),
+                    DropdownMenuItem(value: 'lockbox', child: Text('Lockbox')),
                   ],
                   onChanged: (v) => setState(() => _accessType = v),
                 ),
@@ -1103,24 +1344,25 @@ class _JobFormDialogState extends State<_JobFormDialog> {
                 if (_hasAlarm == true)
                   TextFormField(
                     controller: _alarmCodeCtrl,
-                    decoration:
-                        const InputDecoration(labelText: 'Alarm Code'),
+                    decoration: const InputDecoration(labelText: 'Alarm Code'),
                   ),
                 const Divider(height: 24),
                 // Unit counts
-                Text('Units',
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelLarge
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  'Units',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
                       child: TextFormField(
                         controller: _hoodCountCtrl,
-                        decoration:
-                            const InputDecoration(labelText: 'Hood Count'),
+                        decoration: const InputDecoration(
+                          labelText: 'Hood Count',
+                        ),
                         keyboardType: TextInputType.number,
                       ),
                     ),
@@ -1128,8 +1370,9 @@ class _JobFormDialogState extends State<_JobFormDialog> {
                     Expanded(
                       child: TextFormField(
                         controller: _fanCountCtrl,
-                        decoration:
-                            const InputDecoration(labelText: 'Fan Count'),
+                        decoration: const InputDecoration(
+                          labelText: 'Fan Count',
+                        ),
                         keyboardType: TextInputType.number,
                       ),
                     ),
@@ -1152,7 +1395,10 @@ class _JobFormDialogState extends State<_JobFormDialog> {
                   width: 20,
                   height: 20,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white))
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
               : Text(_isEdit ? 'Save' : 'Create'),
         ),
       ],

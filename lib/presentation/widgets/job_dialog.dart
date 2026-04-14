@@ -62,12 +62,27 @@ String toYyyyMmDd(DateTime dt) {
 
 String formatDateLabel(String yyyyMmDd) {
   const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
   const weekdays = [
-    'Monday', 'Tuesday', 'Wednesday', 'Thursday',
-    'Friday', 'Saturday', 'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
   ];
   final dt = DateTime.tryParse(yyyyMmDd);
   if (dt == null) return yyyyMmDd;
@@ -92,14 +107,16 @@ Future<JobDialogResult?> showJobDialog(
   int? initialFanCount,
   List<String>? existingContacts,
   bool isEdit = false,
-}) {
+}) async {
   final nameController = TextEditingController(text: initialName ?? '');
   final addressController = TextEditingController(text: initialAddress ?? '');
   final cityController = TextEditingController(text: initialCity ?? '');
-  final accessNotesController =
-      TextEditingController(text: initialAccessNotes ?? '');
-  final alarmCodeController =
-      TextEditingController(text: initialAlarmCode ?? '');
+  final accessNotesController = TextEditingController(
+    text: initialAccessNotes ?? '',
+  );
+  final alarmCodeController = TextEditingController(
+    text: initialAlarmCode ?? '',
+  );
   final hoodCountController = TextEditingController(
     text: initialHoodCount != null ? '$initialHoodCount' : '',
   );
@@ -107,13 +124,14 @@ Future<JobDialogResult?> showJobDialog(
     text: initialFanCount != null ? '$initialFanCount' : '',
   );
   final contactController = TextEditingController();
+  final dialogScrollController = ScrollController();
 
   DateTime? selectedDate = initialDate;
   String? accessType = initialAccessType;
   bool hasAlarm = initialHasAlarm ?? false;
   final contactNotes = <String>[...?existingContacts];
 
-  return showDialog<JobDialogResult>(
+  final result = await showDialog<JobDialogResult>(
     context: context,
     builder: (dialogContext) {
       return StatefulBuilder(
@@ -124,8 +142,7 @@ Future<JobDialogResult?> showJobDialog(
           final bool hasAddressData =
               addressController.text.isNotEmpty ||
               cityController.text.isNotEmpty;
-          final bool hasAccessData =
-              accessType != null || hasAlarm;
+          final bool hasAccessData = accessType != null || hasAlarm;
           final bool hasUnitData =
               hoodCountController.text.isNotEmpty ||
               fanCountController.text.isNotEmpty;
@@ -141,6 +158,7 @@ Future<JobDialogResult?> showJobDialog(
             content: SizedBox(
               width: double.maxFinite,
               child: SingleChildScrollView(
+                controller: dialogScrollController,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -173,8 +191,7 @@ Future<JobDialogResult?> showJobDialog(
                               ? IconButton(
                                   icon: const Icon(Icons.close, size: 18),
                                   onPressed: () {
-                                    setDialogState(
-                                        () => selectedDate = null);
+                                    setDialogState(() => selectedDate = null);
                                   },
                                 )
                               : const Icon(Icons.calendar_today, size: 18),
@@ -202,8 +219,11 @@ Future<JobDialogResult?> showJobDialog(
                           const Text('Address'),
                           if (hasAddressData) ...[
                             const SizedBox(width: 6),
-                            Icon(Icons.check_circle,
-                                size: 16, color: colorScheme.primary),
+                            Icon(
+                              Icons.check_circle,
+                              size: 16,
+                              color: colorScheme.primary,
+                            ),
                           ],
                         ],
                       ),
@@ -236,8 +256,11 @@ Future<JobDialogResult?> showJobDialog(
                           const Text('Access Info'),
                           if (hasAccessData) ...[
                             const SizedBox(width: 6),
-                            Icon(Icons.check_circle,
-                                size: 16, color: colorScheme.primary),
+                            Icon(
+                              Icons.check_circle,
+                              size: 16,
+                              color: colorScheme.primary,
+                            ),
                           ],
                         ],
                       ),
@@ -271,7 +294,8 @@ Future<JobDialogResult?> showJobDialog(
                             controller: accessNotesController,
                             decoration: InputDecoration(
                               labelText: accessNotesLabel,
-                              floatingLabelBehavior: FloatingLabelBehavior.always,
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.always,
                             ),
                           ),
                         ],
@@ -285,13 +309,14 @@ Future<JobDialogResult?> showJobDialog(
                           },
                         ),
                         if (hasAlarm) ...[
-                            TextField(
-                              controller: alarmCodeController,
-                              decoration: const InputDecoration(
-                                labelText: 'Alarm code',
-                                floatingLabelBehavior: FloatingLabelBehavior.always,
-                              ),
+                          TextField(
+                            controller: alarmCodeController,
+                            decoration: const InputDecoration(
+                              labelText: 'Alarm code',
+                              floatingLabelBehavior:
+                                  FloatingLabelBehavior.always,
                             ),
+                          ),
                           const SizedBox(height: 8),
                         ],
                       ],
@@ -305,23 +330,26 @@ Future<JobDialogResult?> showJobDialog(
                           const Text('Contacts'),
                           if (contactNotes.isNotEmpty) ...[
                             const SizedBox(width: 6),
-                            Icon(Icons.check_circle,
-                                size: 16, color: colorScheme.primary),
+                            Icon(
+                              Icons.check_circle,
+                              size: 16,
+                              color: colorScheme.primary,
+                            ),
                           ],
                         ],
                       ),
                       children: [
                         for (var ci = 0; ci < contactNotes.length; ci++)
                           Padding(
-                            padding:
-                                const EdgeInsets.only(bottom: 4),
+                            padding: const EdgeInsets.only(bottom: 4),
                             child: Row(
                               children: [
                                 Expanded(
                                   child: GestureDetector(
                                     onTap: () {
                                       final editCtrl = TextEditingController(
-                                          text: contactNotes[ci]);
+                                        text: contactNotes[ci],
+                                      );
                                       showDialog<String>(
                                         context: dialogContext,
                                         builder: (ctx) => AlertDialog(
@@ -337,22 +365,26 @@ Future<JobDialogResult?> showJobDialog(
                                               child: const Text('Cancel'),
                                             ),
                                             FilledButton(
-                                              onPressed: () =>
-                                                  Navigator.of(ctx)
-                                                      .pop(editCtrl.text.trim()),
+                                              onPressed: () => Navigator.of(
+                                                ctx,
+                                              ).pop(editCtrl.text.trim()),
                                               child: const Text('Save'),
                                             ),
                                           ],
                                         ),
                                       ).then((edited) {
-                                        if (edited != null && edited.isNotEmpty) {
+                                        if (edited != null &&
+                                            edited.isNotEmpty) {
                                           setDialogState(
-                                              () => contactNotes[ci] = edited);
+                                            () => contactNotes[ci] = edited,
+                                          );
                                         }
                                       });
                                     },
-                                    child: Text(contactNotes[ci],
-                                        style: theme.textTheme.bodyMedium),
+                                    child: Text(
+                                      contactNotes[ci],
+                                      style: theme.textTheme.bodyMedium,
+                                    ),
                                   ),
                                 ),
                                 IconButton(
@@ -360,7 +392,8 @@ Future<JobDialogResult?> showJobDialog(
                                   visualDensity: VisualDensity.compact,
                                   onPressed: () {
                                     setDialogState(
-                                        () => contactNotes.removeAt(ci));
+                                      () => contactNotes.removeAt(ci),
+                                    );
                                   },
                                 ),
                               ],
@@ -398,13 +431,34 @@ Future<JobDialogResult?> showJobDialog(
                     // --- Expandable: Units ---
                     ExpansionTile(
                       tilePadding: EdgeInsets.zero,
+                      onExpansionChanged: (expanded) {
+                        if (!expanded) return;
+                        WidgetsBinding.instance.addPostFrameCallback((_) async {
+                          // ExpansionTile animates its children open. Wait for that
+                          // animation to finish so maxScrollExtent is accurate.
+                          await Future<void>.delayed(
+                            const Duration(milliseconds: 250),
+                          );
+                          if (!dialogScrollController.hasClients) return;
+                          final target =
+                              dialogScrollController.position.maxScrollExtent;
+                          dialogScrollController.animateTo(
+                            target,
+                            duration: const Duration(milliseconds: 260),
+                            curve: Curves.easeOut,
+                          );
+                        });
+                      },
                       title: Row(
                         children: [
                           const Text('Units'),
                           if (hasUnitData) ...[
                             const SizedBox(width: 6),
-                            Icon(Icons.check_circle,
-                                size: 16, color: colorScheme.primary),
+                            Icon(
+                              Icons.check_circle,
+                              size: 16,
+                              color: colorScheme.primary,
+                            ),
                           ],
                         ],
                       ),
@@ -417,7 +471,8 @@ Future<JobDialogResult?> showJobDialog(
                                 controller: hoodCountController,
                                 decoration: const InputDecoration(
                                   labelText: 'Hoods',
-                                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                                  floatingLabelBehavior:
+                                      FloatingLabelBehavior.always,
                                 ),
                                 keyboardType: TextInputType.number,
                               ),
@@ -428,7 +483,8 @@ Future<JobDialogResult?> showJobDialog(
                                 controller: fanCountController,
                                 decoration: const InputDecoration(
                                   labelText: 'Fans',
-                                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                                  floatingLabelBehavior:
+                                      FloatingLabelBehavior.always,
                                 ),
                                 keyboardType: TextInputType.number,
                               ),
@@ -449,10 +505,10 @@ Future<JobDialogResult?> showJobDialog(
               ),
               FilledButton(
                 onPressed: () {
-                  final hoodCount =
-                      int.tryParse(hoodCountController.text.trim());
-                  final fanCount =
-                      int.tryParse(fanCountController.text.trim());
+                  final hoodCount = int.tryParse(
+                    hoodCountController.text.trim(),
+                  );
+                  final fanCount = int.tryParse(fanCountController.text.trim());
                   final address = addressController.text.trim();
                   final city = cityController.text.trim();
                   final notes = accessNotesController.text.trim();
@@ -467,11 +523,12 @@ Future<JobDialogResult?> showJobDialog(
                       clearAddress:
                           isEdit && address.isEmpty && initialAddress != null,
                       city: city.isNotEmpty ? city : null,
-                      clearCity:
-                          isEdit && city.isEmpty && initialCity != null,
+                      clearCity: isEdit && city.isEmpty && initialCity != null,
                       accessType: accessType,
                       clearAccessType:
-                          isEdit && accessType == null && initialAccessType != null,
+                          isEdit &&
+                          accessType == null &&
+                          initialAccessType != null,
                       accessNotes: notes.isNotEmpty ? notes : null,
                       clearAccessNotes:
                           isEdit && notes.isEmpty && initialAccessNotes != null,
@@ -488,9 +545,7 @@ Future<JobDialogResult?> showJobDialog(
                           initialHoodCount != null,
                       fanCount: fanCount,
                       clearFanCount:
-                          isEdit &&
-                          fanCount == null &&
-                          initialFanCount != null,
+                          isEdit && fanCount == null && initialFanCount != null,
                       contactNotes: contactNotes,
                     ),
                   );
@@ -503,4 +558,6 @@ Future<JobDialogResult?> showJobDialog(
       );
     },
   );
+  dialogScrollController.dispose();
+  return result;
 }
