@@ -417,16 +417,7 @@ class JobsService {
     );
 
     final normalizedPhase = phase.trim().toLowerCase();
-    final Unit updatedUnit;
-    if (normalizedPhase == 'before') {
-      updatedUnit = target.copyWith(
-        photosBefore: [...target.photosBefore, photoRecord],
-      );
-    } else if (normalizedPhase == 'after') {
-      updatedUnit = target.copyWith(
-        photosAfter: [...target.photosAfter, photoRecord],
-      );
-    } else {
+    if (normalizedPhase != 'before' && normalizedPhase != 'after') {
       throw ArgumentError.value(
         phase,
         'phase',
@@ -434,14 +425,15 @@ class JobsService {
       );
     }
 
-    final updatedUnits = job.units
-        .map((u) => u.unitId == unitId ? updatedUnit : u)
-        .toList();
-
-    await jobRepository.saveJob(jobDir, job.copyWith(units: updatedUnits));
+    final savedJob = await _appendPhotoToLatestJob(
+      jobDir: jobDir,
+      unitId: unitId,
+      phase: normalizedPhase,
+      photoRecord: photoRecord,
+    );
 
     await uploadQueue?.enqueue(
-      jobId: job.jobId,
+      jobId: savedJob.jobId,
       jobDirPath: jobDir.path,
       mediaId: photoRecord.photoId,
       mediaType: 'photo',
@@ -603,21 +595,14 @@ class JobsService {
       thumbnailPath: thumbnailRelativePath,
     );
 
-    final Videos updatedVideos;
-    if (normalizedKind == 'exit') {
-      updatedVideos = job.videos.copyWith(
-        exit: [...job.videos.exit, videoRecord],
-      );
-    } else {
-      updatedVideos = job.videos.copyWith(
-        other: [...job.videos.other, videoRecord],
-      );
-    }
-
-    await jobRepository.saveJob(jobDir, job.copyWith(videos: updatedVideos));
+    final savedJob = await _appendVideoToLatestJob(
+      jobDir: jobDir,
+      kind: normalizedKind,
+      videoRecord: videoRecord,
+    );
 
     await uploadQueue?.enqueue(
-      jobId: job.jobId,
+      jobId: savedJob.jobId,
       jobDirPath: jobDir.path,
       mediaId: videoRecord.videoId,
       mediaType: 'video',
@@ -889,15 +874,13 @@ class JobsService {
       sourcePath: sourceImageFile.path,
     );
 
-    await jobRepository.saveJob(
-      jobDir,
-      job.copyWith(
-        preCleanLayoutPhotos: [...job.preCleanLayoutPhotos, photoRecord],
-      ),
+    final savedJob = await _appendPreCleanPhotoToLatestJob(
+      jobDir: jobDir,
+      photoRecord: photoRecord,
     );
 
     await uploadQueue?.enqueue(
-      jobId: job.jobId,
+      jobId: savedJob.jobId,
       jobDirPath: jobDir.path,
       mediaId: photoRecord.photoId,
       mediaType: 'photo',
@@ -1998,10 +1981,9 @@ class JobsService {
       if (generatedPath == null) return null;
       final generatedFile = File(generatedPath);
       if (!await generatedFile.exists()) return null;
-      return p.relative(generatedFile.path, from: jobDir.path).replaceAll(
-        '\\',
-        '/',
-      );
+      return p
+          .relative(generatedFile.path, from: jobDir.path)
+          .replaceAll('\\', '/');
     } catch (_) {
       return null;
     }
@@ -2015,6 +1997,175 @@ class JobsService {
     final mm = now.minute.toString().padLeft(2, '0');
     final ss = now.second.toString().padLeft(2, '0');
     return '$y$m${d}_$hh$mm$ss';
+  }
+
+  Future<Job> _appendPhotoToLatestJob({
+    required Directory jobDir,
+    required String unitId,
+    required String phase,
+    required PhotoRecord photoRecord,
+  }) async {
+    final latestJob = await jobRepository.loadJob(jobDir);
+    if (latestJob == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final latestUnit = latestJob.units.cast<Unit?>().firstWhere(
+      (u) => u!.unitId == unitId,
+      orElse: () => null,
+    );
+    if (latestUnit == null) {
+      throw StateError('Unit not found for unitId: $unitId');
+    }
+
+    List<PhotoRecord> appendUnique(List<PhotoRecord> photos) {
+      final alreadyExists = photos.any((p) => p.photoId == photoRecord.photoId);
+      if (alreadyExists) return photos;
+      return [...photos, photoRecord];
+    }
+
+    final Unit latestUpdatedUnit;
+    if (phase == 'before') {
+      latestUpdatedUnit = latestUnit.copyWith(
+        photosBefore: appendUnique(latestUnit.photosBefore),
+      );
+    } else {
+      latestUpdatedUnit = latestUnit.copyWith(
+        photosAfter: appendUnique(latestUnit.photosAfter),
+      );
+    }
+
+    final latestUpdatedUnits = latestJob.units
+        .map((u) => u.unitId == unitId ? latestUpdatedUnit : u)
+        .toList();
+    return jobRepository.saveJob(
+      jobDir,
+      latestJob.copyWith(units: latestUpdatedUnits),
+    );
+  }
+
+  Future<Job> _appendVideoToLatestJob({
+    required Directory jobDir,
+    required String kind,
+    required VideoRecord videoRecord,
+  }) async {
+    final latestJob = await jobRepository.loadJob(jobDir);
+    if (latestJob == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    List<VideoRecord> appendUnique(List<VideoRecord> videos) {
+      final alreadyExists = videos.any((v) => v.videoId == videoRecord.videoId);
+      if (alreadyExists) return videos;
+      return [...videos, videoRecord];
+    }
+
+    final Videos latestUpdatedVideos;
+    if (kind == 'exit') {
+      latestUpdatedVideos = latestJob.videos.copyWith(
+        exit: appendUnique(latestJob.videos.exit),
+      );
+    } else {
+      latestUpdatedVideos = latestJob.videos.copyWith(
+        other: appendUnique(latestJob.videos.other),
+      );
+    }
+
+    return jobRepository.saveJob(
+      jobDir,
+      latestJob.copyWith(videos: latestUpdatedVideos),
+    );
+  }
+
+  Future<Job> _appendPreCleanPhotoToLatestJob({
+    required Directory jobDir,
+    required PhotoRecord photoRecord,
+  }) async {
+    final latestJob = await jobRepository.loadJob(jobDir);
+    if (latestJob == null) {
+      throw StateError('Missing job.json in ${jobDir.path}');
+    }
+
+    final alreadyExists = latestJob.preCleanLayoutPhotos.any(
+      (p) => p.photoId == photoRecord.photoId,
+    );
+    final updatedPreCleanPhotos = alreadyExists
+        ? latestJob.preCleanLayoutPhotos
+        : [...latestJob.preCleanLayoutPhotos, photoRecord];
+
+    return jobRepository.saveJob(
+      jobDir,
+      latestJob.copyWith(preCleanLayoutPhotos: updatedPreCleanPhotos),
+    );
+  }
+
+  /// Enqueues active local photos/videos that still need upload.
+  ///
+  /// Used on app startup to recover from stale records (for example, scanner-
+  /// recovered photos with missing/null sync metadata).
+  Future<int> enqueueUnsyncedMedia() async {
+    final queue = uploadQueue;
+    if (queue == null) return 0;
+
+    final results = await jobRepository.loadAllJobs();
+    var enqueuedCount = 0;
+
+    for (final result in results) {
+      final job = result.job;
+      final jobDir = result.jobDir;
+
+      for (final unit in job.units) {
+        for (final photo in [...unit.photosBefore, ...unit.photosAfter]) {
+          if (!photo.isActive || photo.syncStatus == 'synced') continue;
+          if (photo.relativePath.isEmpty) continue;
+          final file = File(p.join(jobDir.path, photo.relativePath));
+          if (!file.existsSync()) continue;
+
+          final before = queue.totalCount;
+          await queue.enqueue(
+            jobId: job.jobId,
+            jobDirPath: jobDir.path,
+            mediaId: photo.photoId,
+            mediaType: 'photo',
+          );
+          if (queue.totalCount > before) enqueuedCount++;
+        }
+      }
+
+      for (final photo in job.preCleanLayoutPhotos) {
+        if (!photo.isActive || photo.syncStatus == 'synced') continue;
+        if (photo.relativePath.isEmpty) continue;
+        final file = File(p.join(jobDir.path, photo.relativePath));
+        if (!file.existsSync()) continue;
+
+        final before = queue.totalCount;
+        await queue.enqueue(
+          jobId: job.jobId,
+          jobDirPath: jobDir.path,
+          mediaId: photo.photoId,
+          mediaType: 'photo',
+        );
+        if (queue.totalCount > before) enqueuedCount++;
+      }
+
+      for (final video in [...job.videos.exit, ...job.videos.other]) {
+        if (!video.isActive || video.syncStatus == 'synced') continue;
+        if (video.relativePath.isEmpty) continue;
+        final file = File(p.join(jobDir.path, video.relativePath));
+        if (!file.existsSync()) continue;
+
+        final before = queue.totalCount;
+        await queue.enqueue(
+          jobId: job.jobId,
+          jobDirPath: jobDir.path,
+          mediaId: video.videoId,
+          mediaType: 'video',
+        );
+        if (queue.totalCount > before) enqueuedCount++;
+      }
+    }
+
+    return enqueuedCount;
   }
 
   // ---------------------------------------------------------------------------
@@ -2174,10 +2325,7 @@ class JobsService {
     return null;
   }
 
-  List<VideoRecord>? _resetVideoSync(
-    List<VideoRecord> videos,
-    String videoId,
-  ) {
+  List<VideoRecord>? _resetVideoSync(List<VideoRecord> videos, String videoId) {
     final idx = videos.indexWhere((v) => v.videoId == videoId);
     if (idx < 0) return null;
 

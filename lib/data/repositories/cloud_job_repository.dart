@@ -27,9 +27,9 @@ class CloudJobRepository implements JobRepository {
     required JobRepository local,
     required FirebaseFirestore firestore,
     required AppPaths paths,
-  })  : _local = local,
-        _paths = paths,
-        _jobs = firestore.collection('jobs');
+  }) : _local = local,
+       _paths = paths,
+       _jobs = firestore.collection('jobs');
 
   final JobRepository _local;
   final AppPaths _paths;
@@ -119,9 +119,7 @@ class CloudJobRepository implements JobRepository {
   /// Fetches all job documents from Firestore.
   Future<List<Job>> fetchCloudJobs() async {
     final snapshot = await _jobs.get();
-    return snapshot.docs
-        .map((doc) => Job.fromJson(doc.data()))
-        .toList();
+    return snapshot.docs.map((doc) => Job.fromJson(doc.data())).toList();
   }
 
   /// Fetches a single job from Firestore by [jobId].
@@ -138,9 +136,7 @@ class CloudJobRepository implements JobRepository {
   @override
   Stream<List<Job>> watchCloudJobs() {
     return _jobs.snapshots().map((snapshot) {
-      return snapshot.docs
-          .map((doc) => Job.fromJson(doc.data()))
-          .toList();
+      return snapshot.docs.map((doc) => Job.fromJson(doc.data())).toList();
     });
   }
 
@@ -198,12 +194,21 @@ class CloudJobRepository implements JobRepository {
         final localResult = localMap[cloudJob.jobId];
 
         if (localResult != null) {
+          final freshLocal =
+              await _local.loadJob(localResult.jobDir) ?? localResult.job;
           final merged = JobMerger.merge(
-            local: localResult.job,
+            local: freshLocal,
             cloud: cloudJob,
           );
           final hydrated = _withAutoPopulatedUnitsFromCounts(merged);
-          final saved = await _local.saveJob(localResult.jobDir, hydrated);
+          // Re-read right before saving to catch photos/status changes
+          // appended during merge processing (minimises the race window).
+          final latestLocal = await _local.loadJob(localResult.jobDir);
+          final toSave = latestLocal != null
+              ? _withAutoPopulatedUnitsFromCounts(
+                  JobMerger.merge(local: latestLocal, cloud: hydrated))
+              : hydrated;
+          final saved = await _local.saveJob(localResult.jobDir, toSave);
           await _provisionUnitFolders(localResult.jobDir, saved);
 
           if (_cloudIsMissingRecords(saved, cloudJob)) {
@@ -278,8 +283,10 @@ class CloudJobRepository implements JobRepository {
       if (await Directory(jobPath).exists()) return;
 
       final hydrated = _withAutoPopulatedUnitsFromCounts(cloudJob);
-      final jobDir =
-          await _local.createJobFolder(jobPath: jobPath, job: hydrated);
+      final jobDir = await _local.createJobFolder(
+        jobPath: jobPath,
+        job: hydrated,
+      );
       await _provisionUnitFolders(jobDir, hydrated);
       developer.log(
         'Provisioned cloud-only job: ${cloudJob.restaurantName} → $folderName',
@@ -323,15 +330,17 @@ class CloudJobRepository implements JobRepository {
   // Stale-cloud detection
   // ---------------------------------------------------------------------------
 
-  /// Returns true when [cloud] has fewer documentation records (photos,
-  /// videos, notes) than [merged]. This indicates Firestore was overwritten
-  /// with stale data (e.g. a web console edit on an old snapshot).
+  /// Returns true when [cloud] is missing documentation records or sync
+  /// metadata compared to [merged].
+  ///
+  /// Checks both record count (records absent from cloud) and `cloudUrl`
+  /// presence (records exist but lost their upload metadata due to a
+  /// concurrent full-document write from another device).
   bool _cloudIsMissingRecords(Job merged, Job cloud) {
-    return _docRecordCount(merged) > _docRecordCount(cloud);
+    if (_docRecordCount(merged) > _docRecordCount(cloud)) return true;
+    return _syncedUrlCount(merged) > _syncedUrlCount(cloud);
   }
 
-  /// Counts total documentation records across all units, pre-clean,
-  /// videos, and notes.
   static int _docRecordCount(Job job) {
     var count = 0;
     for (final u in job.units) {
@@ -340,6 +349,19 @@ class CloudJobRepository implements JobRepository {
     count += job.preCleanLayoutPhotos.length;
     count += job.videos.exit.length + job.videos.other.length;
     count += job.notes.length + job.managerNotes.length;
+    return count;
+  }
+
+  /// Counts photos and videos that have a non-null [cloudUrl].
+  static int _syncedUrlCount(Job job) {
+    var count = 0;
+    for (final u in job.units) {
+      count += u.photosBefore.where((p) => p.cloudUrl != null).length;
+      count += u.photosAfter.where((p) => p.cloudUrl != null).length;
+    }
+    count += job.preCleanLayoutPhotos.where((p) => p.cloudUrl != null).length;
+    count += job.videos.exit.where((v) => v.cloudUrl != null).length;
+    count += job.videos.other.where((v) => v.cloudUrl != null).length;
     return count;
   }
 
@@ -384,13 +406,37 @@ class CloudJobRepository implements JobRepository {
   }
 
   void _syncToFirestore(Job job) {
-    _jobs.doc(job.jobId).set(job.toJson()).catchError((Object e) {
-      developer.log(
-        'Firestore job sync failed (will retry when online)',
-        name: 'CloudJobRepository',
-        error: e,
-      );
-    });
+    final docRef = _jobs.doc(job.jobId);
+
+    _jobs.firestore
+        .runTransaction((txn) async {
+          final snap = await txn.get(docRef);
+          if (!snap.exists || snap.data() == null) {
+            txn.set(docRef, job.toJson());
+            return;
+          }
+          try {
+            final existingJob = Job.fromJson(snap.data()!);
+            final merged = JobMerger.merge(local: job, cloud: existingJob);
+            txn.set(docRef, merged.toJson());
+          } catch (e, st) {
+            developer.log(
+              'In-transaction merge failed for ${job.jobId}, '
+              'falling back to direct write: $e',
+              name: 'CloudJobRepository',
+              error: e,
+              stackTrace: st,
+            );
+            txn.set(docRef, job.toJson());
+          }
+        })
+        .catchError((Object e) {
+          developer.log(
+            'Firestore job sync failed (will retry when online)',
+            name: 'CloudJobRepository',
+            error: e,
+          );
+        });
   }
 
   void _deleteFromFirestore(String jobId) {

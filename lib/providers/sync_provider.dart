@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -74,9 +75,7 @@ class SyncState {
 /// - Keeps [pullNow] for manual sync triggers (pull-to-refresh, tap)
 /// - Merges upload progress state from [uploadProgressProvider]
 class SyncNotifier extends StateNotifier<SyncState> {
-  SyncNotifier({
-    required this.ref,
-  }) : super(const SyncState()) {
+  SyncNotifier({required this.ref}) : super(const SyncState()) {
     _init();
   }
 
@@ -96,22 +95,73 @@ class SyncNotifier extends StateNotifier<SyncState> {
       _onConnectivityChanged,
     );
 
-    Connectivity().checkConnectivity().then((results) {
-      final online = !results.contains(ConnectivityResult.none);
-      state = state.copyWith(isOnline: online);
+    Connectivity().checkConnectivity().then((results) async {
+      final online = await _resolveOnlineStatus(results);
+      _setOnlineState(online);
       _subscribeToCloudJobs();
       _subscribeToDayNotes();
       _subscribeToDaySchedules();
     });
   }
 
-  void _onConnectivityChanged(List<ConnectivityResult> results) {
-    final wasOffline = !state.isOnline;
-    final online = !results.contains(ConnectivityResult.none);
-    state = state.copyWith(isOnline: online);
+  Future<void> _onConnectivityChanged(List<ConnectivityResult> results) async {
+    final online = await _resolveOnlineStatus(results);
+    _setOnlineState(online);
+  }
 
+  void _setOnlineState(bool online) {
+    final wasOffline = !state.isOnline;
+    state = state.copyWith(isOnline: online);
     if (online && wasOffline) {
       ref.read(uploadProgressProvider.notifier).triggerUpload();
+    }
+  }
+
+  Future<bool> _resolveOnlineStatus(List<ConnectivityResult> results) async {
+    if (_hasUsableConnectivity(results)) {
+      return true;
+    }
+
+    if (await _hasInternetAccess()) {
+      return true;
+    }
+
+    // iOS can briefly emit `none` while network routes settle. Re-check twice
+    // before surfacing offline state in the UI.
+    for (var i = 0; i < 2; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      try {
+        final confirmed = await Connectivity().checkConnectivity();
+        if (_hasUsableConnectivity(confirmed)) {
+          return true;
+        }
+
+        if (await _hasInternetAccess()) {
+          return true;
+        }
+      } catch (_) {
+        return state.isOnline;
+      }
+    }
+    return false;
+  }
+
+  bool _hasUsableConnectivity(List<ConnectivityResult> results) {
+    // Treat as online when at least one non-none transport is reported.
+    // On some iOS setups, transient mixed states can include `none`.
+    return results.any((result) => result != ConnectivityResult.none);
+  }
+
+  Future<bool> _hasInternetAccess() async {
+    try {
+      final lookup = await InternetAddress.lookup(
+        'example.com',
+      ).timeout(const Duration(seconds: 2));
+      return lookup.isNotEmpty && lookup.first.rawAddress.isNotEmpty;
+    } on SocketException {
+      return false;
+    } on TimeoutException {
+      return false;
     }
   }
 
@@ -169,10 +219,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
       await ref.read(jobListProvider.notifier).reload();
       ref.read(pullVersionProvider.notifier).state++;
       ref.invalidate(dayScheduleProvider);
-      state = state.copyWith(
-        isPulling: false,
-        lastPullTime: DateTime.now(),
-      );
+      state = state.copyWith(isPulling: false, lastPullTime: DateTime.now());
     } catch (e, st) {
       developer.log(
         'Real-time merge failed: $e',
@@ -258,10 +305,7 @@ class SyncNotifier extends StateNotifier<SyncState> {
       await ref.read(jobListProvider.notifier).reload();
       ref.read(pullVersionProvider.notifier).state++;
       ref.invalidate(dayScheduleProvider);
-      state = state.copyWith(
-        isPulling: false,
-        lastPullTime: DateTime.now(),
-      );
+      state = state.copyWith(isPulling: false, lastPullTime: DateTime.now());
     } catch (e, st) {
       developer.log(
         'Pull failed: $e',

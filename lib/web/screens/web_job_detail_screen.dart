@@ -155,7 +155,11 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
     });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Retry requested — the phone will re-upload this video.')),
+        const SnackBar(
+          content: Text(
+            'Retry requested — the phone will re-upload this video.',
+          ),
+        ),
       );
     }
   }
@@ -540,9 +544,11 @@ class _JobDetailBodyState extends State<_JobDetailBody> {
             runSpacing: 4,
             children: [
               if (job.accessType != null)
-                _chip(Icons.vpn_key,
-                    accessTypeLabels[job.accessType] ??
-                        job.accessType!.replaceAll(RegExp(r'[-_]'), ' ')),
+                _chip(
+                  Icons.vpn_key,
+                  accessTypeLabels[job.accessType] ??
+                      job.accessType!.replaceAll(RegExp(r'[-_]'), ' '),
+                ),
               if (job.hasAlarm == true)
                 _chip(
                   Icons.alarm,
@@ -766,13 +772,15 @@ class _PhotoGrid extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: photos
-          .map((photo) => _PhotoThumbnail(
-                photo: photo,
-                jobId: jobId,
-                unitId: unitId,
-                phase: phase,
-                webJobRepo: webJobRepo,
-              ))
+          .map(
+            (photo) => _PhotoThumbnail(
+              photo: photo,
+              jobId: jobId,
+              unitId: unitId,
+              phase: phase,
+              webJobRepo: webJobRepo,
+            ),
+          )
           .toList(),
     );
   }
@@ -884,6 +892,9 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
     } else if (status == 'error') {
       icon = Icons.error_outline;
       label = 'Upload error';
+    } else if (status == 'pending' || status == null) {
+      icon = Icons.cloud_upload_outlined;
+      label = 'Pending upload';
     } else {
       icon = Icons.cloud_off;
       label = 'Not uploaded';
@@ -1027,15 +1038,15 @@ class _PhotoThumbnailState extends State<_PhotoThumbnail> {
       );
       if (dialogContext.mounted) Navigator.pop(dialogContext);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Photo removed')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Photo removed')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to remove photo: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to remove photo: $e')));
       }
     }
   }
@@ -1163,16 +1174,10 @@ class _VideoListState extends State<_VideoList> {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      statusLabel,
-                      style: TextStyle(color: statusColor),
-                    ),
+                    Text(statusLabel, style: TextStyle(color: statusColor)),
                   ],
                 )
-              : Text(
-                  statusLabel,
-                  style: TextStyle(color: statusColor),
-                ),
+              : Text(statusLabel, style: TextStyle(color: statusColor)),
           trailing: url != null
               ? Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1213,13 +1218,12 @@ class _VideoListState extends State<_VideoList> {
                   ],
                 )
               : syncStatus == 'error' && widget.onRetryUpload != null
-                  ? IconButton(
-                      icon: Icon(Icons.refresh, color: cs.error),
-                      tooltip: 'Retry upload',
-                      onPressed: () =>
-                          widget.onRetryUpload!(v.videoId),
-                    )
-                  : null,
+              ? IconButton(
+                  icon: Icon(Icons.refresh, color: cs.error),
+                  tooltip: 'Retry upload',
+                  onPressed: () => widget.onRetryUpload!(v.videoId),
+                )
+              : null,
         );
       }).toList(),
     );

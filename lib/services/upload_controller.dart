@@ -66,7 +66,7 @@ class UploadController {
 
       if (photo.syncStatus == 'uploading' || photo.syncStatus == 'pending') {
         final errored = photo.copyWith(syncStatus: 'error');
-        await _replacePhotoInJob(jobDir, job, found, errored);
+        await _freshReplacePhoto(jobDir, photoId, errored);
       }
 
       return null;
@@ -74,7 +74,18 @@ class UploadController {
 
     // Mark as uploading
     final uploading = photo.copyWith(syncStatus: 'uploading');
-    await _replacePhotoInJob(jobDir, job, found, uploading);
+    final markedUploading = await _freshReplacePhoto(
+      jobDir,
+      photoId,
+      uploading,
+    );
+    if (!markedUploading) {
+      developer.log(
+        'Upload skipped: photoId $photoId no longer exists before upload',
+        name: 'UploadController',
+      );
+      return null;
+    }
 
     try {
       final downloadUrl = await storageService.uploadPhoto(
@@ -89,16 +100,19 @@ class UploadController {
         uploadedBy: currentUserId,
         clearSourcePath: true,
       );
-      await _deleteSourceBackup(photo.sourcePath);
-      await _replacePhotoInJob(jobDir, job, found, synced);
-
-      final freshJob = await jobRepository.loadJob(jobDir);
-      if (freshJob != null) {
-        final freshFound = _findPhoto(freshJob, photoId);
-        if (freshFound != null) {
-          await _replacePhotoInJob(jobDir, freshJob, freshFound, synced);
-        }
+      var markedSynced = await _freshReplacePhoto(jobDir, photoId, synced);
+      if (!markedSynced) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        markedSynced = await _freshReplacePhoto(jobDir, photoId, synced);
       }
+      if (!markedSynced) {
+        developer.log(
+          'Upload metadata update failed for photoId $photoId; will retry',
+          name: 'UploadController',
+        );
+        return null;
+      }
+      await _deleteSourceBackup(photo.sourcePath);
 
       return synced;
     } catch (e, st) {
@@ -109,13 +123,11 @@ class UploadController {
         stackTrace: st,
       );
 
-      final freshJob = await jobRepository.loadJob(jobDir);
-      if (freshJob != null) {
-        final freshFound = _findPhoto(freshJob, photoId);
-        if (freshFound != null) {
-          final errored = freshFound.record.copyWith(syncStatus: 'error');
-          await _replacePhotoInJob(jobDir, freshJob, freshFound, errored);
-        }
+      final errored = uploading.copyWith(syncStatus: 'error');
+      var markedError = await _freshReplacePhoto(jobDir, photoId, errored);
+      if (!markedError) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await _freshReplacePhoto(jobDir, photoId, errored);
       }
 
       return null;
@@ -153,14 +165,25 @@ class UploadController {
 
       if (video.syncStatus == 'uploading' || video.syncStatus == 'pending') {
         final errored = video.copyWith(syncStatus: 'error');
-        await _replaceVideoInJob(jobDir, job, found, errored);
+        await _freshReplaceVideo(jobDir, videoId, errored);
       }
 
       return null;
     }
 
     final uploading = video.copyWith(syncStatus: 'uploading');
-    await _replaceVideoInJob(jobDir, job, found, uploading);
+    final markedUploading = await _freshReplaceVideo(
+      jobDir,
+      videoId,
+      uploading,
+    );
+    if (!markedUploading) {
+      developer.log(
+        'Upload skipped: videoId $videoId no longer exists before upload',
+        name: 'UploadController',
+      );
+      return null;
+    }
 
     try {
       final downloadUrl = await storageService.uploadVideo(
@@ -181,16 +204,19 @@ class UploadController {
         clearSourcePath: true,
         thumbnailCloudUrl: thumbnailCloudUrl,
       );
-      await _deleteSourceBackup(video.sourcePath);
-      await _replaceVideoInJob(jobDir, job, found, synced);
-
-      final freshJob = await jobRepository.loadJob(jobDir);
-      if (freshJob != null) {
-        final freshFound = _findVideo(freshJob, videoId);
-        if (freshFound != null) {
-          await _replaceVideoInJob(jobDir, freshJob, freshFound, synced);
-        }
+      var markedSynced = await _freshReplaceVideo(jobDir, videoId, synced);
+      if (!markedSynced) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        markedSynced = await _freshReplaceVideo(jobDir, videoId, synced);
       }
+      if (!markedSynced) {
+        developer.log(
+          'Upload metadata update failed for videoId $videoId; will retry',
+          name: 'UploadController',
+        );
+        return null;
+      }
+      await _deleteSourceBackup(video.sourcePath);
 
       return synced;
     } catch (e, st) {
@@ -201,13 +227,11 @@ class UploadController {
         stackTrace: st,
       );
 
-      final freshJob = await jobRepository.loadJob(jobDir);
-      if (freshJob != null) {
-        final freshFound = _findVideo(freshJob, videoId);
-        if (freshFound != null) {
-          final errored = freshFound.record.copyWith(syncStatus: 'error');
-          await _replaceVideoInJob(jobDir, freshJob, freshFound, errored);
-        }
+      final errored = uploading.copyWith(syncStatus: 'error');
+      var markedError = await _freshReplaceVideo(jobDir, videoId, errored);
+      if (!markedError) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await _freshReplaceVideo(jobDir, videoId, errored);
       }
 
       return null;
@@ -256,6 +280,19 @@ class UploadController {
     }
 
     return null;
+  }
+
+  Future<bool> _freshReplacePhoto(
+    Directory jobDir,
+    String photoId,
+    PhotoRecord replacement,
+  ) async {
+    final freshJob = await jobRepository.loadJob(jobDir);
+    if (freshJob == null) return false;
+    final freshFound = _findPhoto(freshJob, photoId);
+    if (freshFound == null) return false;
+    await _replacePhotoInJob(jobDir, freshJob, freshFound, replacement);
+    return true;
   }
 
   Future<void> _replacePhotoInJob(
@@ -316,6 +353,19 @@ class UploadController {
       }
     }
     return null;
+  }
+
+  Future<bool> _freshReplaceVideo(
+    Directory jobDir,
+    String videoId,
+    VideoRecord replacement,
+  ) async {
+    final freshJob = await jobRepository.loadJob(jobDir);
+    if (freshJob == null) return false;
+    final freshFound = _findVideo(freshJob, videoId);
+    if (freshFound == null) return false;
+    await _replaceVideoInJob(jobDir, freshJob, freshFound, replacement);
+    return true;
   }
 
   Future<void> _replaceVideoInJob(

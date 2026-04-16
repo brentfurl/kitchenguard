@@ -146,7 +146,9 @@ class _CloudAwareImageState extends State<CloudAwareImage> {
       );
     }
 
-    if (widget.syncStatus == 'pending' || widget.syncStatus == 'uploading') {
+    if (widget.syncStatus == null ||
+        widget.syncStatus == 'pending' ||
+        widget.syncStatus == 'uploading') {
       return _syncingPlaceholder();
     }
     if (widget.syncStatus == 'error') {
@@ -158,7 +160,20 @@ class _CloudAwareImageState extends State<CloudAwareImage> {
 
   Widget? _syncBadge() {
     final s = widget.syncStatus;
-    if (s == null) return null;
+    if (s == null) {
+      return Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: const Icon(
+          Icons.cloud_upload_outlined,
+          size: 14,
+          color: Colors.orange,
+        ),
+      );
+    }
     final IconData icon;
     final Color color;
     switch (s) {

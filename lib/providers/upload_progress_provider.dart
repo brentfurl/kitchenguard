@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../application/jobs_service.dart';
 import '../services/background_upload_service.dart';
 import '../services/upload_controller.dart';
 import '../services/upload_queue.dart';
@@ -9,10 +10,7 @@ import 'service_providers.dart';
 
 /// Immutable snapshot of the upload queue's progress.
 class UploadProgressState {
-  const UploadProgressState({
-    this.pendingCount = 0,
-    this.isProcessing = false,
-  });
+  const UploadProgressState({this.pendingCount = 0, this.isProcessing = false});
 
   /// Number of items waiting to be uploaded (pending + eligible retries).
   final int pendingCount;
@@ -33,12 +31,14 @@ class UploadProgressNotifier extends StateNotifier<UploadProgressState> {
   UploadProgressNotifier({
     required this.queue,
     required this.uploadController,
+    required this.jobsService,
   }) : super(const UploadProgressState()) {
     _init();
   }
 
   final UploadQueue queue;
   final UploadController? uploadController;
+  final JobsService jobsService;
   bool _isProcessing = false;
   Timer? _retryTimer;
 
@@ -52,6 +52,7 @@ class UploadProgressNotifier extends StateNotifier<UploadProgressState> {
     });
     try {
       await queue.load();
+      await jobsService.enqueueUnsyncedMedia();
       _refreshState();
       await _processIfEligible();
     } catch (_) {
@@ -124,7 +125,12 @@ class UploadProgressNotifier extends StateNotifier<UploadProgressState> {
 /// processing is skipped (items stay queued for later).
 final uploadProgressProvider =
     StateNotifierProvider<UploadProgressNotifier, UploadProgressState>((ref) {
-  final queue = ref.watch(uploadQueueProvider);
-  final controller = ref.watch(uploadControllerProvider);
-  return UploadProgressNotifier(queue: queue, uploadController: controller);
-});
+      final queue = ref.watch(uploadQueueProvider);
+      final controller = ref.watch(uploadControllerProvider);
+      final jobsService = ref.watch(jobsServiceProvider);
+      return UploadProgressNotifier(
+        queue: queue,
+        uploadController: controller,
+        jobsService: jobsService,
+      );
+    });

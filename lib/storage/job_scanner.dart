@@ -335,6 +335,7 @@ class JobScanner {
           'capturedAt': modifiedUtc,
           'status': 'local',
           'recovered': true,
+          'syncStatus': 'pending',
         });
         existingNames.add(fileName);
         added += 1;
@@ -372,9 +373,9 @@ class JobScanner {
       final relativePath = (map['relativePath'] ?? '').toString().trim();
       if (relativePath.isEmpty) continue;
       final normalizedPath = relativePath.replaceAll('\\', '/');
-      grouped.putIfAbsent(normalizedPath, () => []).add(
-            _IndexedPhotoEntry(index: i, entry: map),
-          );
+      grouped
+          .putIfAbsent(normalizedPath, () => [])
+          .add(_IndexedPhotoEntry(index: i, entry: map));
     }
 
     final removeIndexes = <int>{};
@@ -435,8 +436,14 @@ class JobScanner {
       return !candidateRecovered;
     }
 
-    final candidateHasId = (candidate['photoId'] ?? '').toString().trim().isNotEmpty;
-    final currentHasId = (current['photoId'] ?? '').toString().trim().isNotEmpty;
+    final candidateHasId = (candidate['photoId'] ?? '')
+        .toString()
+        .trim()
+        .isNotEmpty;
+    final currentHasId = (current['photoId'] ?? '')
+        .toString()
+        .trim()
+        .isNotEmpty;
     if (candidateHasId != currentHasId) {
       return candidateHasId;
     }
@@ -465,7 +472,10 @@ class JobScanner {
     final hasCloudUrl = (entry['cloudUrl'] ?? '').toString().trim().isNotEmpty;
     final hasSubPhase = (entry['subPhase'] ?? '').toString().trim().isNotEmpty;
 
-    return lifecycleRank * 100 + syncRank * 10 + (hasCloudUrl ? 2 : 0) + (hasSubPhase ? 1 : 0);
+    return lifecycleRank * 100 +
+        syncRank * 10 +
+        (hasCloudUrl ? 2 : 0) +
+        (hasSubPhase ? 1 : 0);
   }
 
   void _mergePhotoMetadata({
@@ -606,10 +616,7 @@ class _ReconcileSummary {
 }
 
 class _IndexedPhotoEntry {
-  const _IndexedPhotoEntry({
-    required this.index,
-    required this.entry,
-  });
+  const _IndexedPhotoEntry({required this.index, required this.entry});
 
   final int index;
   final Map<String, dynamic> entry;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io';
 
@@ -13,9 +14,11 @@ import 'package:path/path.dart' as p;
 ///   jobs/abc-123/Hoods/hood_1__unit-xyz/Before/photo_20260323_091500.jpg
 class StorageService {
   StorageService({FirebaseStorage? storage})
-      : _storage = storage ?? FirebaseStorage.instance;
+    : _storage = storage ?? FirebaseStorage.instance;
 
   final FirebaseStorage _storage;
+  static const Duration _uploadTimeout = Duration(minutes: 2);
+  static const Duration _downloadUrlTimeout = Duration(seconds: 30);
 
   /// Uploads a local [file] to Firebase Storage at the canonical path
   /// `jobs/{jobId}/{relativePath}`.
@@ -46,14 +49,22 @@ class StorageService {
       name: 'StorageService',
     );
 
-    await ref.putFile(file, metadata);
-
-    final downloadUrl = await ref.getDownloadURL();
-
-    developer.log(
-      'Upload complete: $storagePath',
-      name: 'StorageService',
+    final uploadTask = ref.putFile(file, metadata);
+    await uploadTask.timeout(
+      _uploadTimeout,
+      onTimeout: () async {
+        await uploadTask.cancel();
+        throw TimeoutException('Upload timed out for $storagePath');
+      },
     );
+
+    final downloadUrl = await ref.getDownloadURL().timeout(
+      _downloadUrlTimeout,
+      onTimeout: () =>
+          throw TimeoutException('Download URL timed out for $storagePath'),
+    );
+
+    developer.log('Upload complete: $storagePath', name: 'StorageService');
 
     return downloadUrl;
   }

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -37,10 +39,7 @@ class BackgroundUploadService {
   /// Schedule: 1 min, 2 min, 4 min, 8 min, 16 min, 30 min (cap).
   static Duration backoffFor(int retryCount) {
     if (retryCount <= 0) return Duration.zero;
-    final seconds = math.min(
-      math.pow(2, retryCount - 1).toInt() * 60,
-      30 * 60,
-    );
+    final seconds = math.min(math.pow(2, retryCount - 1).toInt() * 60, 30 * 60);
     return Duration(seconds: seconds);
   }
 
@@ -60,7 +59,31 @@ class BackgroundUploadService {
   /// Returns true if the device has network connectivity.
   static Future<bool> isConnected() async {
     final result = await Connectivity().checkConnectivity();
-    return !result.contains(ConnectivityResult.none);
+    if (_hasUsableConnectivity(result) || await _hasInternetAccess()) {
+      return true;
+    }
+
+    // Confirm once more to avoid transient false negatives on iOS.
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    final confirmed = await Connectivity().checkConnectivity();
+    return _hasUsableConnectivity(confirmed) || await _hasInternetAccess();
+  }
+
+  static bool _hasUsableConnectivity(List<ConnectivityResult> result) {
+    return result.any((item) => item != ConnectivityResult.none);
+  }
+
+  static Future<bool> _hasInternetAccess() async {
+    try {
+      final lookup = await InternetAddress.lookup(
+        'example.com',
+      ).timeout(const Duration(seconds: 2));
+      return lookup.isNotEmpty && lookup.first.rawAddress.isNotEmpty;
+    } on SocketException {
+      return false;
+    } on TimeoutException {
+      return false;
+    }
   }
 
   /// Processes eligible queue entries with connectivity checks and backoff.
